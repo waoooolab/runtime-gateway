@@ -1,4 +1,5 @@
 # runtime-gateway
+[![CI](https://github.com/waoooolab/runtime-gateway/actions/workflows/runtime-gateway-ci.yml/badge.svg?branch=main)](https://github.com/waoooolab/runtime-gateway/actions/workflows/runtime-gateway-ci.yml)
 
 Runtime gateway service.
 

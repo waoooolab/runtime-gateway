@@ -1,4 +1,4 @@
-name: runtime-gateway-ci
+name: CI
 
 on:
   push:
