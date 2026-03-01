@@ -30,4 +30,5 @@ Validation and auth notes:
 
 Testing:
 - `tests/test_app_integration.py` covers HTTP auth rejections and valid run creation path.
-- `.github/workflows/runtime-gateway-ci.yml` runs tests on PR/push across Python 3.11 and 3.12.
+- `.github/workflows/runtime-gateway-ci.yml` runs tests on PR/push across
+  Ubuntu/Windows/macOS with Python 3.11 and 3.12.
