@@ -1,39 +1,53 @@
 from __future__ import annotations
 
-import sys
 import unittest
-from pathlib import Path
+from dataclasses import dataclass, field
 
-WAOOOOLAB_ROOT = Path(__file__).resolve().parents[2]
-RUNTIME_EXECUTION_SRC = WAOOOOLAB_ROOT / "runtime-execution" / "src"
-if RUNTIME_EXECUTION_SRC.exists():
-    runtime_execution_src = str(RUNTIME_EXECUTION_SRC)
-    if runtime_execution_src not in sys.path:
-        sys.path.insert(0, runtime_execution_src)
+from runtime_gateway.audit.emitter import clear_audit_events
+from runtime_gateway.auth.tokens import issue_token
 
 try:
     from fastapi.testclient import TestClient
-    from runtime_gateway.app import app
+    from runtime_gateway import app as gateway_app_module
 except ModuleNotFoundError:
     FASTAPI_STACK_AVAILABLE = False
 else:
     FASTAPI_STACK_AVAILABLE = True
 
-from runtime_gateway.audit.emitter import clear_audit_events
-from runtime_gateway.auth.tokens import issue_token
+
+@dataclass
+class _FakeRunStatus:
+    value: str = "queued"
+
+
+@dataclass
+class _FakeRunRecord:
+    run_id: str = "run-test-integration"
+    status: _FakeRunStatus = field(default_factory=_FakeRunStatus)
+
+
+class _FakeRuntimeExecutionService:
+    def submit_run(self, *, session_key: str, payload: dict) -> _FakeRunRecord:
+        _ = session_key, payload
+        return _FakeRunRecord()
 
 
 @unittest.skipUnless(FASTAPI_STACK_AVAILABLE, "fastapi stack not installed")
 class AppIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         clear_audit_events()
-        self.client = TestClient(app)
+        self._original_service = gateway_app_module._service
+        gateway_app_module._service = _FakeRuntimeExecutionService()
+        self.client = TestClient(gateway_app_module.app)
         self.payload = {
             "tenant_id": "t1",
             "app_id": "waoooo",
             "session_key": "tenant:t1:app:waoooo:channel:web:actor:u1:thread:main:agent:pm",
             "payload": {"goal": "build feature"},
         }
+
+    def tearDown(self) -> None:
+        gateway_app_module._service = self._original_service
 
     def _token(self, audience: str, scope: list[str]) -> str:
         return issue_token(
