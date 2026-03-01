@@ -24,12 +24,22 @@ class _FakeRunStatus:
 class _FakeRunRecord:
     run_id: str = "run-test-integration"
     status: _FakeRunStatus = field(default_factory=_FakeRunStatus)
+    trace_id: str = "trace-default"
 
 
 class _FakeRuntimeExecutionService:
-    def submit_run(self, *, session_key: str, payload: dict) -> _FakeRunRecord:
-        _ = session_key, payload
-        return _FakeRunRecord()
+    def __init__(self) -> None:
+        self.last_submit: dict | None = None
+
+    def submit_run(
+        self, *, session_key: str, payload: dict, trace_id: str | None = None
+    ) -> _FakeRunRecord:
+        self.last_submit = {
+            "session_key": session_key,
+            "payload": payload,
+            "trace_id": trace_id,
+        }
+        return _FakeRunRecord(trace_id=trace_id or "trace-default")
 
 
 @unittest.skipUnless(FASTAPI_STACK_AVAILABLE, "fastapi stack not installed")
@@ -37,7 +47,8 @@ class AppIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         clear_audit_events()
         self._original_service = gateway_app_module._service
-        gateway_app_module._service = _FakeRuntimeExecutionService()
+        self.fake_service = _FakeRuntimeExecutionService()
+        gateway_app_module._service = self.fake_service
         self.client = TestClient(gateway_app_module.app)
         self.payload = {
             "tenant_id": "t1",
@@ -97,6 +108,17 @@ class AppIntegrationTests(unittest.TestCase):
         data = response.json()
         self.assertIn("run_id", data)
         self.assertEqual(data["status"], "queued")
+
+    def test_runs_propagates_trace_id_to_runtime_execution(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        response = self.client.post(
+            "/v1/runs",
+            json=self.payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        assert self.fake_service.last_submit is not None
+        self.assertEqual(self.fake_service.last_submit["trace_id"], "trace-1")
 
 
 if __name__ == "__main__":

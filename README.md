@@ -25,6 +25,7 @@ Validation and auth notes:
 - `contracts/validation.py` validates payloads against `platform-contracts/jsonschema`
 - `events/validation.py` validates event envelope via contract schema
 - `/v1/runs` requires `aud=runtime-gateway` and `runs:write` scope
+- `/v1/runs` propagates claim `trace_id` into runtime-execution run submission and event envelope
 - auth and run actions emit audit events in memory, and optionally to file via `RUNTIME_GATEWAY_AUDIT_LOG_PATH`
 
 Testing:

@@ -17,6 +17,20 @@ class EventEnvelopeValidationTests(unittest.TestCase):
         )
         validate_event_envelope(envelope)
 
+    def test_trace_id_can_be_injected(self) -> None:
+        envelope = build_event_envelope(
+            event_type="run.requested",
+            tenant_id="t1",
+            app_id="waoooo",
+            session_key="tenant:t1:app:waoooo:channel:web:actor:u1:thread:main:agent:pm",
+            payload={"run_id": "run-1"},
+            trace_id="trace-fixed-1",
+            correlation_id="corr-fixed-1",
+        )
+        self.assertEqual(envelope["trace_id"], "trace-fixed-1")
+        self.assertEqual(envelope["correlation_id"], "corr-fixed-1")
+        validate_event_envelope(envelope)
+
     def test_missing_required_field(self) -> None:
         envelope = {
             "event_id": "e1",

@@ -159,7 +159,12 @@ def token_exchange(req: TokenExchangeRequest) -> TokenExchangeResponse:
 def create_run(
     req: CreateRunRequest, _claims: dict = Depends(_require_runs_write_claims)
 ) -> CreateRunResponse:
-    run = _runtime_service().submit_run(session_key=req.session_key, payload=req.payload)
+    trace_id = str(_claims.get("trace_id", "")).strip() or str(uuid.uuid4())
+    run = _runtime_service().submit_run(
+        session_key=req.session_key,
+        payload=req.payload,
+        trace_id=trace_id,
+    )
 
     event = build_event_envelope(
         event_type="run.requested",
@@ -167,6 +172,8 @@ def create_run(
         app_id=req.app_id,
         session_key=req.session_key,
         payload={"run_id": run.run_id},
+        trace_id=getattr(run, "trace_id", trace_id),
+        correlation_id=trace_id,
     )
     try:
         validate_event_envelope(event)
