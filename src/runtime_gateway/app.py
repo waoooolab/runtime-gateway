@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 
@@ -15,32 +18,47 @@ from .api.schemas import (
 from .audit.emitter import emit_audit_event, get_audit_events, read_audit_log
 from .auth.exchange import ExchangeError, exchange_subject_token
 from .auth.tokens import TokenError, verify_token
-from .contracts.validation import ContractValidationError, validate_token_exchange_contract
-from .events.envelope import build_event_envelope
+from .contracts.validation import (
+    ContractValidationError,
+    validate_command_envelope_contract,
+    validate_token_exchange_contract,
+)
 from .events.validation import validate_event_envelope
+from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
 
-# In-process runtime-execution adapter for P0 baseline.
-try:
-    from runtime_execution.service import RuntimeExecutionService
-except ModuleNotFoundError:  # pragma: no cover - exercised in integration environments
-    RuntimeExecutionService = None  # type: ignore[assignment]
+
+@dataclass(frozen=True)
+class AuthContext:
+    claims: dict[str, Any]
+    subject_token: str
+
 
 app = FastAPI(title="runtime-gateway", version="0.1.0")
-_service = RuntimeExecutionService() if RuntimeExecutionService is not None else None
+_execution_client = RuntimeExecutionClient()
 
 
-def _runtime_service() -> "RuntimeExecutionService":
-    if _service is None:
-        raise HTTPException(
-            status_code=503,
-            detail="runtime-execution adapter not available in current environment",
-        )
-    return _service
+def _build_execution_command(req: CreateRunRequest, trace_id: str) -> dict[str, Any]:
+    return {
+        "command_id": str(uuid.uuid4()),
+        "command_type": "run.start",
+        "tenant_id": req.tenant_id,
+        "app_id": req.app_id,
+        "session_key": req.session_key,
+        "trace_id": trace_id,
+        "idempotency_key": str(uuid.uuid4()),
+        "retry_policy": {
+            "max_attempts": 3,
+            "backoff_ms": 250,
+            "strategy": "fixed",
+        },
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "payload": req.payload,
+    }
 
 
-def _require_runs_write_claims(
+def _require_runs_write_context(
     authorization: str | None = Header(default=None),
-) -> dict:
+) -> AuthContext:
     action = "runs.create"
     if not authorization or not authorization.startswith("Bearer "):
         emit_audit_event(
@@ -82,7 +100,7 @@ def _require_runs_write_claims(
         trace_id=str(claims.get("trace_id", "")),
         metadata={"scope": scope},
     )
-    return claims
+    return AuthContext(claims=claims, subject_token=token)
 
 
 @app.get("/healthz")
@@ -157,34 +175,88 @@ def token_exchange(req: TokenExchangeRequest) -> TokenExchangeResponse:
 
 @app.post("/v1/runs", response_model=CreateRunResponse)
 def create_run(
-    req: CreateRunRequest, _claims: dict = Depends(_require_runs_write_claims)
+    req: CreateRunRequest,
+    auth_context: AuthContext = Depends(_require_runs_write_context),
 ) -> CreateRunResponse:
-    trace_id = str(_claims.get("trace_id", "")).strip() or str(uuid.uuid4())
-    run = _runtime_service().submit_run(
-        session_key=req.session_key,
-        payload=req.payload,
-        trace_id=trace_id,
-    )
+    claims = auth_context.claims
+    trace_id = str(claims.get("trace_id", "")).strip() or str(uuid.uuid4())
 
-    event = build_event_envelope(
-        event_type="run.requested",
-        tenant_id=req.tenant_id,
-        app_id=req.app_id,
-        session_key=req.session_key,
-        payload={"run_id": run.run_id},
-        trace_id=getattr(run, "trace_id", trace_id),
-        correlation_id=trace_id,
-    )
+    command = _build_execution_command(req, trace_id)
     try:
-        validate_event_envelope(event)
+        validate_command_envelope_contract(command)
+    except ContractValidationError as exc:
+        raise HTTPException(status_code=500, detail=f"invalid command envelope: {exc}") from exc
+
+    actor_id = str(claims.get("sub", "unknown"))
+    try:
+        delegated = exchange_subject_token(
+            subject_token=auth_context.subject_token,
+            requested_token_use="service",
+            audience="runtime-execution",
+            scope=["runs:write"],
+            requested_ttl_seconds=300,
+            tenant_id=req.tenant_id,
+            app_id=req.app_id,
+            session_key=req.session_key,
+            trace_id=trace_id,
+        )
+    except ExchangeError as exc:
+        emit_audit_event(
+            action="runs.dispatch",
+            decision="deny",
+            actor_id=actor_id,
+            trace_id=trace_id,
+            metadata={"reason": exc.detail, "audience": "runtime-execution"},
+        )
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    try:
+        execution_event = _execution_client.submit_command(
+            envelope=command,
+            auth_token=str(delegated["access_token"]),
+        )
+    except RuntimeExecutionClientError as exc:
+        emit_audit_event(
+            action="runs.dispatch",
+            decision="deny",
+            actor_id=actor_id,
+            trace_id=trace_id,
+            metadata={"reason": str(exc)},
+        )
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    try:
+        validate_event_envelope(execution_event)
     except ValueError as exc:
         emit_audit_event(
-            action="runs.create",
+            action="runs.dispatch",
             decision="deny",
-            actor_id=str(_claims.get("sub", "unknown")),
-            trace_id=str(_claims.get("trace_id", "")),
-            metadata={"reason": f"invalid event envelope: {exc}"},
+            actor_id=actor_id,
+            trace_id=trace_id,
+            metadata={"reason": f"invalid execution event envelope: {exc}"},
         )
-        raise HTTPException(status_code=500, detail=f"event envelope invalid: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"invalid execution event envelope: {exc}") from exc
 
-    return CreateRunResponse(run_id=run.run_id, status=run.status.value)
+    payload = execution_event.get("payload")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=502, detail="invalid execution response payload")
+
+    run_id = payload.get("run_id")
+    status = payload.get("status")
+    if not isinstance(run_id, str) or not run_id:
+        raise HTTPException(status_code=502, detail="execution response missing run_id")
+    if not isinstance(status, str) or not status:
+        raise HTTPException(status_code=502, detail="execution response missing status")
+
+    emit_audit_event(
+        action="runs.dispatch",
+        decision="allow",
+        actor_id=actor_id,
+        trace_id=trace_id,
+        metadata={
+            "run_id": run_id,
+            "status": status,
+            "downstream_event_type": execution_event.get("event_type"),
+        },
+    )
+    return CreateRunResponse(run_id=run_id, status=status)

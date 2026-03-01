@@ -2,6 +2,7 @@
 
 from .validation import (
     ContractValidationError,
+    validate_command_envelope_contract,
     validate_contract,
     validate_event_envelope_contract,
     validate_token_exchange_contract,
@@ -9,6 +10,7 @@ from .validation import (
 
 __all__ = [
     "ContractValidationError",
+    "validate_command_envelope_contract",
     "validate_contract",
     "validate_event_envelope_contract",
     "validate_token_exchange_contract",

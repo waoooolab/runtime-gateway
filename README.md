@@ -6,7 +6,7 @@ Runtime gateway service.
 P0 scope:
 - HTTP/REST API entrypoints
 - Event envelope generation
-- In-process adapter to runtime-execution (temporary)
+- Delegated token exchange and dispatch to runtime-execution boundary API
 
 Current modules (src layout):
 - `src/runtime_gateway/api`
@@ -14,6 +14,7 @@ Current modules (src layout):
 - `src/runtime_gateway/contracts`
 - `src/runtime_gateway/events`
 - `src/runtime_gateway/audit`
+- `src/runtime_gateway/integration`
 
 Current endpoints:
 - `GET /healthz`
@@ -26,8 +27,13 @@ Validation and auth notes:
 - `contracts/validation.py` validates payloads against `platform-contracts/jsonschema`
 - `events/validation.py` validates event envelope via contract schema
 - `/v1/runs` requires `aud=runtime-gateway` and `runs:write` scope
-- `/v1/runs` propagates claim `trace_id` into runtime-execution run submission and event envelope
+- `/v1/runs` exchanges caller token into delegated `aud=runtime-execution` service token
+- `/v1/runs` sends `command-envelope.v1` to `runtime-execution` via HTTP boundary
+- `/v1/runs` validates downstream event envelope and returns normalized run response
 - auth and run actions emit audit events in memory, and optionally to file via `RUNTIME_GATEWAY_AUDIT_LOG_PATH`
+
+Required environment:
+- `RUNTIME_EXECUTION_BASE_URL` (default: `http://localhost:8003`)
 
 Testing:
 - `tests/test_app_integration.py` covers HTTP auth rejections and valid run creation path.

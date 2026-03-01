@@ -13,6 +13,7 @@ from jsonschema import Draft202012Validator
 
 TOKEN_EXCHANGE_SCHEMA = "auth/token-exchange.v1.json"
 EVENT_ENVELOPE_SCHEMA = "event-envelope.v1.json"
+COMMAND_ENVELOPE_SCHEMA = "command-envelope.v1.json"
 
 _VALIDATOR_CACHE: dict[str, Draft202012Validator] = {}
 _CACHE_LOCK = Lock()
@@ -94,3 +95,7 @@ def validate_token_exchange_contract(payload: dict[str, Any]) -> None:
 
 def validate_event_envelope_contract(payload: dict[str, Any]) -> None:
     validate_contract(EVENT_ENVELOPE_SCHEMA, payload)
+
+
+def validate_command_envelope_contract(payload: dict[str, Any]) -> None:
+    validate_contract(COMMAND_ENVELOPE_SCHEMA, payload)

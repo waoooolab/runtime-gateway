@@ -16,39 +16,38 @@ else:
 
 
 @dataclass
-class _FakeRunStatus:
-    value: str = "queued"
+class _FakeExecutionClient:
+    last_submit: dict | None = None
 
-
-@dataclass
-class _FakeRunRecord:
-    run_id: str = "run-test-integration"
-    status: _FakeRunStatus = field(default_factory=_FakeRunStatus)
-    trace_id: str = "trace-default"
-
-
-class _FakeRuntimeExecutionService:
-    def __init__(self) -> None:
-        self.last_submit: dict | None = None
-
-    def submit_run(
-        self, *, session_key: str, payload: dict, trace_id: str | None = None
-    ) -> _FakeRunRecord:
+    def submit_command(self, *, envelope: dict, auth_token: str) -> dict:
         self.last_submit = {
-            "session_key": session_key,
-            "payload": payload,
-            "trace_id": trace_id,
+            "envelope": envelope,
+            "auth_token": auth_token,
         }
-        return _FakeRunRecord(trace_id=trace_id or "trace-default")
+        return {
+            "event_id": "evt-run-1",
+            "event_type": "runtime.run.requested",
+            "tenant_id": str(envelope["tenant_id"]),
+            "app_id": str(envelope["app_id"]),
+            "session_key": str(envelope["session_key"]),
+            "trace_id": str(envelope["trace_id"]),
+            "correlation_id": str(envelope["command_id"]),
+            "ts": "2026-03-01T12:00:00+00:00",
+            "payload": {
+                "run_id": "run-test-integration",
+                "status": "queued",
+                "retry_attempts": 0,
+            },
+        }
 
 
 @unittest.skipUnless(FASTAPI_STACK_AVAILABLE, "fastapi stack not installed")
 class AppIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         clear_audit_events()
-        self._original_service = gateway_app_module._service
-        self.fake_service = _FakeRuntimeExecutionService()
-        gateway_app_module._service = self.fake_service
+        self._original_execution_client = gateway_app_module._execution_client
+        self.fake_execution_client = _FakeExecutionClient()
+        gateway_app_module._execution_client = self.fake_execution_client
         self.client = TestClient(gateway_app_module.app)
         self.payload = {
             "tenant_id": "t1",
@@ -58,7 +57,7 @@ class AppIntegrationTests(unittest.TestCase):
         }
 
     def tearDown(self) -> None:
-        gateway_app_module._service = self._original_service
+        gateway_app_module._execution_client = self._original_execution_client
 
     def _token(self, audience: str, scope: list[str]) -> str:
         return issue_token(
@@ -117,8 +116,8 @@ class AppIntegrationTests(unittest.TestCase):
             headers={"Authorization": f"Bearer {token}"},
         )
         self.assertEqual(response.status_code, 200)
-        assert self.fake_service.last_submit is not None
-        self.assertEqual(self.fake_service.last_submit["trace_id"], "trace-1")
+        assert self.fake_execution_client.last_submit is not None
+        self.assertEqual(self.fake_execution_client.last_submit["envelope"]["trace_id"], "trace-1")
 
 
 if __name__ == "__main__":
