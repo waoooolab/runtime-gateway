@@ -27,6 +27,10 @@ jobs:
           python -m pip install -e .
           python -m pip install httpx
 
+      - name: Boundary Import Guard
+        run: |
+          python scripts/check_boundary_imports.py --own-package runtime_gateway
+
       - name: Run Unit and Integration Tests
         run: |
           python -m unittest discover -s tests -p "test_*.py"
