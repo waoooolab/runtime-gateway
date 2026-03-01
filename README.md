@@ -1,5 +1,5 @@
 # runtime-gateway
-[![CI](https://github.com/waoooolab/runtime-gateway/actions/workflows/runtime-gateway-ci.yml/badge.svg?branch=main)](https://github.com/waoooolab/runtime-gateway/actions/workflows/runtime-gateway-ci.yml)
+[![CI](https://github.com/waoooolab/runtime-gateway/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/waoooolab/runtime-gateway/actions/workflows/ci.yml)
 
 Runtime gateway service.
 
@@ -31,5 +31,5 @@ Validation and auth notes:
 
 Testing:
 - `tests/test_app_integration.py` covers HTTP auth rejections and valid run creation path.
-- `.github/workflows/runtime-gateway-ci.yml` runs tests on PR/push across
+- `.github/workflows/ci.yml` runs tests on PR/push across
   Ubuntu/Windows/macOS with Python 3.11 and 3.12.
