@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import os
 import unittest
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from runtime_gateway.audit.emitter import clear_audit_events
 from runtime_gateway.auth.tokens import issue_token
+
+os.environ["WAOOOOLAB_PLATFORM_CONTRACTS_DIR"] = str(
+    Path(__file__).resolve().parent / "fixtures" / "contracts"
+)
 
 try:
     from fastapi.testclient import TestClient

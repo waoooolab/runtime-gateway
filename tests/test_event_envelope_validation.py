@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import os
 import unittest
+from pathlib import Path
 
 from runtime_gateway.events.envelope import build_event_envelope
 from runtime_gateway.events.validation import validate_event_envelope
+
+os.environ["WAOOOOLAB_PLATFORM_CONTRACTS_DIR"] = str(
+    Path(__file__).resolve().parent / "fixtures" / "contracts"
+)
 
 
 class EventEnvelopeValidationTests(unittest.TestCase):

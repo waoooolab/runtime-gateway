@@ -30,3 +30,29 @@ jobs:
       - name: Run Unit and Integration Tests
         run: |
           python -m unittest discover -s tests -p "test_*.py"
+
+  e2e-cross-repo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout runtime-gateway
+        uses: actions/checkout@v4
+
+      - name: Checkout runtime-execution
+        run: |
+          git clone https://github.com/waoooolab/runtime-execution.git ../runtime-execution
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install -e ../runtime-execution
+          python -m pip install httpx
+
+      - name: Run Cross-Repo E2E Test
+        run: |
+          python -m unittest tests.test_e2e_run_flow

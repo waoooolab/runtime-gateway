@@ -32,7 +32,13 @@ def _contracts_root() -> Path:
 
 
 def _schema_path(schema_relative_path: str) -> Path:
-    return _contracts_root() / "jsonschema" / schema_relative_path
+    root = _contracts_root()
+    jsonschema_root = root / "jsonschema"
+    if jsonschema_root.exists():
+        return jsonschema_root / schema_relative_path
+    # Compatibility mode: allow WAOOOOLAB_PLATFORM_CONTRACTS_DIR to point
+    # directly at the jsonschema root.
+    return root / schema_relative_path
 
 
 def _load_validator(schema_relative_path: str) -> Draft202012Validator:

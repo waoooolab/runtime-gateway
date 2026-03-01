@@ -3,12 +3,17 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from pathlib import Path
 
 from runtime_gateway.audit.emitter import (
     clear_audit_events,
     emit_audit_event,
     get_audit_events,
     read_audit_log,
+)
+
+os.environ["WAOOOOLAB_PLATFORM_CONTRACTS_DIR"] = str(
+    Path(__file__).resolve().parent / "fixtures" / "contracts"
 )
 
 

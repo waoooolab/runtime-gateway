@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import os
 import unittest
+from pathlib import Path
 
 from runtime_gateway.auth.exchange import ExchangeError, exchange_subject_token
 from runtime_gateway.auth.tokens import TokenError, issue_token, verify_token
+
+os.environ["WAOOOOLAB_PLATFORM_CONTRACTS_DIR"] = str(
+    Path(__file__).resolve().parent / "fixtures" / "contracts"
+)
 
 
 class TokenExchangeTests(unittest.TestCase):

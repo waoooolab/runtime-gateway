@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://waoooolab.dev/contracts/auth/token-exchange.v1.json",
+  "title": "TokenExchangeV1",
+  "description": "Token exchange request/response for runtime-gateway internal delegation.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/response"
+    }
+  ],
+  "$defs": {
+    "request": {
+      "type": "object",
+      "required": [
+        "kind",
+        "grant_type",
+        "subject_token",
+        "subject_token_type",
+        "requested_token_use",
+        "audience",
+        "scope"
+      ],
+      "properties": {
+        "kind": {
+          "const": "request"
+        },
+        "grant_type": {
+          "const": "urn:waoooolab:params:oauth:grant-type:token-exchange"
+        },
+        "subject_token": {
+          "type": "string",
+          "minLength": 16
+        },
+        "subject_token_type": {
+          "type": "string",
+          "enum": [
+            "urn:ietf:params:oauth:token-type:access_token",
+            "urn:waoooolab:token-type:service_token",
+            "urn:waoooolab:token-type:device_token"
+          ]
+        },
+        "requested_token_use": {
+          "type": "string",
+          "enum": [
+            "service",
+            "device",
+            "exchange"
+          ]
+        },
+        "audience": {
+          "type": "string",
+          "pattern": "^[a-z0-9_.:/-]+$"
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9_.:-]+$"
+          },
+          "minItems": 1
+        },
+        "tenant_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "app_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "session_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "task_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requested_ttl_seconds": {
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 3600
+        }
+      },
+      "additionalProperties": false
+    },
+    "response": {
+      "type": "object",
+      "required": [
+        "kind",
+        "issued_token_type",
+        "token_type",
+        "access_token",
+        "expires_in",
+        "scope",
+        "audience",
+        "token_use",
+        "jti"
+      ],
+      "properties": {
+        "kind": {
+          "const": "response"
+        },
+        "issued_token_type": {
+          "type": "string",
+          "enum": [
+            "urn:waoooolab:token-type:service_token",
+            "urn:waoooolab:token-type:device_token"
+          ]
+        },
+        "token_type": {
+          "const": "Bearer"
+        },
+        "access_token": {
+          "type": "string",
+          "minLength": 16
+        },
+        "expires_in": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9_.:-]+$"
+          },
+          "minItems": 1
+        },
+        "audience": {
+          "type": "string",
+          "pattern": "^[a-z0-9_.:/-]+$"
+        },
+        "token_use": {
+          "type": "string",
+          "enum": [
+            "service",
+            "device",
+            "exchange"
+          ]
+        },
+        "jti": {
+          "type": "string",
+          "minLength": 8
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
