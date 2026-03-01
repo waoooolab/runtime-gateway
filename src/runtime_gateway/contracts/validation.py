@@ -1,0 +1,96 @@
+"""JSON Schema contract validators backed by platform-contracts."""
+
+from __future__ import annotations
+
+import json
+import os
+from datetime import datetime
+from pathlib import Path
+from threading import Lock
+from typing import Any
+
+from jsonschema import Draft202012Validator
+
+TOKEN_EXCHANGE_SCHEMA = "auth/token-exchange.v1.json"
+EVENT_ENVELOPE_SCHEMA = "event-envelope.v1.json"
+
+_VALIDATOR_CACHE: dict[str, Draft202012Validator] = {}
+_CACHE_LOCK = Lock()
+
+
+class ContractValidationError(ValueError):
+    """Raised when payload does not satisfy platform contract schema."""
+
+
+def _contracts_root() -> Path:
+    configured = os.environ.get("WAOOOOLAB_PLATFORM_CONTRACTS_DIR")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    # runtime-gateway/src/runtime_gateway/contracts/validation.py -> waoooolab/
+    return Path(__file__).resolve().parents[4] / "platform-contracts"
+
+
+def _schema_path(schema_relative_path: str) -> Path:
+    return _contracts_root() / "jsonschema" / schema_relative_path
+
+
+def _load_validator(schema_relative_path: str) -> Draft202012Validator:
+    with _CACHE_LOCK:
+        cached = _VALIDATOR_CACHE.get(schema_relative_path)
+        if cached is not None:
+            return cached
+
+        path = _schema_path(schema_relative_path)
+        if not path.exists():
+            raise ContractValidationError(f"contract schema not found: {path}")
+        try:
+            schema = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ContractValidationError(f"invalid schema json: {path}") from exc
+
+        try:
+            validator = Draft202012Validator(
+                schema,
+                format_checker=Draft202012Validator.FORMAT_CHECKER,
+            )
+        except Exception as exc:  # pragma: no cover - defensive for malformed schemas
+            raise ContractValidationError(f"schema compilation failed: {path}") from exc
+
+        _VALIDATOR_CACHE[schema_relative_path] = validator
+        return validator
+
+
+def validate_contract(schema_relative_path: str, payload: dict[str, Any]) -> None:
+    """Validate payload against a platform contract schema."""
+    if not isinstance(payload, dict):
+        raise ContractValidationError("payload must be object")
+
+    validator = _load_validator(schema_relative_path)
+    errors = sorted(validator.iter_errors(payload), key=lambda err: list(err.path))
+    if errors:
+        first = errors[0]
+        location = ".".join(str(part) for part in first.path) or "$"
+        raise ContractValidationError(
+            f"{schema_relative_path} validation failed at {location}: {first.message}"
+        )
+
+    if "ts" in payload:
+        ts = payload["ts"]
+        if not isinstance(ts, str):
+            raise ContractValidationError(
+                f"{schema_relative_path} validation failed at ts: ts must be string"
+            )
+        try:
+            datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ContractValidationError(
+                f"{schema_relative_path} validation failed at ts: invalid date-time format"
+            ) from exc
+
+
+def validate_token_exchange_contract(payload: dict[str, Any]) -> None:
+    validate_contract(TOKEN_EXCHANGE_SCHEMA, payload)
+
+
+def validate_event_envelope_contract(payload: dict[str, Any]) -> None:
+    validate_contract(EVENT_ENVELOPE_SCHEMA, payload)
