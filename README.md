@@ -44,3 +44,8 @@ Testing:
   Ubuntu/Windows/macOS with Python 3.11 and 3.12.
 - `.github/workflows/ci.yml` also runs a cross-repo E2E job on Ubuntu by
   checking out `runtime-execution` and running `tests/test_e2e_run_flow.py`.
+- Cross-repo E2E requires repository secret `CROSS_REPO_READ_TOKEN` to clone
+  `waoooolab/runtime-execution` in GitHub Actions.
+- If `CROSS_REPO_READ_TOKEN` is not configured, the cross-repo E2E job is
+  marked successful with test steps skipped, while the main test matrix still
+  executes normally.
