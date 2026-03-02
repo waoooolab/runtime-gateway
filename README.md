@@ -38,6 +38,8 @@ Required environment:
 Testing:
 - `tests/test_app_integration.py` covers HTTP auth rejections and valid run creation path.
 - `tests/test_e2e_run_flow.py` covers cross-service run flow (`runtime-gateway -> runtime-execution`).
+- `scripts/check_code_shape.py` reports file/function size guardrails
+  (target fail: file>300/function>40; CI enforces this threshold).
 - `.github/workflows/ci.yml` runs tests on PR/push across
   Ubuntu/Windows/macOS with Python 3.11 and 3.12.
 - `.github/workflows/ci.yml` also runs a cross-repo E2E job on Ubuntu by

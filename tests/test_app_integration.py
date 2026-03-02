@@ -3,10 +3,12 @@ from __future__ import annotations
 import os
 import unittest
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 from runtime_gateway.audit.emitter import clear_audit_events
 from runtime_gateway.auth.tokens import issue_token
+from runtime_gateway.integration import RuntimeExecutionClientError
 
 os.environ["WAOOOOLAB_PLATFORM_CONTRACTS_DIR"] = str(
     Path(__file__).resolve().parent / "fixtures" / "contracts"
@@ -47,10 +49,54 @@ class _FakeExecutionClient:
         }
 
 
+@dataclass
+class _FakeExecutionClientRejected:
+    def submit_command(self, *, envelope: dict, auth_token: str) -> dict:
+        _ = auth_token
+        event = {
+            "event_id": "evt-route-failed-1",
+            "event_type": "runtime.route.failed",
+            "tenant_id": str(envelope["tenant_id"]),
+            "app_id": str(envelope["app_id"]),
+            "session_key": str(envelope["session_key"]),
+            "trace_id": str(envelope["trace_id"]),
+            "correlation_id": str(envelope["command_id"]),
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "payload": {
+                "run_id": "run-test-failed",
+                "task_id": "run-test-failed:root",
+                "execution_profile": {
+                    "execution_mode": "compute",
+                    "inference_target": "none",
+                    "resource_class": "gpu",
+                    "placement_constraints": {"tenant_id": "t1"},
+                },
+                "decision": {
+                    "outcome": "rejected",
+                    "route_target": "none",
+                    "policy_version": "execution-profile.v1",
+                    "reason": "no eligible device",
+                },
+                "failure": {
+                    "code": "no_eligible_device",
+                    "message": "no eligible device",
+                    "classification": "capacity",
+                    "details": ["compute route dispatch failed"],
+                },
+            },
+        }
+        raise RuntimeExecutionClientError(
+            "HTTP 409 calling runtime-execution",
+            status_code=409,
+            response_body=event,
+        )
+
+
 @unittest.skipUnless(FASTAPI_STACK_AVAILABLE, "fastapi stack not installed")
 class AppIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         clear_audit_events()
+        gateway_app_module._event_bus.clear()
         self._original_execution_client = gateway_app_module._execution_client
         self.fake_execution_client = _FakeExecutionClient()
         gateway_app_module._execution_client = self.fake_execution_client
@@ -124,6 +170,43 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         assert self.fake_execution_client.last_submit is not None
         self.assertEqual(self.fake_execution_client.last_submit["envelope"]["trace_id"], "trace-1")
+
+    def test_runs_publish_downstream_event_to_gateway_event_bus(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        response = self.client.post(
+            "/v1/runs",
+            json=self.payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+
+        recent = self.client.get(
+            "/v1/events/recent",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(recent.status_code, 200)
+        items = recent.json()["items"]
+        self.assertGreaterEqual(len(items), 1)
+        self.assertEqual(items[-1]["event"]["event_type"], "runtime.run.requested")
+
+    def test_runs_propagates_downstream_route_failed_status_and_publishes_event(self) -> None:
+        gateway_app_module._execution_client = _FakeExecutionClientRejected()
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        response = self.client.post(
+            "/v1/runs",
+            json=self.payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 409)
+
+        recent = self.client.get(
+            "/v1/events/recent",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(recent.status_code, 200)
+        items = recent.json()["items"]
+        self.assertGreaterEqual(len(items), 1)
+        self.assertEqual(items[-1]["event"]["event_type"], "runtime.route.failed")
 
 
 if __name__ == "__main__":

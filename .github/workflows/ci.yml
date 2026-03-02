@@ -31,6 +31,10 @@ jobs:
         run: |
           python scripts/check_boundary_imports.py --own-package runtime_gateway
 
+      - name: Code Shape Guard
+        run: |
+          python scripts/check_code_shape.py --fail-file-lines 300 --fail-function-lines 40
+
       - name: Run Unit and Integration Tests
         run: |
           python -m unittest discover -s tests -p "test_*.py"

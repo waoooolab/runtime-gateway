@@ -1,0 +1,117 @@
+"""WebSocket streaming for gateway event bus."""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+
+from fastapi import WebSocket, WebSocketDisconnect, status
+
+from .auth.tokens import TokenError, verify_token
+from .events.bus import InMemoryEventBus
+from .security import EVENT_SCOPE_READ, scope_contains
+
+
+def _websocket_token(websocket: WebSocket) -> str | None:
+    token = websocket.query_params.get("access_token")
+    auth_header = websocket.headers.get("authorization", "")
+    if token:
+        return token
+    if auth_header.startswith("Bearer "):
+        return auth_header.split(" ", 1)[1].strip()
+    return None
+
+
+def _parse_event_types(raw: str | None) -> set[str] | None:
+    if not raw:
+        return None
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+def _parse_cursor(raw: str) -> int:
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 0
+
+
+def _websocket_filters(websocket: WebSocket, claims: dict[str, Any]) -> tuple[str, str, set[str] | None, int]:
+    tenant_id = websocket.query_params.get("tenant_id") or str(claims.get("tenant_id", ""))
+    app_id = websocket.query_params.get("app_id") or str(claims.get("app_id", ""))
+    event_types = _parse_event_types(websocket.query_params.get("event_types"))
+    cursor = _parse_cursor(websocket.query_params.get("cursor", "0"))
+    return tenant_id, app_id, event_types, cursor
+
+
+async def _send_ready(
+    websocket: WebSocket, event_bus: InMemoryEventBus, cursor: int, tenant_id: str, app_id: str
+) -> None:
+    await websocket.send_json(
+        {
+            "kind": "ws.ready",
+            "cursor": cursor,
+            "tenant_id": tenant_id,
+            "app_id": app_id,
+            "stats": event_bus.stats(),
+        }
+    )
+
+
+async def _push_records(
+    websocket: WebSocket,
+    event_bus: InMemoryEventBus,
+    cursor: int,
+    tenant_id: str,
+    app_id: str,
+    event_types: set[str] | None,
+) -> int:
+    for item in event_bus.since(
+        cursor=cursor,
+        tenant_id=tenant_id or None,
+        app_id=app_id or None,
+        event_types=event_types,
+    ):
+        cursor = max(cursor, int(item["bus_seq"]))
+        await websocket.send_json(item)
+    return cursor
+
+
+async def _wait_keepalive(websocket: WebSocket, cursor: int) -> bool:
+    try:
+        incoming = await asyncio.wait_for(websocket.receive_text(), timeout=2.0)
+    except asyncio.TimeoutError:
+        return True
+    except WebSocketDisconnect:
+        return False
+    if incoming.strip().lower() == "ping":
+        await websocket.send_json({"kind": "ws.pong", "cursor": cursor})
+    return True
+
+
+async def handle_websocket_events(websocket: WebSocket, event_bus: InMemoryEventBus) -> None:
+    token = _websocket_token(websocket)
+    if not token:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="missing bearer token")
+        return
+
+    try:
+        claims = verify_token(token, audience="runtime-gateway")
+    except TokenError:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="invalid bearer token")
+        return
+
+    if not scope_contains(claims, EVENT_SCOPE_READ):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="missing read scope")
+        return
+
+    await websocket.accept()
+    event_bus.open_connection()
+    tenant_id, app_id, event_types, cursor = _websocket_filters(websocket, claims)
+    try:
+        await _send_ready(websocket, event_bus, cursor, tenant_id, app_id)
+        while True:
+            cursor = await _push_records(websocket, event_bus, cursor, tenant_id, app_id, event_types)
+            if not await _wait_keepalive(websocket, cursor):
+                break
+    finally:
+        event_bus.close_connection()
