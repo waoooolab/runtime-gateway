@@ -7,6 +7,7 @@ from pathlib import Path
 from runtime_gateway.contracts.validation import (
     ContractValidationError,
     validate_event_envelope_contract,
+    validate_execution_context_contract,
     validate_token_exchange_contract,
 )
 from runtime_gateway.events.envelope import build_event_envelope
@@ -69,6 +70,30 @@ class ContractValidationTests(unittest.TestCase):
         envelope["ts"] = "bad-time"
         with self.assertRaises(ContractValidationError):
             validate_event_envelope_contract(envelope)
+
+    def test_execution_context_contract_valid_runtime_workload(self) -> None:
+        payload = {
+            "task_plane": "runtime_workload",
+            "runtime": {
+                "execution_mode": "compute",
+            },
+        }
+        validate_execution_context_contract(payload)
+
+    def test_execution_context_contract_rejects_runtime_workload_with_executor(self) -> None:
+        payload = {
+            "task_plane": "runtime_workload",
+            "executor": {
+                "family": "acp_cli",
+                "engine": "claude_code",
+                "adapter": "ccb",
+            },
+            "runtime": {
+                "execution_mode": "control",
+            },
+        }
+        with self.assertRaises(ContractValidationError):
+            validate_execution_context_contract(payload)
 
 
 if __name__ == "__main__":

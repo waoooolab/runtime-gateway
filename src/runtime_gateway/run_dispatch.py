@@ -11,7 +11,11 @@ from fastapi import HTTPException
 from .api.schemas import CreateRunRequest, CreateRunResponse
 from .audit.emitter import emit_audit_event
 from .auth.exchange import ExchangeError, exchange_subject_token
-from .contracts.validation import ContractValidationError, validate_command_envelope_contract
+from .contracts.validation import (
+    ContractValidationError,
+    validate_command_envelope_contract,
+    validate_execution_context_contract,
+)
 from .events.validation import validate_event_envelope
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
 
@@ -39,7 +43,40 @@ def _build_execution_command(req: CreateRunRequest, trace_id: str) -> dict[str, 
     }
 
 
+def _validate_execution_context_payload(req: CreateRunRequest) -> None:
+    raw_context = req.payload.get("execution_context")
+    if raw_context is None:
+        return
+    if not isinstance(raw_context, dict):
+        raise HTTPException(status_code=422, detail="execution_context must be an object")
+    try:
+        validate_execution_context_contract(raw_context)
+    except ContractValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    if str(raw_context.get("task_plane")) != "runtime_workload":
+        return
+    runtime = raw_context.get("runtime")
+    if not isinstance(runtime, dict):
+        return
+
+    profile = req.payload.get("execution_profile")
+    if isinstance(profile, dict):
+        profile_mode = profile.get("execution_mode")
+    else:
+        profile_mode = "control"
+    if runtime.get("execution_mode") != profile_mode:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "execution_context.runtime.execution_mode must match "
+                "execution_profile.execution_mode for runtime_workload"
+            ),
+        )
+
+
 def _build_validated_command(req: CreateRunRequest, trace_id: str) -> dict[str, Any]:
+    _validate_execution_context_payload(req)
     command = _build_execution_command(req, trace_id)
     try:
         validate_command_envelope_contract(command)

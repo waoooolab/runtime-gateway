@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://waoooolab.dev/contracts/runtime/execution-context.v1.json",
+  "title": "ExecutionContextV1",
+  "description": "Canonical task-plane and executor context contract for runtime ingress validation.",
+  "type": "object",
+  "required": [
+    "task_plane"
+  ],
+  "properties": {
+    "task_plane": {
+      "type": "string",
+      "enum": [
+        "agent_work",
+        "workflow_work",
+        "runtime_workload"
+      ]
+    },
+    "workflow_kind": {
+      "type": "string",
+      "enum": [
+        "coding",
+        "content",
+        "ops",
+        "compute_pipeline",
+        "integration"
+      ]
+    },
+    "executor": {
+      "type": "object",
+      "required": [
+        "family",
+        "engine",
+        "adapter"
+      ],
+      "properties": {
+        "family": {
+          "type": "string",
+          "enum": [
+            "native_agent",
+            "acp_cli",
+            "workflow_runtime",
+            "compute_runtime"
+          ]
+        },
+        "engine": {
+          "type": "string",
+          "minLength": 1
+        },
+        "adapter": {
+          "type": "string",
+          "enum": [
+            "direct",
+            "ccb",
+            "api"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "runtime": {
+      "type": "object",
+      "required": [
+        "execution_mode"
+      ],
+      "properties": {
+        "execution_mode": {
+          "type": "string",
+          "enum": [
+            "control",
+            "compute"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "task_plane": {
+            "const": "runtime_workload"
+          }
+        },
+        "required": [
+          "task_plane"
+        ]
+      },
+      "then": {
+        "required": [
+          "runtime"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "executor"
+              ]
+            },
+            {
+              "required": [
+                "workflow_kind"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "task_plane": {
+            "const": "agent_work"
+          }
+        },
+        "required": [
+          "task_plane"
+        ]
+      },
+      "then": {
+        "required": [
+          "executor"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "runtime"
+              ]
+            },
+            {
+              "required": [
+                "workflow_kind"
+              ]
+            }
+          ]
+        },
+        "properties": {
+          "executor": {
+            "properties": {
+              "family": {
+                "not": {
+                  "const": "workflow_runtime"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "task_plane": {
+            "const": "workflow_work"
+          }
+        },
+        "required": [
+          "task_plane"
+        ]
+      },
+      "then": {
+        "required": [
+          "executor",
+          "workflow_kind"
+        ],
+        "not": {
+          "required": [
+            "runtime"
+          ]
+        },
+        "properties": {
+          "executor": {
+            "properties": {
+              "family": {
+                "not": {
+                  "const": "compute_runtime"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false
+}
