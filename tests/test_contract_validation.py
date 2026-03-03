@@ -86,7 +86,7 @@ class ContractValidationTests(unittest.TestCase):
         payload = {
             "task_plane": "runtime_workload",
             "executor": {
-                "family": "acp_cli",
+                "family": "acp",
                 "engine": "claude_code",
                 "adapter": "ccb",
             },
@@ -101,7 +101,7 @@ class ContractValidationTests(unittest.TestCase):
         payload = {
             "items": [
                 {
-                    "family": "acp_cli",
+                    "family": "acp",
                     "engines": ["claude_code", "codex"],
                     "adapters": ["direct", "ccb"],
                 },
@@ -118,7 +118,7 @@ class ContractValidationTests(unittest.TestCase):
         payload = {
             "items": [
                 {
-                    "family": "acp_cli",
+                    "family": "acp",
                     "engines": ["claude_code"],
                     "adapters": ["tmux"],
                 }

@@ -15,8 +15,8 @@ class ExecutorProfile:
 
 
 PROFILES: dict[str, ExecutorProfile] = {
-    "acp_cli": ExecutorProfile(
-        family="acp_cli",
+    "acp": ExecutorProfile(
+        family="acp",
         engines=("codex", "claude_code", "gemini_cli", "opencode", "droid"),
         adapters=("direct", "ccb"),
     ),

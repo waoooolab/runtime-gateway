@@ -23,7 +23,7 @@
             "type": "string",
             "enum": [
               "native_agent",
-              "acp_cli",
+              "acp",
               "workflow_runtime",
               "compute_runtime"
             ]

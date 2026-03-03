@@ -168,14 +168,14 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertIn("items", data)
         self.assertTrue(isinstance(data["items"], list))
         families = {item["family"] for item in data["items"]}
-        self.assertIn("acp_cli", families)
+        self.assertIn("acp", families)
         self.assertIn("workflow_runtime", families)
 
     def test_executor_profiles_rejects_invalid_catalog_payload(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["runs:read"])
         invalid_items = [
             {
-                "family": "acp_cli",
+                "family": "acp",
                 "engines": ["claude_code"],
                 "adapters": ["tmux"],
             }
@@ -209,7 +209,7 @@ class AppIntegrationTests(unittest.TestCase):
             "execution_context": {
                 "task_plane": "runtime_workload",
                 "executor": {
-                    "family": "acp_cli",
+                    "family": "acp",
                     "engine": "claude_code",
                     "adapter": "ccb",
                 },
@@ -284,7 +284,7 @@ class AppIntegrationTests(unittest.TestCase):
             "execution_context": {
                 "task_plane": "agent_work",
                 "executor": {
-                    "family": "acp_cli",
+                    "family": "acp",
                     "engine": "my_custom_cli",
                     "adapter": "ccb",
                 },
@@ -296,7 +296,7 @@ class AppIntegrationTests(unittest.TestCase):
             headers={"Authorization": f"Bearer {token}"},
         )
         self.assertEqual(response.status_code, 422)
-        self.assertIn("unsupported for family 'acp_cli'", response.json()["detail"])
+        self.assertIn("unsupported for family 'acp'", response.json()["detail"])
         self.assertIsNone(self.fake_execution_client.last_submit)
 
     def test_runs_rejects_unsupported_executor_adapter_profile(self) -> None:
@@ -307,7 +307,7 @@ class AppIntegrationTests(unittest.TestCase):
             "execution_context": {
                 "task_plane": "agent_work",
                 "executor": {
-                    "family": "acp_cli",
+                    "family": "acp",
                     "engine": "claude_code",
                     "adapter": "api",
                 },
@@ -319,7 +319,7 @@ class AppIntegrationTests(unittest.TestCase):
             headers={"Authorization": f"Bearer {token}"},
         )
         self.assertEqual(response.status_code, 422)
-        self.assertIn("unsupported for family 'acp_cli'", response.json()["detail"])
+        self.assertIn("unsupported for family 'acp'", response.json()["detail"])
         self.assertIsNone(self.fake_execution_client.last_submit)
 
     def test_runs_propagates_trace_id_to_runtime_execution(self) -> None:
