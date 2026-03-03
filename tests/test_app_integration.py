@@ -104,8 +104,8 @@ class AppIntegrationTests(unittest.TestCase):
         self.client = TestClient(gateway_app_module.app)
         self.payload = {
             "tenant_id": "t1",
-            "app_id": "waoooo",
-            "session_key": "tenant:t1:app:waoooo:channel:web:actor:u1:thread:main:agent:pm",
+            "app_id": "covernow",
+            "session_key": "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
             "payload": {"goal": "build feature"},
         }
 
@@ -119,7 +119,7 @@ class AppIntegrationTests(unittest.TestCase):
                 "sub": "user:u1",
                 "aud": audience,
                 "tenant_id": "t1",
-                "app_id": "waoooo",
+                "app_id": "covernow",
                 "scope": scope,
                 "token_use": "access",
                 "trace_id": "trace-1",

@@ -17,8 +17,8 @@ class EventEnvelopeValidationTests(unittest.TestCase):
         envelope = build_event_envelope(
             event_type="run.requested",
             tenant_id="t1",
-            app_id="waoooo",
-            session_key="tenant:t1:app:waoooo:channel:web:actor:u1:thread:main:agent:pm",
+            app_id="covernow",
+            session_key="tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
             payload={"run_id": "run-1"},
         )
         validate_event_envelope(envelope)
@@ -27,8 +27,8 @@ class EventEnvelopeValidationTests(unittest.TestCase):
         envelope = build_event_envelope(
             event_type="run.requested",
             tenant_id="t1",
-            app_id="waoooo",
-            session_key="tenant:t1:app:waoooo:channel:web:actor:u1:thread:main:agent:pm",
+            app_id="covernow",
+            session_key="tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
             payload={"run_id": "run-1"},
             trace_id="trace-fixed-1",
             correlation_id="corr-fixed-1",
@@ -42,7 +42,7 @@ class EventEnvelopeValidationTests(unittest.TestCase):
             "event_id": "e1",
             "event_type": "run.requested",
             "tenant_id": "t1",
-            "app_id": "waoooo",
+            "app_id": "covernow",
             "trace_id": "tr1",
             "correlation_id": "tr1",
             "ts": "2026-03-01T10:39:00Z",

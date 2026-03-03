@@ -65,8 +65,8 @@ class ContractValidationTests(unittest.TestCase):
         envelope = build_event_envelope(
             event_type="run.requested",
             tenant_id="t1",
-            app_id="waoooo",
-            session_key="tenant:t1:app:waoooo:channel:web:actor:u1:thread:main:agent:pm",
+            app_id="covernow",
+            session_key="tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
             payload={"run_id": "run-1"},
         )
         envelope["ts"] = "bad-time"

@@ -24,6 +24,8 @@ Current endpoints:
 - `GET /v1/executors/profiles` (protected by Bearer token middleware)
 - `POST /v1/runs/{run_id}:approve` (protected by Bearer token middleware)
 - `POST /v1/runs/{run_id}:reject` (protected by Bearer token middleware)
+- `POST /v1/orchestration/worker:tick` (protected by Bearer token middleware)
+- `POST /v1/orchestration/worker:drain` (protected by Bearer token middleware)
 
 Validation and auth notes:
 - `auth/exchange.py` contains framework-agnostic token exchange logic
@@ -38,6 +40,8 @@ Validation and auth notes:
 - `/v1/executors/profiles` returns the gateway-side supported executor profile catalog
   and requires `runs:read`
 - `/v1/runs/{run_id}:approve` and `:reject` forward to runtime-execution and publish downstream events to gateway event bus
+- `/v1/orchestration/worker:tick` and `/v1/orchestration/worker:drain` forward
+  to runtime-execution through delegated service tokens (`runs:write`)
 - auth and run actions emit audit events in memory, and optionally to file via `RUNTIME_GATEWAY_AUDIT_LOG_PATH`
 - gateway currently forwards runtime workload route semantics
   (`execution_mode=control|compute`) and consumes `execution_context.executor`

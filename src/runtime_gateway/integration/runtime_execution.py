@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Callable
-from urllib.parse import urljoin
+from urllib.parse import urlencode, urljoin
 
 TransportCallable = Callable[..., Any]
 
@@ -50,6 +50,28 @@ def _build_request(url: str, envelope: dict[str, Any], auth_token: str) -> urlli
     return urllib.request.Request(url=url, method="POST", data=body, headers=headers)
 
 
+def _compose_url(
+    *,
+    base_url: str,
+    path: str,
+    query: dict[str, Any] | None = None,
+) -> str:
+    url = urljoin(base_url.rstrip("/") + "/", path)
+    if not query:
+        return url
+    normalized: dict[str, str] = {}
+    for key, value in query.items():
+        if value is None:
+            continue
+        if isinstance(value, bool):
+            normalized[key] = "true" if value else "false"
+            continue
+        normalized[key] = str(value)
+    if not normalized:
+        return url
+    return f"{url}?{urlencode(normalized)}"
+
+
 def _parse_http_error(exc: urllib.error.HTTPError, url: str) -> RuntimeExecutionClientError:
     text = exc.read().decode("utf-8", errors="replace")
     return RuntimeExecutionClientError(
@@ -79,9 +101,16 @@ class RuntimeExecutionClient:
     timeout_seconds: float = 10.0
     _transport: TransportCallable = field(default=urllib.request.urlopen)
 
-    def submit_command(self, *, envelope: dict[str, Any], auth_token: str) -> dict[str, Any]:
-        url = urljoin(self.base_url.rstrip("/") + "/", "v1/runs")
-        request = _build_request(url, envelope, auth_token)
+    def _post_json(
+        self,
+        *,
+        path: str,
+        auth_token: str,
+        body: dict[str, Any] | None = None,
+        query: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        url = _compose_url(base_url=self.base_url, path=path, query=query)
+        request = _build_request(url, body or {}, auth_token)
         try:
             with self._transport(request, timeout=self.timeout_seconds) as response:
                 status = int(response.getcode())
@@ -98,63 +127,64 @@ class RuntimeExecutionClient:
                 response_body=_try_parse_json_object(raw),
             )
         return _parse_response_body(raw, url)
+
+    def submit_command(self, *, envelope: dict[str, Any], auth_token: str) -> dict[str, Any]:
+        return self._post_json(
+            path="v1/runs",
+            auth_token=auth_token,
+            body=envelope,
+        )
 
     def approve_run(self, *, run_id: str, auth_token: str) -> dict[str, Any]:
         """Approve a run by calling runtime-execution approve endpoint."""
-        url = urljoin(self.base_url.rstrip("/") + "/", f"v1/runs/{run_id}:approve")
-        request = urllib.request.Request(
-            url=url,
-            method="POST",
-            data=b"{}",
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "Authorization": f"Bearer {auth_token}",
-            },
+        return self._post_json(
+            path=f"v1/runs/{run_id}:approve",
+            auth_token=auth_token,
+            body={},
         )
-        try:
-            with self._transport(request, timeout=self.timeout_seconds) as response:
-                status = int(response.getcode())
-                raw = response.read().decode("utf-8")
-        except urllib.error.HTTPError as exc:
-            raise _parse_http_error(exc, url) from exc
-        except urllib.error.URLError as exc:
-            raise RuntimeExecutionClientError(f"connection error calling {url}: {exc.reason}") from exc
-
-        if status >= 400:
-            raise RuntimeExecutionClientError(
-                f"HTTP {status} calling {url}",
-                status_code=status,
-                response_body=_try_parse_json_object(raw),
-            )
-        return _parse_response_body(raw, url)
 
     def reject_run(self, *, run_id: str, auth_token: str) -> dict[str, Any]:
         """Reject a run by calling runtime-execution reject endpoint."""
-        url = urljoin(self.base_url.rstrip("/") + "/", f"v1/runs/{run_id}:reject")
-        request = urllib.request.Request(
-            url=url,
-            method="POST",
-            data=b"{}",
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "Authorization": f"Bearer {auth_token}",
+        return self._post_json(
+            path=f"v1/runs/{run_id}:reject",
+            auth_token=auth_token,
+            body={},
+        )
+
+    def worker_tick(
+        self,
+        *,
+        auth_token: str,
+        fair: bool = True,
+        auto_start: bool = True,
+    ) -> dict[str, Any]:
+        """Run one worker tick in runtime-execution."""
+        return self._post_json(
+            path="v1/orchestration/worker:tick",
+            auth_token=auth_token,
+            body={},
+            query={
+                "fair": fair,
+                "auto_start": auto_start,
             },
         )
-        try:
-            with self._transport(request, timeout=self.timeout_seconds) as response:
-                status = int(response.getcode())
-                raw = response.read().decode("utf-8")
-        except urllib.error.HTTPError as exc:
-            raise _parse_http_error(exc, url) from exc
-        except urllib.error.URLError as exc:
-            raise RuntimeExecutionClientError(f"connection error calling {url}: {exc.reason}") from exc
 
-        if status >= 400:
-            raise RuntimeExecutionClientError(
-                f"HTTP {status} calling {url}",
-                status_code=status,
-                response_body=_try_parse_json_object(raw),
-            )
-        return _parse_response_body(raw, url)
+    def worker_drain(
+        self,
+        *,
+        auth_token: str,
+        max_items: int = 16,
+        fair: bool = True,
+        auto_start: bool = True,
+    ) -> dict[str, Any]:
+        """Run a bounded worker loop in runtime-execution."""
+        return self._post_json(
+            path="v1/orchestration/worker:drain",
+            auth_token=auth_token,
+            body={},
+            query={
+                "max_items": max_items,
+                "fair": fair,
+                "auto_start": auto_start,
+            },
+        )

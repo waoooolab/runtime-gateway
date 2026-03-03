@@ -113,11 +113,11 @@ class EndToEndRunFlowTests(unittest.TestCase):
                 "sub": "user:u-e2e",
                 "aud": "runtime-gateway",
                 "tenant_id": "t1",
-                "app_id": "waoooo",
+                "app_id": "covernow",
                 "scope": scope,
                 "token_use": "access",
                 "trace_id": "trace-e2e-1",
-                "session_key": "tenant:t1:app:waoooo:channel:web:actor:u-e2e:thread:main:agent:pm",
+                "session_key": "tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
             },
             ttl_seconds=300,
         )
@@ -129,11 +129,11 @@ class EndToEndRunFlowTests(unittest.TestCase):
                 "sub": "svc:runtime-gateway",
                 "aud": "runtime-execution",
                 "tenant_id": "t1",
-                "app_id": "waoooo",
+                "app_id": "covernow",
                 "scope": scope,
                 "token_use": "service",
                 "trace_id": "trace-e2e-1",
-                "session_key": "tenant:t1:app:waoooo:channel:web:actor:u-e2e:thread:main:agent:pm",
+                "session_key": "tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
             },
             ttl_seconds=300,
         )
@@ -142,8 +142,8 @@ class EndToEndRunFlowTests(unittest.TestCase):
         token = self._gateway_token(["runs:write"])
         payload = {
             "tenant_id": "t1",
-            "app_id": "waoooo",
-            "session_key": "tenant:t1:app:waoooo:channel:web:actor:u-e2e:thread:main:agent:pm",
+            "app_id": "covernow",
+            "session_key": "tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
             "payload": {"goal": "verify e2e run flow"},
         }
 

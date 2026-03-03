@@ -33,8 +33,8 @@ def _event_envelope(event_type: str = "runtime.task.updated", run_id: str | None
         "event_id": str(uuid4()),
         "event_type": event_type,
         "tenant_id": "t1",
-        "app_id": "waoooo",
-        "session_key": "tenant:t1:app:waoooo:channel:web:actor:u1:thread:main:agent:pm",
+        "app_id": "covernow",
+        "session_key": "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
         "trace_id": "trace-events-1",
         "correlation_id": "corr-events-1",
         "ts": datetime.now(timezone.utc).isoformat(),
@@ -56,7 +56,7 @@ class EventBusWebsocketTests(unittest.TestCase):
                 "sub": "svc:test",
                 "aud": audience,
                 "tenant_id": "t1",
-                "app_id": "waoooo",
+                "app_id": "covernow",
                 "scope": scope,
                 "token_use": "service",
                 "trace_id": "trace-events-1",
@@ -172,7 +172,7 @@ class EventBusWebsocketTests(unittest.TestCase):
         publish_token = self._token(scope=["runs:write"])
 
         with self.client.websocket_connect(
-            f"/v1/ws/events?access_token={ws_token}&tenant_id=t1&app_id=waoooo"
+            f"/v1/ws/events?access_token={ws_token}&tenant_id=t1&app_id=covernow"
         ) as ws:
             ready = ws.receive_json()
             self.assertEqual(ready["kind"], "ws.ready")

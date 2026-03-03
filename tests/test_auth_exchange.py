@@ -20,7 +20,7 @@ class TokenExchangeTests(unittest.TestCase):
                 "sub": "user:u1",
                 "aud": "runtime-gateway",
                 "tenant_id": "t1",
-                "app_id": "waoooo",
+                "app_id": "covernow",
                 "scope": scope,
                 "token_use": "access",
                 "trace_id": "trace-root",
