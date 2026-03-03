@@ -172,6 +172,24 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(event["payload"]["run_id"], run_id)
         self.assertEqual(event["payload"]["status"], "queued")
 
+        recent_response = self.gateway_client.get(
+            "/v1/events/recent?limit=10",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(recent_response.status_code, 200)
+        recent_items = recent_response.json()["items"]
+        matching = [
+            item["event"]
+            for item in recent_items
+            if item.get("event", {}).get("event_type") == "runtime.run.requested"
+            and item.get("event", {}).get("payload", {}).get("run_id") == run_id
+        ]
+        self.assertEqual(len(matching), 1)
+        signal = matching[0]["payload"]["scheduling_signal"]
+        self.assertIsInstance(signal["queue_score"], float)
+        self.assertIsInstance(signal["dispatch_min_score"], float)
+        self.assertEqual(matching[0]["payload"]["route"]["scheduling_signal"], signal)
+
     def test_gateway_and_execution_profile_catalog_are_aligned(self) -> None:
         gateway_response = self.gateway_client.get(
             "/v1/executors/profiles",
