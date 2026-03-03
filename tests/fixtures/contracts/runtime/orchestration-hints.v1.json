@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://waoooolab.dev/contracts/runtime/orchestration-hints.v1.json",
+  "title": "OrchestrationHintsV1",
+  "description": "Optional run orchestration hints for hierarchy, queue priority and scheduling.",
+  "type": "object",
+  "properties": {
+    "parent_run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "parent_task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "priority_class": {
+      "type": "string",
+      "enum": [
+        "urgent",
+        "high",
+        "normal",
+        "low"
+      ]
+    },
+    "priority_score": {
+      "type": "integer",
+      "minimum": -1000,
+      "maximum": 1000
+    },
+    "tenant_tier": {
+      "type": "string",
+      "enum": [
+        "enterprise",
+        "pro",
+        "standard",
+        "free"
+      ]
+    },
+    "deadline_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "parent_task_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "parent_run_id"
+        ]
+      }
+    }
+  ],
+  "additionalProperties": false
+}

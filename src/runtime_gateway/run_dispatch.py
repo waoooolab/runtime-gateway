@@ -15,6 +15,7 @@ from .contracts.validation import (
     ContractValidationError,
     validate_command_envelope_contract,
     validate_execution_context_contract,
+    validate_orchestration_hints_contract,
 )
 from .executor_profiles import validate_executor_profile
 from .events.validation import validate_event_envelope
@@ -86,8 +87,21 @@ def _validate_execution_context_payload(req: CreateRunRequest) -> None:
         )
 
 
+def _validate_orchestration_payload(req: CreateRunRequest) -> None:
+    raw_orchestration = req.payload.get("orchestration")
+    if raw_orchestration is None:
+        return
+    if not isinstance(raw_orchestration, dict):
+        raise HTTPException(status_code=422, detail="orchestration must be an object")
+    try:
+        validate_orchestration_hints_contract(raw_orchestration)
+    except ContractValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 def _build_validated_command(req: CreateRunRequest, trace_id: str) -> dict[str, Any]:
     _validate_execution_context_payload(req)
+    _validate_orchestration_payload(req)
     command = _build_execution_command(req, trace_id)
     try:
         validate_command_envelope_contract(command)

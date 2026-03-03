@@ -227,6 +227,24 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertIn("execution-context.v1.json", response.json()["detail"])
         self.assertIsNone(self.fake_execution_client.last_submit)
 
+    def test_runs_rejects_invalid_orchestration_hints(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        payload = dict(self.payload)
+        payload["payload"] = {
+            "goal": "build feature",
+            "orchestration": {
+                "parent_task_id": "orphan:root",
+            },
+        }
+        response = self.client.post(
+            "/v1/runs",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("orchestration-hints.v1.json", response.json()["detail"])
+        self.assertIsNone(self.fake_execution_client.last_submit)
+
     def test_runs_rejects_execution_context_mode_mismatch(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["runs:write"])
         payload = dict(self.payload)

@@ -9,6 +9,7 @@ from runtime_gateway.contracts.validation import (
     validate_event_envelope_contract,
     validate_execution_context_contract,
     validate_executor_profile_catalog_contract,
+    validate_orchestration_hints_contract,
     validate_token_exchange_contract,
 )
 from runtime_gateway.events.envelope import build_event_envelope
@@ -125,6 +126,24 @@ class ContractValidationTests(unittest.TestCase):
         }
         with self.assertRaises(ContractValidationError):
             validate_executor_profile_catalog_contract(payload)
+
+    def test_orchestration_hints_contract_valid(self) -> None:
+        payload = {
+            "parent_run_id": "run-parent",
+            "parent_task_id": "run-parent:root",
+            "priority_class": "high",
+            "priority_score": 42,
+            "tenant_tier": "enterprise",
+            "deadline_at": "2026-03-04T08:00:00Z",
+        }
+        validate_orchestration_hints_contract(payload)
+
+    def test_orchestration_hints_contract_rejects_orphan_parent_task(self) -> None:
+        payload = {
+            "parent_task_id": "orphan:root",
+        }
+        with self.assertRaises(ContractValidationError):
+            validate_orchestration_hints_contract(payload)
 
 
 if __name__ == "__main__":
