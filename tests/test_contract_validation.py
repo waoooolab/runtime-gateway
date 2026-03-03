@@ -103,12 +103,16 @@ class ContractValidationTests(unittest.TestCase):
                 {
                     "family": "acp",
                     "engines": ["claude_code", "codex"],
-                    "adapters": ["direct", "ccb"],
+                    "adapters": ["orchestrator", "ccb"],
+                    "access_modes": ["direct", "api"],
+                    "window_modes": ["inline", "terminal_mux"],
                 },
                 {
                     "family": "workflow_runtime",
                     "engines": ["langgraph"],
-                    "adapters": ["api"],
+                    "adapters": ["runtime_api"],
+                    "access_modes": ["api"],
+                    "window_modes": ["inline"],
                 },
             ]
         }
@@ -120,7 +124,7 @@ class ContractValidationTests(unittest.TestCase):
                 {
                     "family": "acp",
                     "engines": ["claude_code"],
-                    "adapters": ["tmux"],
+                    "adapters": ["invalid_adapter"],
                 }
             ]
         }

@@ -1,5 +1,5 @@
 from runtime_gateway.contracts.validation import ContractValidationError
-from runtime_gateway.executor_profiles import validate_executor_profile
+from runtime_gateway.executor_profiles import list_executor_profiles, validate_executor_profile
 
 
 def test_validate_executor_profile_accepts_supported_profile() -> None:
@@ -28,9 +28,17 @@ def test_validate_executor_profile_rejects_unsupported_adapter() -> None:
         validate_executor_profile(
             family="workflow_runtime",
             engine="langgraph",
-            adapter="direct",
+            adapter="ccb",
         )
     except ContractValidationError as exc:
         assert "unsupported for family 'workflow_runtime'" in str(exc)
     else:
         raise AssertionError("expected ContractValidationError")
+
+
+def test_list_executor_profiles_exposes_axis_separation() -> None:
+    rows = list_executor_profiles()
+    acp = next(item for item in rows if item["family"] == "acp")
+    assert acp["adapters"] == ["orchestrator", "ccb"]
+    assert acp["access_modes"] == ["direct", "api"]
+    assert acp["window_modes"] == ["inline", "terminal_mux"]

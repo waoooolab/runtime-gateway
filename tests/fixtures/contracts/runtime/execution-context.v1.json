@@ -50,9 +50,24 @@
         "adapter": {
           "type": "string",
           "enum": [
-            "direct",
+            "orchestrator",
             "ccb",
+            "runtime_api",
+            "native"
+          ]
+        },
+        "access_mode": {
+          "type": "string",
+          "enum": [
+            "direct",
             "api"
+          ]
+        },
+        "window_mode": {
+          "type": "string",
+          "enum": [
+            "inline",
+            "terminal_mux"
           ]
         }
       },

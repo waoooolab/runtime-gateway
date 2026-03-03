@@ -211,6 +211,8 @@ class EndToEndRunFlowTests(unittest.TestCase):
                 item["family"],
                 tuple(item["engines"]),
                 tuple(item["adapters"]),
+                tuple(item["access_modes"]),
+                tuple(item["window_modes"]),
             )
             for item in items
         )

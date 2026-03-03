@@ -36,9 +36,13 @@ Validation and auth notes:
 - `/v1/runs` sends `command-envelope.v1` to `runtime-execution` via HTTP boundary
 - `/v1/runs` validates downstream event envelope and returns normalized run response
 - `/v1/runs` validates executor profile compatibility for `execution_context.executor`
-  (`family/engine/adapter`) before dispatching downstream
+  (`family/engine/adapter`, optional `access_mode/window_mode`) before dispatching downstream
 - `/v1/executors/profiles` returns the gateway-side supported executor profile catalog
   and requires `runs:read`
+- executor profile catalog fields:
+  - `adapters`: execution program axis (`orchestrator|ccb|runtime_api|native`)
+  - `access_modes`: transport access axis (`direct|api`)
+  - `window_modes`: presentation axis (`inline|terminal_mux`)
 - `/v1/runs/{run_id}:approve` and `:reject` forward to runtime-execution and publish downstream events to gateway event bus
 - `/v1/orchestration/worker:tick` and `/v1/orchestration/worker:drain` forward
   to runtime-execution through delegated service tokens (`runs:write`)

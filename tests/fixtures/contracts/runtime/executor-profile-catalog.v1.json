@@ -44,9 +44,34 @@
             "items": {
               "type": "string",
               "enum": [
-                "direct",
+                "orchestrator",
                 "ccb",
+                "runtime_api",
+                "native"
+              ]
+            }
+          },
+          "access_modes": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "direct",
                 "api"
+              ]
+            }
+          },
+          "window_modes": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "inline",
+                "terminal_mux"
               ]
             }
           }

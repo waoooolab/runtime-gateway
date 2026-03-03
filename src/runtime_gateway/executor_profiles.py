@@ -12,28 +12,38 @@ class ExecutorProfile:
     family: str
     engines: tuple[str, ...]
     adapters: tuple[str, ...]
+    access_modes: tuple[str, ...]
+    window_modes: tuple[str, ...]
 
 
 PROFILES: dict[str, ExecutorProfile] = {
     "acp": ExecutorProfile(
         family="acp",
         engines=("codex", "claude_code", "gemini_cli", "opencode", "droid"),
-        adapters=("direct", "ccb"),
+        adapters=("orchestrator", "ccb"),
+        access_modes=("direct", "api"),
+        window_modes=("inline", "terminal_mux"),
     ),
     "native_agent": ExecutorProfile(
         family="native_agent",
         engines=("pi_ai",),
-        adapters=("direct",),
+        adapters=("native",),
+        access_modes=("direct",),
+        window_modes=("inline",),
     ),
     "workflow_runtime": ExecutorProfile(
         family="workflow_runtime",
         engines=("langgraph",),
-        adapters=("api",),
+        adapters=("runtime_api",),
+        access_modes=("api",),
+        window_modes=("inline",),
     ),
     "compute_runtime": ExecutorProfile(
         family="compute_runtime",
         engines=("device_hub",),
-        adapters=("api",),
+        adapters=("runtime_api",),
+        access_modes=("api",),
+        window_modes=("inline",),
     ),
 }
 
@@ -47,6 +57,8 @@ def list_executor_profiles() -> list[dict[str, object]]:
                 "family": profile.family,
                 "engines": list(profile.engines),
                 "adapters": list(profile.adapters),
+                "access_modes": list(profile.access_modes),
+                "window_modes": list(profile.window_modes),
             }
         )
     return rows

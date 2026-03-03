@@ -170,6 +170,10 @@ class AppIntegrationTests(unittest.TestCase):
         families = {item["family"] for item in data["items"]}
         self.assertIn("acp", families)
         self.assertIn("workflow_runtime", families)
+        acp = next(item for item in data["items"] if item["family"] == "acp")
+        self.assertEqual(acp["adapters"], ["orchestrator", "ccb"])
+        self.assertEqual(acp["access_modes"], ["direct", "api"])
+        self.assertEqual(acp["window_modes"], ["inline", "terminal_mux"])
 
     def test_executor_profiles_rejects_invalid_catalog_payload(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["runs:read"])
@@ -177,7 +181,7 @@ class AppIntegrationTests(unittest.TestCase):
             {
                 "family": "acp",
                 "engines": ["claude_code"],
-                "adapters": ["tmux"],
+                "adapters": ["invalid_adapter"],
             }
         ]
         with patch.object(gateway_app_module, "list_executor_profiles", return_value=invalid_items):
@@ -309,7 +313,7 @@ class AppIntegrationTests(unittest.TestCase):
                 "executor": {
                     "family": "acp",
                     "engine": "claude_code",
-                    "adapter": "api",
+                    "adapter": "runtime_api",
                 },
             },
         }
