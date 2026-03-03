@@ -172,6 +172,32 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(event["payload"]["run_id"], run_id)
         self.assertEqual(event["payload"]["status"], "queued")
 
+    def test_gateway_and_execution_profile_catalog_are_aligned(self) -> None:
+        gateway_response = self.gateway_client.get(
+            "/v1/executors/profiles",
+            headers={"Authorization": f"Bearer {self._gateway_token(['runs:read'])}"},
+        )
+        self.assertEqual(gateway_response.status_code, 200)
+
+        execution_response = self.execution_client.get(
+            "/v1/executors/profiles",
+            headers={"Authorization": f"Bearer {self._execution_token(['runs:read'])}"},
+        )
+        self.assertEqual(execution_response.status_code, 200)
+
+        gateway_items = gateway_response.json()["items"]
+        execution_items = execution_response.json()["items"]
+
+        normalize = lambda items: sorted(  # noqa: E731
+            (
+                item["family"],
+                tuple(item["engines"]),
+                tuple(item["adapters"]),
+            )
+            for item in items
+        )
+        self.assertEqual(normalize(gateway_items), normalize(execution_items))
+
 
 if __name__ == "__main__":
     unittest.main()
