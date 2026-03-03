@@ -40,13 +40,20 @@ class InMemoryEventBus:
         tenant_id: str | None = None,
         app_id: str | None = None,
         event_types: set[str] | None = None,
+        run_id: str | None = None,
     ) -> list[dict[str, Any]]:
         with self._lock:
             snapshot = list(self._records)
         filtered = [
             {"bus_seq": seq, "event": event}
             for seq, event in snapshot
-            if _matches(event, tenant_id=tenant_id, app_id=app_id, event_types=event_types)
+            if _matches(
+                event,
+                tenant_id=tenant_id,
+                app_id=app_id,
+                event_types=event_types,
+                run_id=run_id,
+            )
         ]
         if limit <= 0:
             return []
@@ -59,6 +66,7 @@ class InMemoryEventBus:
         tenant_id: str | None = None,
         app_id: str | None = None,
         event_types: set[str] | None = None,
+        run_id: str | None = None,
     ) -> list[dict[str, Any]]:
         with self._lock:
             snapshot = list(self._records)
@@ -66,7 +74,13 @@ class InMemoryEventBus:
             {"bus_seq": seq, "event": event}
             for seq, event in snapshot
             if seq > cursor
-            and _matches(event, tenant_id=tenant_id, app_id=app_id, event_types=event_types)
+            and _matches(
+                event,
+                tenant_id=tenant_id,
+                app_id=app_id,
+                event_types=event_types,
+                run_id=run_id,
+            )
         ]
 
     def open_connection(self) -> int:
@@ -94,11 +108,19 @@ def _matches(
     tenant_id: str | None,
     app_id: str | None,
     event_types: set[str] | None,
+    run_id: str | None,
 ) -> bool:
     if tenant_id and str(event.get("tenant_id")) != tenant_id:
         return False
     if app_id and str(event.get("app_id")) != app_id:
         return False
     if event_types:
-        return str(event.get("event_type")) in event_types
+        if str(event.get("event_type")) not in event_types:
+            return False
+    if run_id:
+        payload = event.get("payload")
+        if not isinstance(payload, dict):
+            return False
+        if str(payload.get("run_id")) != run_id:
+            return False
     return True

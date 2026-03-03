@@ -22,7 +22,13 @@ else:
     FASTAPI_STACK_AVAILABLE = True
 
 
-def _event_envelope(event_type: str = "runtime.task.updated") -> dict:
+def _event_envelope(event_type: str = "runtime.task.updated", run_id: str | None = None) -> dict:
+    payload: dict = {
+        "task_id": "task-1",
+        "status": "leased",
+    }
+    if run_id is not None:
+        payload["run_id"] = run_id
     return {
         "event_id": str(uuid4()),
         "event_type": event_type,
@@ -32,10 +38,7 @@ def _event_envelope(event_type: str = "runtime.task.updated") -> dict:
         "trace_id": "trace-events-1",
         "correlation_id": "corr-events-1",
         "ts": datetime.now(timezone.utc).isoformat(),
-        "payload": {
-            "task_id": "task-1",
-            "status": "leased",
-        },
+        "payload": payload,
     }
 
 
@@ -108,6 +111,61 @@ class EventBusWebsocketTests(unittest.TestCase):
         items = filtered.json()["items"]
         self.assertGreaterEqual(len(items), 1)
         self.assertTrue(all(i["event"]["event_type"] == "device.lease.acquired" for i in items))
+
+    def test_recent_events_can_filter_by_run_id(self) -> None:
+        token = self._token(scope=["runs:write"])
+        self.client.post(
+            "/v1/events/publish",
+            json=_event_envelope("runtime.run.started", run_id="run-123"),
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.client.post(
+            "/v1/events/publish",
+            json=_event_envelope("runtime.run.started", run_id="run-456"),
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.client.post(
+            "/v1/events/publish",
+            json=_event_envelope("runtime.run.completed", run_id="run-123"),
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        filtered = self.client.get(
+            "/v1/events/recent?run_id=run-123",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(filtered.status_code, 200)
+        items = filtered.json()["items"]
+        self.assertEqual(len(items), 2)
+        self.assertTrue(all(i["event"]["payload"]["run_id"] == "run-123" for i in items))
+
+    def test_recent_events_can_filter_by_run_id_and_event_type(self) -> None:
+        token = self._token(scope=["runs:write"])
+        self.client.post(
+            "/v1/events/publish",
+            json=_event_envelope("runtime.run.started", run_id="run-789"),
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.client.post(
+            "/v1/events/publish",
+            json=_event_envelope("runtime.run.completed", run_id="run-789"),
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.client.post(
+            "/v1/events/publish",
+            json=_event_envelope("runtime.run.completed", run_id="run-999"),
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        filtered = self.client.get(
+            "/v1/events/recent?run_id=run-789&event_types=runtime.run.completed",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(filtered.status_code, 200)
+        items = filtered.json()["items"]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["event"]["payload"]["run_id"], "run-789")
+        self.assertEqual(items[0]["event"]["event_type"], "runtime.run.completed")
 
     def test_websocket_receives_published_event(self) -> None:
         ws_token = self._token(scope=["runs:read"])

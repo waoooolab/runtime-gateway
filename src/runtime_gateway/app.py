@@ -61,6 +61,7 @@ def list_recent_events(
     tenant_id: str | None = None,
     app_id: str | None = None,
     event_types: str | None = None,
+    run_id: str | None = None,
     auth_context: AuthContext = Depends(require_events_read_context),
 ) -> dict:
     claims = auth_context.claims
@@ -77,6 +78,7 @@ def list_recent_events(
             tenant_id=effective_tenant or None,
             app_id=effective_app or None,
             event_types=parsed_types,
+            run_id=run_id,
         ),
         "stats": _event_bus.stats(),
     }
