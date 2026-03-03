@@ -8,6 +8,7 @@ from runtime_gateway.contracts.validation import (
     ContractValidationError,
     validate_event_envelope_contract,
     validate_execution_context_contract,
+    validate_executor_profile_catalog_contract,
     validate_token_exchange_contract,
 )
 from runtime_gateway.events.envelope import build_event_envelope
@@ -94,6 +95,36 @@ class ContractValidationTests(unittest.TestCase):
         }
         with self.assertRaises(ContractValidationError):
             validate_execution_context_contract(payload)
+
+    def test_executor_profile_catalog_contract_valid(self) -> None:
+        payload = {
+            "items": [
+                {
+                    "family": "acp_cli",
+                    "engines": ["claude_code", "codex"],
+                    "adapters": ["direct", "ccb"],
+                },
+                {
+                    "family": "workflow_runtime",
+                    "engines": ["langgraph"],
+                    "adapters": ["api"],
+                },
+            ]
+        }
+        validate_executor_profile_catalog_contract(payload)
+
+    def test_executor_profile_catalog_contract_rejects_invalid_adapter(self) -> None:
+        payload = {
+            "items": [
+                {
+                    "family": "acp_cli",
+                    "engines": ["claude_code"],
+                    "adapters": ["tmux"],
+                }
+            ]
+        }
+        with self.assertRaises(ContractValidationError):
+            validate_executor_profile_catalog_contract(payload)
 
 
 if __name__ == "__main__":

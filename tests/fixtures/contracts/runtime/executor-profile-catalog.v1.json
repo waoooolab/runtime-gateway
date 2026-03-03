@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://waoooolab.dev/contracts/runtime/executor-profile-catalog.v1.json",
+  "title": "ExecutorProfileCatalogV1",
+  "description": "Supported executor family/engine/adapter combinations exposed by runtime APIs.",
+  "type": "object",
+  "required": [
+    "items"
+  ],
+  "properties": {
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "family",
+          "engines",
+          "adapters"
+        ],
+        "properties": {
+          "family": {
+            "type": "string",
+            "enum": [
+              "native_agent",
+              "acp_cli",
+              "workflow_runtime",
+              "compute_runtime"
+            ]
+          },
+          "engines": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "adapters": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "direct",
+                "ccb",
+                "api"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

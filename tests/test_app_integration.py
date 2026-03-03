@@ -5,6 +5,7 @@ import unittest
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from runtime_gateway.audit.emitter import clear_audit_events
 from runtime_gateway.auth.tokens import issue_token
@@ -169,6 +170,24 @@ class AppIntegrationTests(unittest.TestCase):
         families = {item["family"] for item in data["items"]}
         self.assertIn("acp_cli", families)
         self.assertIn("workflow_runtime", families)
+
+    def test_executor_profiles_rejects_invalid_catalog_payload(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:read"])
+        invalid_items = [
+            {
+                "family": "acp_cli",
+                "engines": ["claude_code"],
+                "adapters": ["tmux"],
+            }
+        ]
+        with patch.object(gateway_app_module, "list_executor_profiles", return_value=invalid_items):
+            response = self.client.get(
+                "/v1/executors/profiles",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertIn("invalid executor profile catalog", response.json()["detail"])
 
     def test_runs_accepts_valid_token(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["runs:write"])

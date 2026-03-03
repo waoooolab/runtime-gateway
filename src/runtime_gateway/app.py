@@ -13,6 +13,7 @@ from .api.schemas import (
     TokenExchangeResponse,
 )
 from .audit.emitter import emit_audit_event, get_audit_events, read_audit_log
+from .contracts import ContractValidationError, validate_executor_profile_catalog_contract
 from .events.bus import InMemoryEventBus
 from .events.validation import validate_event_envelope
 from .executor_profiles import list_executor_profiles
@@ -179,6 +180,11 @@ def get_executor_profiles(
     auth_context: AuthContext = Depends(require_runs_read_context),
 ) -> dict[str, Any]:
     _ = auth_context
-    return {
+    payload = {
         "items": list_executor_profiles(),
     }
+    try:
+        validate_executor_profile_catalog_contract(payload)
+    except ContractValidationError as exc:
+        raise HTTPException(status_code=500, detail=f"invalid executor profile catalog: {exc}") from exc
+    return payload
