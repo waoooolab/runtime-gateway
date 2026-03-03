@@ -16,6 +16,7 @@ from .contracts.validation import (
     validate_command_envelope_contract,
     validate_execution_context_contract,
 )
+from .executor_profiles import validate_executor_profile
 from .events.validation import validate_event_envelope
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
 
@@ -53,6 +54,16 @@ def _validate_execution_context_payload(req: CreateRunRequest) -> None:
         validate_execution_context_contract(raw_context)
     except ContractValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    executor = raw_context.get("executor")
+    if isinstance(executor, dict):
+        try:
+            validate_executor_profile(
+                family=str(executor.get("family", "")).strip(),
+                engine=str(executor.get("engine", "")).strip(),
+                adapter=str(executor.get("adapter", "")).strip(),
+            )
+        except ContractValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     if str(raw_context.get("task_plane")) != "runtime_workload":
         return

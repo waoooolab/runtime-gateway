@@ -217,6 +217,52 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertIn("must match execution_profile.execution_mode", response.json()["detail"])
         self.assertIsNone(self.fake_execution_client.last_submit)
 
+    def test_runs_rejects_unsupported_executor_engine_profile(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        payload = dict(self.payload)
+        payload["payload"] = {
+            "goal": "build feature",
+            "execution_context": {
+                "task_plane": "agent_work",
+                "executor": {
+                    "family": "acp_cli",
+                    "engine": "my_custom_cli",
+                    "adapter": "ccb",
+                },
+            },
+        }
+        response = self.client.post(
+            "/v1/runs",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("unsupported for family 'acp_cli'", response.json()["detail"])
+        self.assertIsNone(self.fake_execution_client.last_submit)
+
+    def test_runs_rejects_unsupported_executor_adapter_profile(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        payload = dict(self.payload)
+        payload["payload"] = {
+            "goal": "build feature",
+            "execution_context": {
+                "task_plane": "agent_work",
+                "executor": {
+                    "family": "acp_cli",
+                    "engine": "claude_code",
+                    "adapter": "api",
+                },
+            },
+        }
+        response = self.client.post(
+            "/v1/runs",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("unsupported for family 'acp_cli'", response.json()["detail"])
+        self.assertIsNone(self.fake_execution_client.last_submit)
+
     def test_runs_propagates_trace_id_to_runtime_execution(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["runs:write"])
         response = self.client.post(

@@ -32,9 +32,13 @@ Validation and auth notes:
 - `/v1/runs` exchanges caller token into delegated `aud=runtime-execution` service token
 - `/v1/runs` sends `command-envelope.v1` to `runtime-execution` via HTTP boundary
 - `/v1/runs` validates downstream event envelope and returns normalized run response
+- `/v1/runs` validates executor profile compatibility for `execution_context.executor`
+  (`family/engine/adapter`) before dispatching downstream
 - `/v1/runs/{run_id}:approve` and `:reject` forward to runtime-execution and publish downstream events to gateway event bus
 - auth and run actions emit audit events in memory, and optionally to file via `RUNTIME_GATEWAY_AUDIT_LOG_PATH`
-- gateway currently forwards runtime workload route semantics (`execution_mode=control|compute`) and does not yet consume OpenWaoooo task-plane/executor fields directly
+- gateway currently forwards runtime workload route semantics
+  (`execution_mode=control|compute`) and consumes `execution_context.executor`
+  as an ingress compatibility gate (not as dispatch target selector)
 
 Required environment:
 - `RUNTIME_EXECUTION_BASE_URL` (default: `http://localhost:8003`)
