@@ -21,6 +21,7 @@ Current endpoints:
 - `GET /v1/audit/events` (dev baseline read endpoint)
 - `POST /v1/auth/token/exchange` (baseline delegated token exchange)
 - `POST /v1/runs` (protected by Bearer token middleware)
+- `GET /v1/executors/profiles` (protected by Bearer token middleware)
 - `POST /v1/runs/{run_id}:approve` (protected by Bearer token middleware)
 - `POST /v1/runs/{run_id}:reject` (protected by Bearer token middleware)
 
@@ -34,6 +35,8 @@ Validation and auth notes:
 - `/v1/runs` validates downstream event envelope and returns normalized run response
 - `/v1/runs` validates executor profile compatibility for `execution_context.executor`
   (`family/engine/adapter`) before dispatching downstream
+- `/v1/executors/profiles` returns the gateway-side supported executor profile catalog
+  and requires `runs:read`
 - `/v1/runs/{run_id}:approve` and `:reject` forward to runtime-execution and publish downstream events to gateway event bus
 - auth and run actions emit audit events in memory, and optionally to file via `RUNTIME_GATEWAY_AUDIT_LOG_PATH`
 - gateway currently forwards runtime workload route semantics

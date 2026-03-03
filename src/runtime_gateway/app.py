@@ -15,6 +15,7 @@ from .api.schemas import (
 from .audit.emitter import emit_audit_event, get_audit_events, read_audit_log
 from .events.bus import InMemoryEventBus
 from .events.validation import validate_event_envelope
+from .executor_profiles import list_executor_profiles
 from .integration import RuntimeExecutionClient
 from .run_approval import dispatch_approve_run, dispatch_reject_run
 from .run_dispatch import dispatch_create_run
@@ -23,6 +24,7 @@ from .security import (
     allowed_event_type,
     require_events_read_context,
     require_events_write_context,
+    require_runs_read_context,
     require_runs_write_context,
 )
 from .token_exchange_api import token_exchange_response
@@ -170,3 +172,13 @@ def reject_run(
         execution_client=_execution_client,
         publish_gateway_event=_publish_gateway_event,
     )
+
+
+@app.get("/v1/executors/profiles")
+def get_executor_profiles(
+    auth_context: AuthContext = Depends(require_runs_read_context),
+) -> dict[str, Any]:
+    _ = auth_context
+    return {
+        "items": list_executor_profiles(),
+    }

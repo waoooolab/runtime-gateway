@@ -38,6 +38,20 @@ PROFILES: dict[str, ExecutorProfile] = {
 }
 
 
+def list_executor_profiles() -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for family in sorted(PROFILES.keys()):
+        profile = PROFILES[family]
+        rows.append(
+            {
+                "family": profile.family,
+                "engines": list(profile.engines),
+                "adapters": list(profile.adapters),
+            }
+        )
+    return rows
+
+
 def validate_executor_profile(*, family: str, engine: str, adapter: str) -> None:
     profile = PROFILES.get(family)
     if profile is None:

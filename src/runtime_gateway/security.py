@@ -91,6 +91,33 @@ def require_runs_write_context(authorization: str | None = Header(default=None))
     return AuthContext(claims=claims, subject_token=token)
 
 
+def require_runs_read_context(authorization: str | None = Header(default=None)) -> AuthContext:
+    action = "runs.read"
+    token = _extract_bearer_token(authorization, action=action)
+    claims = _verify_gateway_token(token, action=action)
+
+    actor_id = str(claims.get("sub", "unknown"))
+    scope = claims.get("scope", [])
+    if not isinstance(scope, list) or "runs:read" not in scope:
+        emit_audit_event(
+            action=action,
+            decision="deny",
+            actor_id=actor_id,
+            trace_id=str(claims.get("trace_id", "")),
+            metadata={"reason": "missing required scope", "required_scope": "runs:read"},
+        )
+        raise HTTPException(status_code=403, detail="missing required scope: runs:read")
+
+    emit_audit_event(
+        action=action,
+        decision="allow",
+        actor_id=actor_id,
+        trace_id=str(claims.get("trace_id", "")),
+        metadata={"scope": scope},
+    )
+    return AuthContext(claims=claims, subject_token=token)
+
+
 def require_events_write_context(authorization: str | None = Header(default=None)) -> AuthContext:
     action = "events.publish"
     token = _extract_bearer_token(authorization, action=action)

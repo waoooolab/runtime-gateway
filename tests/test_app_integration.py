@@ -148,6 +148,28 @@ class AppIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
+    def test_executor_profiles_requires_runs_read_scope(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        response = self.client.get(
+            "/v1/executors/profiles",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_executor_profiles_returns_profile_catalog(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:read"])
+        response = self.client.get(
+            "/v1/executors/profiles",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("items", data)
+        self.assertTrue(isinstance(data["items"], list))
+        families = {item["family"] for item in data["items"]}
+        self.assertIn("acp_cli", families)
+        self.assertIn("workflow_runtime", families)
+
     def test_runs_accepts_valid_token(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["runs:write"])
         response = self.client.post(
