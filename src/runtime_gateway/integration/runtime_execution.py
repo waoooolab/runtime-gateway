@@ -98,3 +98,63 @@ class RuntimeExecutionClient:
                 response_body=_try_parse_json_object(raw),
             )
         return _parse_response_body(raw, url)
+
+    def approve_run(self, *, run_id: str, auth_token: str) -> dict[str, Any]:
+        """Approve a run by calling runtime-execution approve endpoint."""
+        url = urljoin(self.base_url.rstrip("/") + "/", f"v1/runs/{run_id}:approve")
+        request = urllib.request.Request(
+            url=url,
+            method="POST",
+            data=b"{}",
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Authorization": f"Bearer {auth_token}",
+            },
+        )
+        try:
+            with self._transport(request, timeout=self.timeout_seconds) as response:
+                status = int(response.getcode())
+                raw = response.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            raise _parse_http_error(exc, url) from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeExecutionClientError(f"connection error calling {url}: {exc.reason}") from exc
+
+        if status >= 400:
+            raise RuntimeExecutionClientError(
+                f"HTTP {status} calling {url}",
+                status_code=status,
+                response_body=_try_parse_json_object(raw),
+            )
+        return _parse_response_body(raw, url)
+
+    def reject_run(self, *, run_id: str, auth_token: str) -> dict[str, Any]:
+        """Reject a run by calling runtime-execution reject endpoint."""
+        url = urljoin(self.base_url.rstrip("/") + "/", f"v1/runs/{run_id}:reject")
+        request = urllib.request.Request(
+            url=url,
+            method="POST",
+            data=b"{}",
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Authorization": f"Bearer {auth_token}",
+            },
+        )
+        try:
+            with self._transport(request, timeout=self.timeout_seconds) as response:
+                status = int(response.getcode())
+                raw = response.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            raise _parse_http_error(exc, url) from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeExecutionClientError(f"connection error calling {url}: {exc.reason}") from exc
+
+        if status >= 400:
+            raise RuntimeExecutionClientError(
+                f"HTTP {status} calling {url}",
+                status_code=status,
+                response_body=_try_parse_json_object(raw),
+            )
+        return _parse_response_body(raw, url)

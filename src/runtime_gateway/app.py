@@ -16,6 +16,7 @@ from .audit.emitter import emit_audit_event, get_audit_events, read_audit_log
 from .events.bus import InMemoryEventBus
 from .events.validation import validate_event_envelope
 from .integration import RuntimeExecutionClient
+from .run_approval import dispatch_approve_run, dispatch_reject_run
 from .run_dispatch import dispatch_create_run
 from .security import (
     AuthContext,
@@ -136,6 +137,34 @@ def create_run(
 ) -> CreateRunResponse:
     return dispatch_create_run(
         req=req,
+        claims=auth_context.claims,
+        subject_token=auth_context.subject_token,
+        execution_client=_execution_client,
+        publish_gateway_event=_publish_gateway_event,
+    )
+
+
+@app.post("/v1/runs/{run_id}:approve")
+def approve_run(
+    run_id: str,
+    auth_context: AuthContext = Depends(require_runs_write_context),
+) -> dict[str, Any]:
+    return dispatch_approve_run(
+        run_id=run_id,
+        claims=auth_context.claims,
+        subject_token=auth_context.subject_token,
+        execution_client=_execution_client,
+        publish_gateway_event=_publish_gateway_event,
+    )
+
+
+@app.post("/v1/runs/{run_id}:reject")
+def reject_run(
+    run_id: str,
+    auth_context: AuthContext = Depends(require_runs_write_context),
+) -> dict[str, Any]:
+    return dispatch_reject_run(
+        run_id=run_id,
         claims=auth_context.claims,
         subject_token=auth_context.subject_token,
         execution_client=_execution_client,
