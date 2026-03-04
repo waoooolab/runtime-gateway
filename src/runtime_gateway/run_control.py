@@ -67,6 +67,17 @@ def _parse_optional_bool(payload: dict[str, Any], *, key: str) -> bool | None:
     return value
 
 
+def _parse_requested_by_run_id(payload: dict[str, Any], *, primary_key: str) -> str | None:
+    primary = _parse_optional_str(payload, key=primary_key)
+    shared = _parse_optional_str(payload, key="requested_by_run_id")
+    if primary is not None and shared is not None and primary != shared:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{primary_key} and requested_by_run_id must match when both are present",
+        )
+    return primary if primary is not None else shared
+
+
 def _submit_control_action(
     *,
     action: str,
@@ -154,7 +165,10 @@ def dispatch_cancel_run(
     payload = _require_object_payload(body)
     reason = _parse_optional_str(payload, key="reason")
     cascade_children = _parse_optional_bool(payload, key="cascade_children")
-    canceled_by_run_id = _parse_optional_str(payload, key="canceled_by_run_id")
+    canceled_by_run_id = _parse_requested_by_run_id(
+        payload,
+        primary_key="canceled_by_run_id",
+    )
     return _submit_control_action(
         action="runs.cancel",
         run_id=run_id,
@@ -184,7 +198,10 @@ def dispatch_timeout_run(
     payload = _require_object_payload(body)
     reason = _parse_optional_str(payload, key="reason")
     cascade_children = _parse_optional_bool(payload, key="cascade_children")
-    timed_out_by_run_id = _parse_optional_str(payload, key="timed_out_by_run_id")
+    timed_out_by_run_id = _parse_requested_by_run_id(
+        payload,
+        primary_key="timed_out_by_run_id",
+    )
     return _submit_control_action(
         action="runs.timeout",
         run_id=run_id,

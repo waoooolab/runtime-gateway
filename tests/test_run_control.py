@@ -13,7 +13,6 @@ from fastapi.testclient import TestClient
 from runtime_gateway.app import app
 from runtime_gateway.auth.tokens import issue_token
 from runtime_gateway.integration import RuntimeExecutionClient, RuntimeExecutionClientError
-
 os.environ["WAOOOOLAB_PLATFORM_CONTRACTS_DIR"] = str(
     Path(__file__).resolve().parent / "fixtures" / "contracts"
 )
@@ -130,6 +129,32 @@ def test_timeout_run_happy_path(
         reason="deadline_exceeded",
         cascade_children=True,
         timed_out_by_run_id="run-watchdog",
+    )
+    mock_token_exchange.assert_called_once()
+
+
+def test_cancel_run_accepts_requested_by_run_id_alias(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.cancel_run.return_value = _run_status_event(
+        run_id="run-cancel-alias",
+        status="canceled",
+    )
+    client = TestClient(app)
+    response = client.post(
+        "/v1/runs/run-cancel-alias:cancel",
+        json={"requested_by_run_id": "run-shared-requester"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    mock_execution_client.cancel_run.assert_called_once_with(
+        run_id="run-cancel-alias",
+        auth_token="delegated-token",
+        reason=None,
+        cascade_children=None,
+        canceled_by_run_id="run-shared-requester",
     )
     mock_token_exchange.assert_called_once()
 
