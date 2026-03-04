@@ -6,28 +6,20 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, WebSocket
 
-from .api.schemas import (
-    CreateRunRequest,
-    CreateRunResponse,
-    TokenExchangeRequest,
-    TokenExchangeResponse,
-)
+from .api.schemas import TokenExchangeRequest, TokenExchangeResponse
 from .audit.emitter import emit_audit_event, get_audit_events, read_audit_log
 from .contracts import ContractValidationError, validate_executor_profile_catalog_contract
 from .events.bus import InMemoryEventBus
 from .events.validation import validate_event_envelope
 from .executor_profiles import list_executor_profiles
 from .integration import RuntimeExecutionClient
-from .run_approval import dispatch_approve_run, dispatch_reject_run
-from .run_dispatch import dispatch_create_run
-from .run_worker import dispatch_worker_drain, dispatch_worker_tick
+from .routes_runs import register_run_routes
 from .security import (
     AuthContext,
     allowed_event_type,
     require_events_read_context,
     require_events_write_context,
     require_runs_read_context,
-    require_runs_write_context,
 )
 from .token_exchange_api import token_exchange_response
 from .ws_events import handle_websocket_events
@@ -136,80 +128,6 @@ def token_exchange(req: TokenExchangeRequest) -> TokenExchangeResponse:
     return token_exchange_response(req)
 
 
-@app.post("/v1/runs", response_model=CreateRunResponse)
-def create_run(
-    req: CreateRunRequest,
-    auth_context: AuthContext = Depends(require_runs_write_context),
-) -> CreateRunResponse:
-    return dispatch_create_run(
-        req=req,
-        claims=auth_context.claims,
-        subject_token=auth_context.subject_token,
-        execution_client=_execution_client,
-        publish_gateway_event=_publish_gateway_event,
-    )
-
-
-@app.post("/v1/runs/{run_id}:approve")
-def approve_run(
-    run_id: str,
-    auth_context: AuthContext = Depends(require_runs_write_context),
-) -> dict[str, Any]:
-    return dispatch_approve_run(
-        run_id=run_id,
-        claims=auth_context.claims,
-        subject_token=auth_context.subject_token,
-        execution_client=_execution_client,
-        publish_gateway_event=_publish_gateway_event,
-    )
-
-
-@app.post("/v1/runs/{run_id}:reject")
-def reject_run(
-    run_id: str,
-    auth_context: AuthContext = Depends(require_runs_write_context),
-) -> dict[str, Any]:
-    return dispatch_reject_run(
-        run_id=run_id,
-        claims=auth_context.claims,
-        subject_token=auth_context.subject_token,
-        execution_client=_execution_client,
-        publish_gateway_event=_publish_gateway_event,
-    )
-
-
-@app.post("/v1/orchestration/worker:tick")
-def worker_tick(
-    fair: bool = True,
-    auto_start: bool = True,
-    auth_context: AuthContext = Depends(require_runs_write_context),
-) -> dict[str, Any]:
-    return dispatch_worker_tick(
-        claims=auth_context.claims,
-        subject_token=auth_context.subject_token,
-        execution_client=_execution_client,
-        fair=fair,
-        auto_start=auto_start,
-    )
-
-
-@app.post("/v1/orchestration/worker:drain")
-def worker_drain(
-    max_items: int = 16,
-    fair: bool = True,
-    auto_start: bool = True,
-    auth_context: AuthContext = Depends(require_runs_write_context),
-) -> dict[str, Any]:
-    return dispatch_worker_drain(
-        claims=auth_context.claims,
-        subject_token=auth_context.subject_token,
-        execution_client=_execution_client,
-        max_items=max_items,
-        fair=fair,
-        auto_start=auto_start,
-    )
-
-
 @app.get("/v1/executors/profiles")
 def get_executor_profiles(
     auth_context: AuthContext = Depends(require_runs_read_context),
@@ -223,3 +141,10 @@ def get_executor_profiles(
     except ContractValidationError as exc:
         raise HTTPException(status_code=500, detail=f"invalid executor profile catalog: {exc}") from exc
     return payload
+
+
+register_run_routes(
+    app=app,
+    get_execution_client=lambda: _execution_client,
+    publish_gateway_event=_publish_gateway_event,
+)

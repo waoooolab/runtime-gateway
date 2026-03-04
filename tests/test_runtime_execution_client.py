@@ -10,7 +10,6 @@ from runtime_gateway.integration.runtime_execution import (
     RuntimeExecutionClientError,
 )
 
-
 class RuntimeExecutionClientTests(unittest.TestCase):
     def test_submit_command_http_error_preserves_status_and_response_body(self) -> None:
         def transport(request, timeout=10.0):
@@ -135,6 +134,86 @@ class RuntimeExecutionClientTests(unittest.TestCase):
         self.assertIsInstance(exc.response_body, dict)
         assert exc.response_body is not None
         self.assertIn("max_items", str(exc.response_body.get("detail", "")))
+
+    def test_cancel_run_sends_payload_fields(self) -> None:
+        captured: dict[str, str] = {}
+
+        class _Response:
+            def getcode(self) -> int:
+                return 200
+
+            def read(self) -> bytes:
+                return b'{"event_type":"runtime.run.status","payload":{"status":"canceled"}}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+                return None
+
+        def transport(request, timeout=10.0):
+            _ = timeout
+            captured["url"] = request.full_url
+            captured["body"] = request.data.decode("utf-8")
+            return _Response()
+
+        client = RuntimeExecutionClient(
+            base_url="http://runtime-execution.test",
+            _transport=transport,
+        )
+        payload = client.cancel_run(
+            run_id="run-cancel-3",
+            auth_token="token-1",
+            reason="manual_stop",
+            cascade_children=False,
+            canceled_by_run_id="run-controller",
+        )
+        self.assertEqual(payload["event_type"], "runtime.run.status")
+        self.assertIn("/v1/runs/run-cancel-3:cancel", captured["url"])
+        self.assertIn('"reason":"manual_stop"', captured["body"])
+        self.assertIn('"cascade_children":false', captured["body"])
+        self.assertIn('"canceled_by_run_id":"run-controller"', captured["body"])
+
+    def test_timeout_run_sends_payload_fields(self) -> None:
+        captured: dict[str, str] = {}
+
+        class _Response:
+            def getcode(self) -> int:
+                return 200
+
+            def read(self) -> bytes:
+                return b'{"event_type":"runtime.run.status","payload":{"status":"timed_out"}}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+                return None
+
+        def transport(request, timeout=10.0):
+            _ = timeout
+            captured["url"] = request.full_url
+            captured["body"] = request.data.decode("utf-8")
+            return _Response()
+
+        client = RuntimeExecutionClient(
+            base_url="http://runtime-execution.test",
+            _transport=transport,
+        )
+        payload = client.timeout_run(
+            run_id="run-timeout-3",
+            auth_token="token-1",
+            reason="deadline_exceeded",
+            cascade_children=True,
+            timed_out_by_run_id="run-watchdog",
+        )
+        self.assertEqual(payload["event_type"], "runtime.run.status")
+        self.assertIn("/v1/runs/run-timeout-3:timeout", captured["url"])
+        self.assertIn('"reason":"deadline_exceeded"', captured["body"])
+        self.assertIn('"cascade_children":true', captured["body"])
+        self.assertIn('"timed_out_by_run_id":"run-watchdog"', captured["body"])
 
 
 if __name__ == "__main__":

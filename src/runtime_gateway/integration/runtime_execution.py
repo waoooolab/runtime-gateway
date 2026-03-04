@@ -50,6 +50,23 @@ def _build_request(url: str, envelope: dict[str, Any], auth_token: str) -> urlli
     return urllib.request.Request(url=url, method="POST", data=body, headers=headers)
 
 
+def _build_run_control_body(
+    *,
+    reason: str | None = None,
+    cascade_children: bool | None = None,
+    by_run_key: str | None = None,
+    by_run_id: str | None = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {}
+    if reason is not None:
+        body["reason"] = reason
+    if cascade_children is not None:
+        body["cascade_children"] = cascade_children
+    if by_run_key is not None and by_run_id is not None:
+        body[by_run_key] = by_run_id
+    return body
+
+
 def _compose_url(
     *,
     base_url: str,
@@ -129,27 +146,47 @@ class RuntimeExecutionClient:
         return _parse_response_body(raw, url)
 
     def submit_command(self, *, envelope: dict[str, Any], auth_token: str) -> dict[str, Any]:
-        return self._post_json(
-            path="v1/runs",
-            auth_token=auth_token,
-            body=envelope,
-        )
+        return self._post_json(path="v1/runs", auth_token=auth_token, body=envelope)
 
     def approve_run(self, *, run_id: str, auth_token: str) -> dict[str, Any]:
-        """Approve a run by calling runtime-execution approve endpoint."""
-        return self._post_json(
-            path=f"v1/runs/{run_id}:approve",
-            auth_token=auth_token,
-            body={},
-        )
+        return self._post_json(path=f"v1/runs/{run_id}:approve", auth_token=auth_token, body={})
 
     def reject_run(self, *, run_id: str, auth_token: str) -> dict[str, Any]:
-        """Reject a run by calling runtime-execution reject endpoint."""
-        return self._post_json(
-            path=f"v1/runs/{run_id}:reject",
-            auth_token=auth_token,
-            body={},
+        return self._post_json(path=f"v1/runs/{run_id}:reject", auth_token=auth_token, body={})
+
+    def cancel_run(
+        self,
+        *,
+        run_id: str,
+        auth_token: str,
+        reason: str | None = None,
+        cascade_children: bool | None = None,
+        canceled_by_run_id: str | None = None,
+    ) -> dict[str, Any]:
+        body = _build_run_control_body(
+            reason=reason,
+            cascade_children=cascade_children,
+            by_run_key="canceled_by_run_id",
+            by_run_id=canceled_by_run_id,
         )
+        return self._post_json(path=f"v1/runs/{run_id}:cancel", auth_token=auth_token, body=body)
+
+    def timeout_run(
+        self,
+        *,
+        run_id: str,
+        auth_token: str,
+        reason: str | None = None,
+        cascade_children: bool | None = None,
+        timed_out_by_run_id: str | None = None,
+    ) -> dict[str, Any]:
+        body = _build_run_control_body(
+            reason=reason,
+            cascade_children=cascade_children,
+            by_run_key="timed_out_by_run_id",
+            by_run_id=timed_out_by_run_id,
+        )
+        return self._post_json(path=f"v1/runs/{run_id}:timeout", auth_token=auth_token, body=body)
 
     def worker_tick(
         self,
@@ -158,15 +195,11 @@ class RuntimeExecutionClient:
         fair: bool = True,
         auto_start: bool = True,
     ) -> dict[str, Any]:
-        """Run one worker tick in runtime-execution."""
         return self._post_json(
             path="v1/orchestration/worker:tick",
             auth_token=auth_token,
             body={},
-            query={
-                "fair": fair,
-                "auto_start": auto_start,
-            },
+            query={"fair": fair, "auto_start": auto_start},
         )
 
     def worker_drain(
@@ -177,14 +210,9 @@ class RuntimeExecutionClient:
         fair: bool = True,
         auto_start: bool = True,
     ) -> dict[str, Any]:
-        """Run a bounded worker loop in runtime-execution."""
         return self._post_json(
             path="v1/orchestration/worker:drain",
             auth_token=auth_token,
             body={},
-            query={
-                "max_items": max_items,
-                "fair": fair,
-                "auto_start": auto_start,
-            },
+            query={"max_items": max_items, "fair": fair, "auto_start": auto_start},
         )
