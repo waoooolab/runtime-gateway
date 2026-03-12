@@ -65,6 +65,7 @@ def _build_run_control_body(
     by_run_key: str | None = None,
     by_run_id: str | None = None,
     success: bool | None = None,
+    failure_reason_code: str | None = None,
 ) -> dict[str, Any]:
     body: dict[str, Any] = {}
     if reason is not None:
@@ -73,6 +74,8 @@ def _build_run_control_body(
         body["cascade_children"] = cascade_children
     if success is not None:
         body["success"] = success
+    if failure_reason_code is not None:
+        body["failure_reason_code"] = failure_reason_code
     if by_run_key is not None and by_run_id is not None:
         body[by_run_key] = by_run_id
     return body
@@ -208,8 +211,12 @@ class RuntimeExecutionClient:
         run_id: str,
         auth_token: str,
         success: bool,
+        failure_reason_code: str | None = None,
     ) -> dict[str, Any]:
-        body = _build_run_control_body(success=success)
+        body = _build_run_control_body(
+            success=success,
+            failure_reason_code=failure_reason_code,
+        )
         return self._post_json(path=f"v1/runs/{run_id}:complete", auth_token=auth_token, body=body)
 
     def cancel_run(

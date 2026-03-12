@@ -1031,7 +1031,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
 
         final_complete = self.gateway_client.post(
             f"/v1/runs/{run_id}:complete",
-            json={"success": False},
+            json={"success": False, "failure_reason_code": "tool_contract_violation"},
             headers={"Authorization": f"Bearer {token}"},
         )
         self.assertEqual(final_complete.status_code, 200)
@@ -1041,7 +1041,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         assert lease_id is not None
         lease = device_hub_app_module._hub.leases[lease_id]
         self.assertEqual(lease.status, "expired")
-        self.assertEqual(lease.expire_reason_code, "run_failed")
+        self.assertEqual(lease.expire_reason_code, "tool_contract_violation")
 
         capacity_response = device_hub_client.get(
             "/v1/placements/capacity",

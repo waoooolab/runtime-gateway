@@ -237,6 +237,9 @@ def dispatch_complete_run(
 ) -> dict[str, Any]:
     payload = _require_object_payload(body)
     success = _parse_required_bool(payload, key="success")
+    failure_reason_code = _parse_optional_str(payload, key="failure_reason_code")
+    if success and failure_reason_code is not None:
+        raise HTTPException(status_code=422, detail="failure_reason_code is only allowed when success=false")
     return _submit_control_action(
         action="runs.complete",
         run_id=run_id,
@@ -248,5 +251,6 @@ def dispatch_complete_run(
             run_id=target_run_id,
             auth_token=auth_token,
             success=success,
+            failure_reason_code=failure_reason_code,
         ),
     )
