@@ -200,6 +200,15 @@ def test_worker_drain_downstream_4xx_error(
     assert detail["stalled_signal"] is True
     assert detail["anomaly_ratio"] == 1.0
     assert "HTTP 422" in detail["message"]
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "orchestration.worker_drain"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["status_code"] == 422
+    assert audit["metadata"]["downstream_detail"] == "max_items must be integer > 0"
+    assert audit["metadata"]["processed"] == 0
+    assert audit["metadata"]["remaining"] == 3
+    assert audit["metadata"]["stalled_signal"] is True
+    assert audit["metadata"]["anomaly_ratio"] == 1.0
 
 
 def test_worker_tick_downstream_connection_error(
@@ -291,6 +300,14 @@ def test_worker_health_downstream_4xx_error_is_structured(
     assert detail["health_state"] == "stalled"
     assert detail["is_stalled"] is True
     assert detail["queue_depth"] == 5
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "orchestration.worker_health"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["status_code"] == 409
+    assert audit["metadata"]["downstream_detail"] == "worker stalled"
+    assert audit["metadata"]["health_state"] == "stalled"
+    assert audit["metadata"]["is_stalled"] is True
+    assert audit["metadata"]["queue_depth"] == 5
 
 
 def test_worker_endpoints_require_bearer_token() -> None:
