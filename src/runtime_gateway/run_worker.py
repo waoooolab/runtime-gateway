@@ -76,6 +76,12 @@ def _build_worker_error_detail(
         value = response_body.get(key)
         if isinstance(value, dict):
             detail[key] = value
+    if "recommended_poll_after_ms" not in detail:
+        scheduling_signal = detail.get("scheduling_signal")
+        if isinstance(scheduling_signal, dict):
+            nested_poll_hint = scheduling_signal.get("recommended_poll_after_ms")
+            if nested_poll_hint is not None:
+                detail["recommended_poll_after_ms"] = nested_poll_hint
     return detail
 
 
@@ -115,6 +121,12 @@ def _build_worker_error_audit_metadata(
         value = response_body.get(key)
         if isinstance(value, dict):
             metadata[key] = value
+    if "recommended_poll_after_ms" not in metadata:
+        scheduling_signal = metadata.get("scheduling_signal")
+        if isinstance(scheduling_signal, dict):
+            nested_poll_hint = scheduling_signal.get("recommended_poll_after_ms")
+            if nested_poll_hint is not None:
+                metadata["recommended_poll_after_ms"] = nested_poll_hint
     return metadata
 
 

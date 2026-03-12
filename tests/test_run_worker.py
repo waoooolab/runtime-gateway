@@ -216,6 +216,7 @@ def test_worker_drain_downstream_4xx_error(
     assert detail["anomaly_counts"] == {"missing_run": 2, "skipped": 1, "total": 3}
     assert detail["scheduling_signal"]["stalled_signal"] is True
     assert detail["scheduling_signal"]["recommended_poll_after_ms"] == 1000
+    assert detail["recommended_poll_after_ms"] == 1000
     assert "HTTP 422" in detail["message"]
     audit = get_audit_events(limit=1)[0]
     assert audit["action"] == "orchestration.worker_drain"
@@ -230,6 +231,7 @@ def test_worker_drain_downstream_4xx_error(
     assert audit["metadata"]["anomaly_counts"] == {"missing_run": 2, "skipped": 1, "total": 3}
     assert audit["metadata"]["scheduling_signal"]["stalled_signal"] is True
     assert audit["metadata"]["scheduling_signal"]["recommended_poll_after_ms"] == 1000
+    assert audit["metadata"]["recommended_poll_after_ms"] == 1000
 
 
 def test_worker_tick_downstream_connection_error(
