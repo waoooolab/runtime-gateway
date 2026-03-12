@@ -105,6 +105,7 @@ def test_worker_health_happy_path(
         "is_tick_stale": False,
         "is_backlogged": False,
         "is_stalled": False,
+        "health_state": "healthy",
     }
 
     client = TestClient(app)
@@ -116,6 +117,7 @@ def test_worker_health_happy_path(
     assert payload["last_tick_outcome"] == "progressed"
     assert payload["drain_processed_total"] == 17
     assert payload["is_stalled"] is False
+    assert payload["health_state"] == "healthy"
     mock_execution_client.worker_health.assert_called_once_with(
         auth_token="delegated-token",
     )

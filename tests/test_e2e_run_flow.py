@@ -617,6 +617,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(int(health_before_payload["drain_processed_total"]), 0)
         self.assertIs(health_before_payload["is_backlogged"], True)
         self.assertIs(health_before_payload["is_stalled"], True)
+        self.assertEqual(health_before_payload["health_state"], "stalled")
 
         tick = self.gateway_client.post(
             "/v1/orchestration/worker:tick?fair=true&auto_start=true",
@@ -642,6 +643,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertIs(health_payload["is_backlogged"], False)
         self.assertIs(health_payload["is_stalled"], False)
         self.assertIs(health_payload["is_tick_stale"], False)
+        self.assertEqual(health_payload["health_state"], "healthy")
 
     def test_gateway_to_execution_worker_drain_signal_flow(self) -> None:
         write_token = self._gateway_token(["runs:write"])
