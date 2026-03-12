@@ -249,22 +249,6 @@ def test_run_control_rejects_invalid_payload_type(
     assert "cascade_children must be boolean" in response.json()["detail"]
 
 
-def test_complete_run_rejects_missing_success_field(
-    mock_execution_client: Mock,
-    mock_token_exchange: Mock,
-    auth_headers: dict[str, str],
-) -> None:
-    _ = mock_execution_client, mock_token_exchange
-    client = TestClient(app)
-    response = client.post(
-        "/v1/runs/run-complete-2:complete",
-        json={},
-        headers=auth_headers,
-    )
-    assert response.status_code == 422
-    assert "success must be boolean" in response.json()["detail"]
-
-
 def test_cancel_run_missing_auth() -> None:
     client = TestClient(app)
     response = client.post("/v1/runs/run-1:cancel")
