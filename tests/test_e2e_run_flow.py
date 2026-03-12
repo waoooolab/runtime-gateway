@@ -332,6 +332,17 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(event["payload"]["run_id"], run_id)
         self.assertEqual(event["payload"]["status"], "queued")
 
+        read_token = self._gateway_token(["runs:read"])
+        gateway_status_response = self.gateway_client.get(
+            f"/v1/runs/{run_id}",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(gateway_status_response.status_code, 200)
+        gateway_event = gateway_status_response.json()
+        self.assertEqual(gateway_event["event_type"], "runtime.run.status")
+        self.assertEqual(gateway_event["payload"]["run_id"], run_id)
+        self.assertEqual(gateway_event["payload"]["status"], "queued")
+
         recent_response = self.gateway_client.get(
             "/v1/events/recent?limit=10",
             headers={"Authorization": f"Bearer {token}"},
