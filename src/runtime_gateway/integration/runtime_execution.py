@@ -64,12 +64,15 @@ def _build_run_control_body(
     cascade_children: bool | None = None,
     by_run_key: str | None = None,
     by_run_id: str | None = None,
+    success: bool | None = None,
 ) -> dict[str, Any]:
     body: dict[str, Any] = {}
     if reason is not None:
         body["reason"] = reason
     if cascade_children is not None:
         body["cascade_children"] = cascade_children
+    if success is not None:
+        body["success"] = success
     if by_run_key is not None and by_run_id is not None:
         body[by_run_key] = by_run_id
     return body
@@ -198,6 +201,16 @@ class RuntimeExecutionClient:
 
     def reject_run(self, *, run_id: str, auth_token: str) -> dict[str, Any]:
         return self._post_json(path=f"v1/runs/{run_id}:reject", auth_token=auth_token, body={})
+
+    def complete_run(
+        self,
+        *,
+        run_id: str,
+        auth_token: str,
+        success: bool,
+    ) -> dict[str, Any]:
+        body = _build_run_control_body(success=success)
+        return self._post_json(path=f"v1/runs/{run_id}:complete", auth_token=auth_token, body=body)
 
     def cancel_run(
         self,

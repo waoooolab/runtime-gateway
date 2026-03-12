@@ -67,6 +67,13 @@ def _parse_optional_bool(payload: dict[str, Any], *, key: str) -> bool | None:
     return value
 
 
+def _parse_required_bool(payload: dict[str, Any], *, key: str) -> bool:
+    value = payload.get(key)
+    if not isinstance(value, bool):
+        raise HTTPException(status_code=422, detail=f"{key} must be boolean")
+    return value
+
+
 def _parse_requested_by_run_id(payload: dict[str, Any], *, primary_key: str) -> str | None:
     primary = _parse_optional_str(payload, key=primary_key)
     shared = _parse_optional_str(payload, key="requested_by_run_id")
@@ -215,5 +222,31 @@ def dispatch_timeout_run(
             reason=reason,
             cascade_children=cascade_children,
             timed_out_by_run_id=timed_out_by_run_id,
+        ),
+    )
+
+
+def dispatch_complete_run(
+    *,
+    run_id: str,
+    body: dict[str, Any] | None,
+    claims: Mapping[str, Any],
+    subject_token: str,
+    execution_client: RuntimeExecutionClient,
+    publish_gateway_event: Callable[[dict[str, Any]], int | None],
+) -> dict[str, Any]:
+    payload = _require_object_payload(body)
+    success = _parse_required_bool(payload, key="success")
+    return _submit_control_action(
+        action="runs.complete",
+        run_id=run_id,
+        claims=claims,
+        subject_token=subject_token,
+        execution_client=execution_client,
+        publish_gateway_event=publish_gateway_event,
+        submitter=lambda target_run_id, auth_token: execution_client.complete_run(
+            run_id=target_run_id,
+            auth_token=auth_token,
+            success=success,
         ),
     )

@@ -133,6 +133,31 @@ def test_timeout_run_happy_path(
     mock_token_exchange.assert_called_once()
 
 
+def test_complete_run_happy_path(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.complete_run.return_value = _run_status_event(
+        run_id="run-complete-1",
+        status="succeeded",
+    )
+    client = TestClient(app)
+    response = client.post(
+        "/v1/runs/run-complete-1:complete",
+        json={"success": True},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["payload"]["status"] == "succeeded"
+    mock_execution_client.complete_run.assert_called_once_with(
+        run_id="run-complete-1",
+        auth_token="delegated-token",
+        success=True,
+    )
+    mock_token_exchange.assert_called_once()
+
+
 def test_cancel_run_accepts_requested_by_run_id_alias(
     mock_execution_client: Mock,
     mock_token_exchange: Mock,
@@ -208,6 +233,22 @@ def test_run_control_rejects_invalid_payload_type(
     assert "cascade_children must be boolean" in response.json()["detail"]
 
 
+def test_complete_run_rejects_missing_success_field(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    _ = mock_execution_client, mock_token_exchange
+    client = TestClient(app)
+    response = client.post(
+        "/v1/runs/run-complete-2:complete",
+        json={},
+        headers=auth_headers,
+    )
+    assert response.status_code == 422
+    assert "success must be boolean" in response.json()["detail"]
+
+
 def test_cancel_run_missing_auth() -> None:
     client = TestClient(app)
     response = client.post("/v1/runs/run-1:cancel")
@@ -217,4 +258,10 @@ def test_cancel_run_missing_auth() -> None:
 def test_timeout_run_missing_auth() -> None:
     client = TestClient(app)
     response = client.post("/v1/runs/run-1:timeout")
+    assert response.status_code == 401
+
+
+def test_complete_run_missing_auth() -> None:
+    client = TestClient(app)
+    response = client.post("/v1/runs/run-1:complete")
     assert response.status_code == 401

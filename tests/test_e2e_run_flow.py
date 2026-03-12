@@ -380,6 +380,53 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(timed_out_event["payload"]["run_id"], run_id)
         self.assertEqual(timed_out_event["payload"]["status"], "timed_out")
 
+    def test_gateway_to_execution_complete_success_flow(self) -> None:
+        token = self._gateway_token(["runs:write"])
+        run_id = self._submit_run(token, "verify complete success flow")
+
+        tick = self.gateway_client.post(
+            "/v1/orchestration/worker:tick?fair=true&auto_start=true",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(tick.status_code, 200)
+        self.assertEqual(tick.json()["outcome"], "progressed")
+
+        complete_response = self.gateway_client.post(
+            f"/v1/runs/{run_id}:complete",
+            json={"success": True},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(complete_response.status_code, 200)
+        completed_event = complete_response.json()
+        self.assertEqual(completed_event["event_type"], "runtime.run.status")
+        self.assertEqual(completed_event["payload"]["run_id"], run_id)
+        self.assertEqual(completed_event["payload"]["status"], "succeeded")
+        self.assertEqual(execution_app_module._runtime.runs[run_id].status.value, "succeeded")
+
+    def test_gateway_to_execution_complete_failure_requeues_flow(self) -> None:
+        token = self._gateway_token(["runs:write"])
+        run_id = self._submit_run(token, "verify complete failure flow")
+
+        tick = self.gateway_client.post(
+            "/v1/orchestration/worker:tick?fair=true&auto_start=true",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(tick.status_code, 200)
+        self.assertEqual(tick.json()["outcome"], "progressed")
+
+        complete_response = self.gateway_client.post(
+            f"/v1/runs/{run_id}:complete",
+            json={"success": False},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(complete_response.status_code, 200)
+        completed_event = complete_response.json()
+        self.assertEqual(completed_event["event_type"], "runtime.run.status")
+        self.assertEqual(completed_event["payload"]["run_id"], run_id)
+        self.assertEqual(completed_event["payload"]["status"], "queued")
+        self.assertEqual(completed_event["payload"]["retry_attempts"], 1)
+        self.assertEqual(execution_app_module._runtime.runs[run_id].status.value, "queued")
+
     def test_gateway_to_execution_approve_waiting_run_flow(self) -> None:
         token = self._gateway_token(["runs:write"])
         response = self.gateway_client.post(
