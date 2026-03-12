@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, WebSocket
+from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
 
 from .api.schemas import TokenExchangeRequest, TokenExchangeResponse
 from .audit.emitter import emit_audit_event, get_audit_events, read_audit_log
@@ -75,11 +75,12 @@ def list_audit_events(limit: int = 50, source: str = "memory") -> dict:
 
 @app.get("/v1/events/recent")
 def list_recent_events(
-    limit: int = 50,
+    limit: int = Query(default=50, ge=1, le=500),
     tenant_id: str | None = None,
     app_id: str | None = None,
     event_types: str | None = None,
     run_id: str | None = None,
+    cursor: int | None = Query(default=None, ge=0),
     auth_context: AuthContext = Depends(require_events_read_context),
 ) -> dict:
     claims = auth_context.claims
@@ -98,16 +99,26 @@ def list_recent_events(
         if event_types is not None
         else None
     )
-    return {
-        "items": _event_bus.recent(
+    if cursor is None:
+        items = _event_bus.recent(
             limit=limit,
             tenant_id=effective_tenant or None,
             app_id=effective_app or None,
             event_types=parsed_types,
             run_id=run_id,
-        ),
-        "stats": _event_bus.stats(),
-    }
+        )
+    else:
+        items = _event_bus.since(
+            cursor=cursor,
+            tenant_id=effective_tenant or None,
+            app_id=effective_app or None,
+            event_types=parsed_types,
+            run_id=run_id,
+        )[:limit]
+    next_cursor = cursor if cursor is not None else 0
+    if items:
+        next_cursor = int(items[-1]["bus_seq"])
+    return {"items": items, "next_cursor": next_cursor, "stats": _event_bus.stats()}
 
 
 @app.post("/v1/events/publish")

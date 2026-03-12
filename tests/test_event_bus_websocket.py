@@ -216,6 +216,46 @@ class EventBusWebsocketTests(unittest.TestCase):
         self.assertEqual(items[0]["event"]["payload"]["run_id"], "run-789")
         self.assertEqual(items[0]["event"]["event_type"], "runtime.run.completed")
 
+    def test_recent_events_support_cursor_incremental_pull(self) -> None:
+        token = self._token(scope=["runs:write"])
+        self.client.post(
+            "/v1/events/publish",
+            json=_event_envelope("runtime.run.started", run_id="run-cursor-1"),
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.client.post(
+            "/v1/events/publish",
+            json=_event_envelope("runtime.run.status", run_id="run-cursor-1"),
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.client.post(
+            "/v1/events/publish",
+            json=_event_envelope("runtime.run.completed", run_id="run-cursor-1"),
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        first = self.client.get(
+            "/v1/events/recent?cursor=0&limit=2&run_id=run-cursor-1",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(first.status_code, 200)
+        first_payload = first.json()
+        self.assertEqual(len(first_payload["items"]), 2)
+        self.assertEqual(first_payload["items"][0]["event"]["event_type"], "runtime.run.started")
+        self.assertEqual(first_payload["items"][1]["event"]["event_type"], "runtime.run.status")
+        cursor = first_payload["next_cursor"]
+        self.assertGreaterEqual(int(cursor), 1)
+
+        second = self.client.get(
+            f"/v1/events/recent?cursor={cursor}&limit=2&run_id=run-cursor-1",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(second.status_code, 200)
+        second_payload = second.json()
+        self.assertEqual(len(second_payload["items"]), 1)
+        self.assertEqual(second_payload["items"][0]["event"]["event_type"], "runtime.run.completed")
+        self.assertGreaterEqual(int(second_payload["next_cursor"]), int(cursor))
+
     def test_websocket_receives_published_event(self) -> None:
         ws_token = self._token(scope=["runs:read"])
         publish_token = self._token(scope=["runs:write"])
