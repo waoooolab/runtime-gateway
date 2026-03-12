@@ -291,3 +291,14 @@ class RuntimeExecutionClient:
             path="v1/orchestration/worker:health",
             auth_token=auth_token,
         )
+
+    def get_run_lease(
+        self,
+        *,
+        run_id: str,
+        auth_token: str,
+    ) -> dict[str, Any]:
+        return self._get_json(
+            path=f"v1/runs/{run_id}/lease",
+            auth_token=auth_token,
+        )

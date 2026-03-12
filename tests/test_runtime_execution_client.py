@@ -168,6 +168,42 @@ class RuntimeExecutionClientTests(unittest.TestCase):
         self.assertIn("/v1/orchestration/worker:health", captured["url"])
         self.assertEqual(captured["method"], "GET")
 
+    def test_get_run_lease_uses_get_method(self) -> None:
+        captured: dict[str, str] = {}
+
+        class _Response:
+            def getcode(self) -> int:
+                return 200
+
+            def read(self) -> bytes:
+                return b'{"run_id":"run-lease-1","lease":{"lease_id":"lease-1","state":"active"},"device_hub":{"status":"ok"}}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+                return None
+
+        def transport(request, timeout=10.0):
+            _ = timeout
+            captured["url"] = request.full_url
+            captured["method"] = request.get_method()
+            return _Response()
+
+        client = RuntimeExecutionClient(
+            base_url="http://runtime-execution.test",
+            _transport=transport,
+        )
+        payload = client.get_run_lease(
+            run_id="run-lease-1",
+            auth_token="token-1",
+        )
+
+        self.assertEqual(payload["run_id"], "run-lease-1")
+        self.assertIn("/v1/runs/run-lease-1/lease", captured["url"])
+        self.assertEqual(captured["method"], "GET")
+
     def test_cancel_run_sends_payload_fields(self) -> None:
         captured: dict[str, str] = {}
 

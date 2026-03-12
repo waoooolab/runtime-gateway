@@ -11,11 +11,12 @@ from .integration import RuntimeExecutionClient
 from .run_approval import dispatch_approve_run, dispatch_reject_run
 from .run_control import dispatch_cancel_run, dispatch_complete_run, dispatch_timeout_run
 from .run_dispatch import dispatch_create_run
+from .run_lease import dispatch_get_run_lease
 from .run_worker import dispatch_worker_drain, dispatch_worker_health, dispatch_worker_tick
 from .security import AuthContext, require_runs_read_context, require_runs_write_context
 
 
-def register_run_routes(
+def _register_run_create_route(
     *,
     app: FastAPI,
     get_execution_client: Callable[[], RuntimeExecutionClient],
@@ -34,6 +35,13 @@ def register_run_routes(
             publish_gateway_event=publish_gateway_event,
         )
 
+
+def _register_run_approval_routes(
+    *,
+    app: FastAPI,
+    get_execution_client: Callable[[], RuntimeExecutionClient],
+    publish_gateway_event: Callable[[dict[str, Any]], int | None],
+) -> None:
     @app.post("/v1/runs/{run_id}:approve")
     def approve_run(
         run_id: str,
@@ -60,6 +68,13 @@ def register_run_routes(
             publish_gateway_event=publish_gateway_event,
         )
 
+
+def _register_run_control_routes(
+    *,
+    app: FastAPI,
+    get_execution_client: Callable[[], RuntimeExecutionClient],
+    publish_gateway_event: Callable[[dict[str, Any]], int | None],
+) -> None:
     @app.post("/v1/runs/{run_id}:cancel")
     def cancel_run(
         run_id: str,
@@ -105,6 +120,53 @@ def register_run_routes(
             publish_gateway_event=publish_gateway_event,
         )
 
+
+def _register_run_mutation_routes(
+    *,
+    app: FastAPI,
+    get_execution_client: Callable[[], RuntimeExecutionClient],
+    publish_gateway_event: Callable[[dict[str, Any]], int | None],
+) -> None:
+    _register_run_create_route(
+        app=app,
+        get_execution_client=get_execution_client,
+        publish_gateway_event=publish_gateway_event,
+    )
+    _register_run_approval_routes(
+        app=app,
+        get_execution_client=get_execution_client,
+        publish_gateway_event=publish_gateway_event,
+    )
+    _register_run_control_routes(
+        app=app,
+        get_execution_client=get_execution_client,
+        publish_gateway_event=publish_gateway_event,
+    )
+
+
+def _register_run_query_routes(
+    *,
+    app: FastAPI,
+    get_execution_client: Callable[[], RuntimeExecutionClient],
+) -> None:
+    @app.get("/v1/runs/{run_id}/lease")
+    def get_run_lease(
+        run_id: str,
+        auth_context: AuthContext = Depends(require_runs_read_context),
+    ) -> dict[str, Any]:
+        return dispatch_get_run_lease(
+            run_id=run_id,
+            claims=auth_context.claims,
+            subject_token=auth_context.subject_token,
+            execution_client=get_execution_client(),
+        )
+
+
+def _register_worker_routes(
+    *,
+    app: FastAPI,
+    get_execution_client: Callable[[], RuntimeExecutionClient],
+) -> None:
     @app.post("/v1/orchestration/worker:tick")
     def worker_tick(
         fair: bool = True,
@@ -144,3 +206,24 @@ def register_run_routes(
             subject_token=auth_context.subject_token,
             execution_client=get_execution_client(),
         )
+
+
+def register_run_routes(
+    *,
+    app: FastAPI,
+    get_execution_client: Callable[[], RuntimeExecutionClient],
+    publish_gateway_event: Callable[[dict[str, Any]], int | None],
+) -> None:
+    _register_run_mutation_routes(
+        app=app,
+        get_execution_client=get_execution_client,
+        publish_gateway_event=publish_gateway_event,
+    )
+    _register_run_query_routes(
+        app=app,
+        get_execution_client=get_execution_client,
+    )
+    _register_worker_routes(
+        app=app,
+        get_execution_client=get_execution_client,
+    )
