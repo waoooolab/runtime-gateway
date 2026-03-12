@@ -70,6 +70,7 @@ def test_worker_tick_happy_path(
     mock_execution_client.worker_tick.return_value = {
         "outcome": "progressed",
         "leased_run_id": "run-1",
+        "recommended_poll_after_ms": 1000,
     }
 
     client = TestClient(app)
@@ -77,6 +78,7 @@ def test_worker_tick_happy_path(
 
     assert response.status_code == 200
     assert response.json()["outcome"] == "progressed"
+    assert response.json()["recommended_poll_after_ms"] == 1000
     mock_execution_client.worker_tick.assert_called_once_with(
         auth_token="delegated-token",
         fair=False,
