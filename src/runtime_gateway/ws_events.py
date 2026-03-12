@@ -42,11 +42,34 @@ def _parse_cursor(raw: str) -> int:
         return 0
 
 
+def _resolve_query_scope(
+    *,
+    field: str,
+    query_value: str | None,
+    claim_value: str | None,
+) -> str:
+    query = _parse_optional_str(query_value)
+    claim = _parse_optional_str(claim_value)
+    if query is not None:
+        if claim is not None and query != claim:
+            raise ValueError(f"{field} query must match token claim")
+        return query
+    return claim or ""
+
+
 def _websocket_filters(
     websocket: WebSocket, claims: dict[str, Any]
 ) -> tuple[str, str, set[str] | None, str | None, int]:
-    tenant_id = websocket.query_params.get("tenant_id") or str(claims.get("tenant_id", ""))
-    app_id = websocket.query_params.get("app_id") or str(claims.get("app_id", ""))
+    tenant_id = _resolve_query_scope(
+        field="tenant_id",
+        query_value=websocket.query_params.get("tenant_id"),
+        claim_value=str(claims.get("tenant_id", "")),
+    )
+    app_id = _resolve_query_scope(
+        field="app_id",
+        query_value=websocket.query_params.get("app_id"),
+        claim_value=str(claims.get("app_id", "")),
+    )
     event_types = _parse_event_types(websocket.query_params.get("event_types"))
     run_id = _parse_optional_str(websocket.query_params.get("run_id"))
     cursor = _parse_cursor(websocket.query_params.get("cursor", "0"))
@@ -124,9 +147,14 @@ async def handle_websocket_events(websocket: WebSocket, event_bus: InMemoryEvent
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="missing read scope")
         return
 
+    try:
+        tenant_id, app_id, event_types, run_id, cursor = _websocket_filters(websocket, claims)
+    except ValueError as exc:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=str(exc))
+        return
+
     await websocket.accept()
     event_bus.open_connection()
-    tenant_id, app_id, event_types, run_id, cursor = _websocket_filters(websocket, claims)
     try:
         await _send_ready(websocket, event_bus, cursor, tenant_id, app_id, run_id)
         while True:

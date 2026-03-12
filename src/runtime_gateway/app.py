@@ -36,6 +36,24 @@ def _publish_gateway_event(event: dict[str, Any]) -> int | None:
     return _event_bus.publish(event)
 
 
+def _scope_filter_or_forbid(
+    *,
+    field: str,
+    query_value: str | None,
+    claim_value: str,
+) -> str:
+    raw_query = (query_value or "").strip()
+    raw_claim = claim_value.strip()
+    if raw_query:
+        if raw_claim and raw_query != raw_claim:
+            raise HTTPException(
+                status_code=403,
+                detail=f"{field} query must match token claim",
+            )
+        return raw_query
+    return raw_claim
+
+
 @app.get("/healthz")
 def healthz() -> dict:
     return {"status": "ok", "service": "runtime-gateway"}
@@ -58,8 +76,16 @@ def list_recent_events(
     auth_context: AuthContext = Depends(require_events_read_context),
 ) -> dict:
     claims = auth_context.claims
-    effective_tenant = tenant_id or str(claims.get("tenant_id", ""))
-    effective_app = app_id or str(claims.get("app_id", ""))
+    effective_tenant = _scope_filter_or_forbid(
+        field="tenant_id",
+        query_value=tenant_id,
+        claim_value=str(claims.get("tenant_id", "")),
+    )
+    effective_app = _scope_filter_or_forbid(
+        field="app_id",
+        query_value=app_id,
+        claim_value=str(claims.get("app_id", "")),
+    )
     parsed_types = (
         {item.strip() for item in event_types.split(",") if item.strip()}
         if event_types is not None

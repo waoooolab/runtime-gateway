@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+from starlette.websockets import WebSocketDisconnect
+
 from runtime_gateway.audit.emitter import clear_audit_events
 from runtime_gateway.auth.tokens import issue_token
 
@@ -89,6 +91,15 @@ class EventBusWebsocketTests(unittest.TestCase):
     def test_recent_events_requires_bearer_token(self) -> None:
         response = self.client.get("/v1/events/recent")
         self.assertEqual(response.status_code, 401)
+
+    def test_recent_events_reject_cross_tenant_override(self) -> None:
+        token = self._token(scope=["runs:read"])
+        response = self.client.get(
+            "/v1/events/recent?tenant_id=t2",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("tenant_id query must match token claim", response.json()["detail"])
 
     def test_recent_events_can_filter_by_event_type(self) -> None:
         token = self._token(scope=["runs:write"])
@@ -198,6 +209,14 @@ class EventBusWebsocketTests(unittest.TestCase):
             assert event is not None
             self.assertIn("bus_seq", event)
             self.assertEqual(event["event"]["tenant_id"], "t1")
+
+    def test_websocket_rejects_cross_tenant_override(self) -> None:
+        ws_token = self._token(scope=["runs:read"])
+        with self.assertRaises(WebSocketDisconnect):
+            with self.client.websocket_connect(
+                f"/v1/ws/events?access_token={ws_token}&tenant_id=t2&app_id=covernow"
+            ):
+                pass
 
     def test_websocket_can_filter_by_run_id(self) -> None:
         ws_token = self._token(scope=["runs:read"])
