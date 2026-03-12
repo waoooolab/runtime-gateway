@@ -67,7 +67,7 @@ def test_get_run_lease_happy_path(
 ) -> None:
     mock_execution_client.get_run_lease.return_value = {
         "run_id": "run-lease-1",
-        "lease": {"lease_id": "lease-1", "state": "active"},
+        "lease": {"lease_id": "lease-1", "task_id": "run-lease-1:root", "state": "active"},
         "device_hub": {"status": "ok", "snapshot": {"status": "active"}},
     }
     client = TestClient(app)
@@ -117,8 +117,32 @@ def test_get_run_lease_downstream_error_maps_status(
     assert audit["metadata"]["run_id"] == "run-missing"
 
 
+def test_get_run_lease_rejects_invalid_contract_payload(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    read_auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.get_run_lease.return_value = {
+        "run_id": "run-lease-invalid",
+        "lease": {"lease_id": "lease-1", "state": "active"},
+        "device_hub": {"status": "ok"},
+    }
+    client = TestClient(app)
+    response = client.get(
+        "/v1/runs/run-lease-invalid/lease",
+        headers=read_auth_headers,
+    )
+    assert response.status_code == 502
+    assert "invalid run lease response" in response.text
+    mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "runs.lease"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["run_id"] == "run-lease-invalid"
+    assert audit["metadata"]["validation_schema"] == "runtime/runtime-run-lease.v1.json"
+
+
 def test_get_run_lease_missing_auth() -> None:
     client = TestClient(app)
     response = client.get("/v1/runs/run-1/lease")
     assert response.status_code == 401
-

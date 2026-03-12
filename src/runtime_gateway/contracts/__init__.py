@@ -9,6 +9,7 @@ from .validation import (
     validate_event_envelope_contract,
     validate_orchestration_hints_contract,
     validate_runtime_events_page_contract,
+    validate_runtime_run_lease_contract,
     validate_token_exchange_contract,
 )
 
@@ -21,5 +22,6 @@ __all__ = [
     "validate_event_envelope_contract",
     "validate_orchestration_hints_contract",
     "validate_runtime_events_page_contract",
+    "validate_runtime_run_lease_contract",
     "validate_token_exchange_contract",
 ]

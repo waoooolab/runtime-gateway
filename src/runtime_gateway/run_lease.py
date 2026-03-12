@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from .audit.emitter import emit_audit_event
 from .auth.exchange import ExchangeError, exchange_subject_token
+from .contracts import ContractValidationError, validate_runtime_run_lease_contract
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
 
 
@@ -81,6 +82,22 @@ def dispatch_get_run_lease(
         )
         raise HTTPException(status_code=exc.status_code or 502, detail=str(exc)) from exc
 
+    try:
+        validate_runtime_run_lease_contract(result)
+    except ContractValidationError as exc:
+        emit_audit_event(
+            action=action,
+            decision="deny",
+            actor_id=actor_id,
+            trace_id=trace_id,
+            metadata={
+                "reason": str(exc),
+                "run_id": run_id,
+                "validation_schema": "runtime/runtime-run-lease.v1.json",
+            },
+        )
+        raise HTTPException(status_code=502, detail=f"invalid run lease response: {exc}") from exc
+
     emit_audit_event(
         action=action,
         decision="allow",
@@ -93,4 +110,3 @@ def dispatch_get_run_lease(
         },
     )
     return result
-
