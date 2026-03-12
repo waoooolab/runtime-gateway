@@ -198,6 +198,24 @@ class _DeviceHubBoundaryClient:
             raise RuntimeError(f"device-hub capacity failed: {response.status_code} {response.text}")
         return response.json()
 
+    def get_placement_lease(
+        self,
+        *,
+        lease_id: str,
+        session_key: str,
+        trace_id: str,
+        run_id: str | None = None,
+        task_id: str | None = None,
+    ) -> dict:
+        _ = session_key, trace_id, run_id, task_id
+        response = self._client.get(
+            f"/v1/placements/leases/{lease_id}",
+            headers=self._headers(["devices:read"]),
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(f"device-hub lease failed: {response.status_code} {response.text}")
+        return response.json()
+
 
 @unittest.skipUnless(
     FASTAPI_STACK_AVAILABLE and RUNTIME_EXECUTION_AVAILABLE,
@@ -715,6 +733,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(leased_run.device_lease_state, "active")
         lease_id = leased_run.device_lease_id
         self.assertIsInstance(lease_id, str)
+        read_token = self._gateway_token(["runs:read"])
 
         cancel_response = self.gateway_client.post(
             f"/v1/runs/{run_id}:cancel",
@@ -723,6 +742,15 @@ class EndToEndRunFlowTests(unittest.TestCase):
         )
         self.assertEqual(cancel_response.status_code, 200)
         self.assertEqual(cancel_response.json()["payload"]["status"], "canceled")
+
+        lease_expired = self.gateway_client.get(
+            f"/v1/runs/{run_id}/lease",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(lease_expired.status_code, 200)
+        self.assertEqual(lease_expired.json()["run_id"], run_id)
+        self.assertEqual(lease_expired.json()["lease"]["state"], "expired")
+        self.assertEqual(lease_expired.json()["device_hub"]["status"], "ok")
 
         self.assertEqual(execution_app_module._runtime.runs[run_id].device_lease_state, "expired")
         assert lease_id is not None
@@ -822,6 +850,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(leased_run.device_lease_state, "active")
         lease_id = leased_run.device_lease_id
         self.assertIsInstance(lease_id, str)
+        read_token = self._gateway_token(["runs:read"])
 
         timeout_response = self.gateway_client.post(
             f"/v1/runs/{run_id}:timeout",
@@ -830,6 +859,15 @@ class EndToEndRunFlowTests(unittest.TestCase):
         )
         self.assertEqual(timeout_response.status_code, 200)
         self.assertEqual(timeout_response.json()["payload"]["status"], "timed_out")
+
+        lease_expired = self.gateway_client.get(
+            f"/v1/runs/{run_id}/lease",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(lease_expired.status_code, 200)
+        self.assertEqual(lease_expired.json()["run_id"], run_id)
+        self.assertEqual(lease_expired.json()["lease"]["state"], "expired")
+        self.assertEqual(lease_expired.json()["device_hub"]["status"], "ok")
 
         self.assertEqual(execution_app_module._runtime.runs[run_id].device_lease_state, "expired")
         assert lease_id is not None
@@ -930,6 +968,16 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(leased_run.device_lease_state, "active")
         lease_id = leased_run.device_lease_id
         self.assertIsInstance(lease_id, str)
+        read_token = self._gateway_token(["runs:read"])
+
+        lease_active = self.gateway_client.get(
+            f"/v1/runs/{run_id}/lease",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(lease_active.status_code, 200)
+        self.assertEqual(lease_active.json()["run_id"], run_id)
+        self.assertEqual(lease_active.json()["lease"]["state"], "active")
+        self.assertEqual(lease_active.json()["device_hub"]["status"], "ok")
 
         tick = self.gateway_client.post(
             "/v1/orchestration/worker:tick?fair=true&auto_start=true",
@@ -946,6 +994,15 @@ class EndToEndRunFlowTests(unittest.TestCase):
         )
         self.assertEqual(complete_response.status_code, 200)
         self.assertEqual(complete_response.json()["payload"]["status"], "succeeded")
+
+        lease_released = self.gateway_client.get(
+            f"/v1/runs/{run_id}/lease",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(lease_released.status_code, 200)
+        self.assertEqual(lease_released.json()["run_id"], run_id)
+        self.assertEqual(lease_released.json()["lease"]["state"], "released")
+        self.assertEqual(lease_released.json()["device_hub"]["status"], "ok")
 
         self.assertEqual(execution_app_module._runtime.runs[run_id].device_lease_state, "released")
         assert lease_id is not None
