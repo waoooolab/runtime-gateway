@@ -11,8 +11,8 @@ from .integration import RuntimeExecutionClient
 from .run_approval import dispatch_approve_run, dispatch_reject_run
 from .run_control import dispatch_cancel_run, dispatch_timeout_run
 from .run_dispatch import dispatch_create_run
-from .run_worker import dispatch_worker_drain, dispatch_worker_tick
-from .security import AuthContext, require_runs_write_context
+from .run_worker import dispatch_worker_drain, dispatch_worker_health, dispatch_worker_tick
+from .security import AuthContext, require_runs_read_context, require_runs_write_context
 
 
 def register_run_routes(
@@ -118,4 +118,14 @@ def register_run_routes(
             max_items=max_items,
             fair=fair,
             auto_start=auto_start,
+        )
+
+    @app.get("/v1/orchestration/worker:health")
+    def worker_health(
+        auth_context: AuthContext = Depends(require_runs_read_context),
+    ) -> dict[str, Any]:
+        return dispatch_worker_health(
+            claims=auth_context.claims,
+            subject_token=auth_context.subject_token,
+            execution_client=get_execution_client(),
         )

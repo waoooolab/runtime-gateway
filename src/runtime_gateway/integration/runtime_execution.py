@@ -40,14 +40,22 @@ def _try_parse_json_object(raw: str) -> dict[str, Any] | None:
     return None
 
 
-def _build_request(url: str, envelope: dict[str, Any], auth_token: str) -> urllib.request.Request:
-    body = json.dumps(envelope, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+def _build_request(
+    *,
+    url: str,
+    auth_token: str,
+    method: str,
+    envelope: dict[str, Any] | None = None,
+) -> urllib.request.Request:
+    body: bytes | None = None
+    if envelope is not None:
+        body = json.dumps(envelope, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
         "Authorization": f"Bearer {auth_token}",
     }
-    return urllib.request.Request(url=url, method="POST", data=body, headers=headers)
+    return urllib.request.Request(url=url, method=method, data=body, headers=headers)
 
 
 def _build_run_control_body(
@@ -118,16 +126,22 @@ class RuntimeExecutionClient:
     timeout_seconds: float = 10.0
     _transport: TransportCallable = field(default=urllib.request.urlopen)
 
-    def _post_json(
+    def _request_json(
         self,
         *,
+        method: str,
         path: str,
         auth_token: str,
         body: dict[str, Any] | None = None,
         query: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         url = _compose_url(base_url=self.base_url, path=path, query=query)
-        request = _build_request(url, body or {}, auth_token)
+        request = _build_request(
+            url=url,
+            auth_token=auth_token,
+            method=method,
+            envelope=body,
+        )
         try:
             with self._transport(request, timeout=self.timeout_seconds) as response:
                 status = int(response.getcode())
@@ -144,6 +158,37 @@ class RuntimeExecutionClient:
                 response_body=_try_parse_json_object(raw),
             )
         return _parse_response_body(raw, url)
+
+    def _post_json(
+        self,
+        *,
+        path: str,
+        auth_token: str,
+        body: dict[str, Any] | None = None,
+        query: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._request_json(
+            method="POST",
+            path=path,
+            auth_token=auth_token,
+            body=body,
+            query=query,
+        )
+
+    def _get_json(
+        self,
+        *,
+        path: str,
+        auth_token: str,
+        query: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._request_json(
+            method="GET",
+            path=path,
+            auth_token=auth_token,
+            body=None,
+            query=query,
+        )
 
     def submit_command(self, *, envelope: dict[str, Any], auth_token: str) -> dict[str, Any]:
         return self._post_json(path="v1/runs", auth_token=auth_token, body=envelope)
@@ -215,4 +260,14 @@ class RuntimeExecutionClient:
             auth_token=auth_token,
             body={},
             query={"max_items": max_items, "fair": fair, "auto_start": auto_start},
+        )
+
+    def worker_health(
+        self,
+        *,
+        auth_token: str,
+    ) -> dict[str, Any]:
+        return self._get_json(
+            path="v1/orchestration/worker:health",
+            auth_token=auth_token,
         )

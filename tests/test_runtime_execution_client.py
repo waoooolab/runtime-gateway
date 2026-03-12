@@ -135,6 +135,39 @@ class RuntimeExecutionClientTests(unittest.TestCase):
         assert exc.response_body is not None
         self.assertIn("max_items", str(exc.response_body.get("detail", "")))
 
+    def test_worker_health_uses_get_method(self) -> None:
+        captured: dict[str, str] = {}
+
+        class _Response:
+            def getcode(self) -> int:
+                return 200
+
+            def read(self) -> bytes:
+                return b'{"queue_depth":0,"ticks_total":1,"idle_ticks_total":0,"progressed_ticks_total":1,"drain_calls_total":0,"last_tick_at":"2026-03-12T03:00:00+00:00","last_drain_at":null,"last_tick_outcome":"progressed"}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+                return None
+
+        def transport(request, timeout=10.0):
+            _ = timeout
+            captured["url"] = request.full_url
+            captured["method"] = request.get_method()
+            return _Response()
+
+        client = RuntimeExecutionClient(
+            base_url="http://runtime-execution.test",
+            _transport=transport,
+        )
+        payload = client.worker_health(auth_token="token-1")
+
+        self.assertEqual(payload["ticks_total"], 1)
+        self.assertIn("/v1/orchestration/worker:health", captured["url"])
+        self.assertEqual(captured["method"], "GET")
+
     def test_cancel_run_sends_payload_fields(self) -> None:
         captured: dict[str, str] = {}
 

@@ -16,6 +16,7 @@ def _exchange_runtime_execution_token(
     action: str,
     claims: Mapping[str, Any],
     subject_token: str,
+    scope: list[str],
 ) -> str:
     trace_id = str(claims.get("trace_id", ""))
     actor_id = str(claims.get("sub", "unknown"))
@@ -24,7 +25,7 @@ def _exchange_runtime_execution_token(
             subject_token=subject_token,
             requested_token_use="service",
             audience="runtime-execution",
-            scope=["runs:write"],
+            scope=scope,
             requested_ttl_seconds=300,
             trace_id=trace_id,
         )
@@ -55,6 +56,7 @@ def dispatch_worker_tick(
         action=action,
         claims=claims,
         subject_token=subject_token,
+        scope=["runs:write"],
     )
     try:
         result = execution_client.worker_tick(
@@ -97,6 +99,7 @@ def dispatch_worker_drain(
         action=action,
         claims=claims,
         subject_token=subject_token,
+        scope=["runs:write"],
     )
     try:
         result = execution_client.worker_drain(
@@ -105,6 +108,42 @@ def dispatch_worker_drain(
             fair=fair,
             auto_start=auto_start,
         )
+    except RuntimeExecutionClientError as exc:
+        emit_audit_event(
+            action=action,
+            decision="deny",
+            actor_id=actor_id,
+            trace_id=trace_id,
+            metadata={"reason": str(exc), "status_code": exc.status_code},
+        )
+        raise HTTPException(status_code=exc.status_code or 502, detail=str(exc)) from exc
+    emit_audit_event(
+        action=action,
+        decision="allow",
+        actor_id=actor_id,
+        trace_id=trace_id,
+        metadata={"result": result},
+    )
+    return result
+
+
+def dispatch_worker_health(
+    *,
+    claims: Mapping[str, Any],
+    subject_token: str,
+    execution_client: RuntimeExecutionClient,
+) -> dict[str, Any]:
+    action = "orchestration.worker_health"
+    trace_id = str(claims.get("trace_id", ""))
+    actor_id = str(claims.get("sub", "unknown"))
+    token = _exchange_runtime_execution_token(
+        action=action,
+        claims=claims,
+        subject_token=subject_token,
+        scope=["runs:read"],
+    )
+    try:
+        result = execution_client.worker_health(auth_token=token)
     except RuntimeExecutionClientError as exc:
         emit_audit_event(
             action=action,

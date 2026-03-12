@@ -56,6 +56,14 @@ def auth_headers() -> dict[str, str]:
     }
 
 
+@pytest.fixture
+def read_auth_headers() -> dict[str, str]:
+    token = _make_token(audience="runtime-gateway", scope=["runs:read"])
+    return {
+        "Authorization": f"Bearer {token}",
+    }
+
+
 def test_worker_tick_happy_path(
     mock_execution_client: Mock, mock_token_exchange: Mock, auth_headers: dict[str, str]
 ) -> None:
@@ -76,6 +84,34 @@ def test_worker_tick_happy_path(
     )
     mock_token_exchange.assert_called_once()
     assert mock_token_exchange.call_args.kwargs["scope"] == ["runs:write"]
+
+
+def test_worker_health_happy_path(
+    mock_execution_client: Mock, mock_token_exchange: Mock, read_auth_headers: dict[str, str]
+) -> None:
+    mock_execution_client.worker_health.return_value = {
+        "queue_depth": 0,
+        "ticks_total": 12,
+        "idle_ticks_total": 4,
+        "progressed_ticks_total": 8,
+        "drain_calls_total": 3,
+        "last_tick_at": "2026-03-12T03:00:00+00:00",
+        "last_drain_at": "2026-03-12T03:01:00+00:00",
+        "last_tick_outcome": "progressed",
+    }
+
+    client = TestClient(app)
+    response = client.get("/v1/orchestration/worker:health", headers=read_auth_headers)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ticks_total"] == 12
+    assert payload["last_tick_outcome"] == "progressed"
+    mock_execution_client.worker_health.assert_called_once_with(
+        auth_token="delegated-token",
+    )
+    mock_token_exchange.assert_called_once()
+    assert mock_token_exchange.call_args.kwargs["scope"] == ["runs:read"]
 
 
 def test_worker_drain_happy_path(
@@ -137,6 +173,22 @@ def test_worker_tick_downstream_connection_error(
     assert "connection error" in response.text
 
 
+def test_worker_health_downstream_connection_error(
+    mock_execution_client: Mock, mock_token_exchange: Mock, read_auth_headers: dict[str, str]
+) -> None:
+    _ = mock_token_exchange
+    mock_execution_client.worker_health.side_effect = RuntimeExecutionClientError(
+        "connection error calling worker health endpoint",
+        status_code=None,
+    )
+
+    client = TestClient(app)
+    response = client.get("/v1/orchestration/worker:health", headers=read_auth_headers)
+
+    assert response.status_code == 502
+    assert "connection error" in response.text
+
+
 def test_worker_endpoints_require_bearer_token() -> None:
     client = TestClient(app)
 
@@ -145,6 +197,9 @@ def test_worker_endpoints_require_bearer_token() -> None:
 
     drain = client.post("/v1/orchestration/worker:drain")
     assert drain.status_code == 401
+
+    health = client.get("/v1/orchestration/worker:health")
+    assert health.status_code == 401
 
 
 def test_worker_endpoints_require_runs_write_scope() -> None:
@@ -157,3 +212,12 @@ def test_worker_endpoints_require_runs_write_scope() -> None:
 
     drain = client.post("/v1/orchestration/worker:drain", headers=headers)
     assert drain.status_code == 403
+
+
+def test_worker_health_requires_runs_read_scope() -> None:
+    token = _make_token(audience="runtime-gateway", scope=["runs:write"])
+    headers = {"Authorization": f"Bearer {token}"}
+    client = TestClient(app)
+
+    response = client.get("/v1/orchestration/worker:health", headers=headers)
+    assert response.status_code == 403
