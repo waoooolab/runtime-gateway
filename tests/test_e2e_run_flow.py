@@ -1129,6 +1129,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(leased_run.device_lease_state, "active")
         lease_id = leased_run.device_lease_id
         self.assertIsInstance(lease_id, str)
+        read_token = self._gateway_token(["runs:read"])
 
         for attempt in range(2):
             tick = self.gateway_client.post(
@@ -1168,6 +1169,27 @@ class EndToEndRunFlowTests(unittest.TestCase):
             final_complete.json()["payload"]["orchestration"]["failure_reason_code"],
             "tool_contract_violation",
         )
+
+        status_failed = self.gateway_client.get(
+            f"/v1/runs/{run_id}",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(status_failed.status_code, 200)
+        self.assertEqual(status_failed.json()["payload"]["run_id"], run_id)
+        self.assertEqual(status_failed.json()["payload"]["status"], "failed")
+        self.assertEqual(
+            status_failed.json()["payload"]["orchestration"]["failure_reason_code"],
+            "tool_contract_violation",
+        )
+
+        lease_expired = self.gateway_client.get(
+            f"/v1/runs/{run_id}/lease",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(lease_expired.status_code, 200)
+        self.assertEqual(lease_expired.json()["run_id"], run_id)
+        self.assertEqual(lease_expired.json()["lease"]["state"], "expired")
+        self.assertEqual(lease_expired.json()["device_hub"]["status"], "ok")
 
         self.assertEqual(execution_app_module._runtime.runs[run_id].device_lease_state, "expired")
         assert lease_id is not None
