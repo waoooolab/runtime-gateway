@@ -364,6 +364,19 @@ class AppIntegrationTests(unittest.TestCase):
             headers={"Authorization": f"Bearer {token}"},
         )
         self.assertEqual(response.status_code, 409)
+        detail = response.json().get("detail")
+        self.assertIsInstance(detail, dict)
+        assert isinstance(detail, dict)
+        self.assertEqual(detail.get("status_code"), 409)
+        self.assertEqual(detail.get("downstream_event_type"), "runtime.route.failed")
+        self.assertEqual(detail.get("run_id"), "run-test-failed")
+        self.assertEqual(detail.get("task_id"), "run-test-failed:root")
+        failure = detail.get("failure")
+        self.assertIsInstance(failure, dict)
+        assert isinstance(failure, dict)
+        self.assertEqual(failure.get("code"), "no_eligible_device")
+        self.assertEqual(failure.get("classification"), "capacity")
+        self.assertIn("HTTP 409", str(detail.get("message", "")))
 
         recent = self.client.get(
             "/v1/events/recent",

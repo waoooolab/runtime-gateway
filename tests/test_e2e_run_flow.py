@@ -932,13 +932,22 @@ class EndToEndRunFlowTests(unittest.TestCase):
         )
         self.assertEqual(second.status_code, 409)
         detail = second.json().get("detail")
-        self.assertIsNotNone(detail)
-        self.assertIn("409", str(detail))
+        self.assertIsInstance(detail, dict)
+        assert isinstance(detail, dict)
+        self.assertEqual(detail.get("status_code"), 409)
+        self.assertEqual(detail.get("downstream_event_type"), "runtime.route.failed")
+        failure = detail.get("failure")
+        self.assertIsInstance(failure, dict)
+        assert isinstance(failure, dict)
+        self.assertEqual(failure.get("code"), "tenant_quota_exhausted")
+        self.assertEqual(failure.get("classification"), "capacity")
+        self.assertIn("HTTP 409", str(detail.get("message", "")))
 
         run_ids_after_second = set(execution_app_module._runtime.runs.keys())
         rejected_run_ids = run_ids_after_second - run_ids_before_second
         self.assertEqual(len(rejected_run_ids), 1)
         rejected_run_id = next(iter(rejected_run_ids))
+        self.assertEqual(detail.get("run_id"), rejected_run_id)
 
         recent = self.gateway_client.get(
             f"/v1/events/recent?run_id={rejected_run_id}&limit=10",
