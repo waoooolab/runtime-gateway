@@ -380,6 +380,56 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(timed_out_event["payload"]["run_id"], run_id)
         self.assertEqual(timed_out_event["payload"]["status"], "timed_out")
 
+    def test_gateway_to_execution_approve_waiting_run_flow(self) -> None:
+        token = self._gateway_token(["runs:write"])
+        response = self.gateway_client.post(
+            "/v1/runs",
+            json={
+                "tenant_id": "t1",
+                "app_id": "covernow",
+                "session_key": "tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                "payload": {
+                    "goal": "verify approve waiting flow",
+                    "dispatch_policy": {
+                        "autonomy": {
+                            "uncertainty": "high",
+                        }
+                    },
+                },
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 409)
+
+        self.assertEqual(len(execution_app_module._runtime.runs), 1)
+        run_id = next(iter(execution_app_module._runtime.runs.keys()))
+        self.assertEqual(execution_app_module._runtime.runs[run_id].status.value, "waiting_approval")
+
+        approve = self.gateway_client.post(
+            f"/v1/runs/{run_id}:approve",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(approve.status_code, 200)
+        approved_event = approve.json()
+        self.assertEqual(approved_event["event_type"], "runtime.run.status")
+        self.assertEqual(approved_event["payload"]["run_id"], run_id)
+        self.assertEqual(approved_event["payload"]["status"], "queued")
+        self.assertEqual(execution_app_module._runtime.runs[run_id].status.value, "queued")
+
+    def test_gateway_to_execution_approve_conflict_flow(self) -> None:
+        token = self._gateway_token(["runs:write"])
+        run_id = self._submit_run(token, "verify approve conflict flow")
+
+        approve = self.gateway_client.post(
+            f"/v1/runs/{run_id}:approve",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(approve.status_code, 409)
+        detail = approve.json().get("detail")
+        self.assertIsNotNone(detail)
+        self.assertIn("invalid run transition", str(detail))
+        self.assertEqual(execution_app_module._runtime.runs[run_id].status.value, "queued")
+
     def test_gateway_to_execution_worker_health_flow(self) -> None:
         write_token = self._gateway_token(["runs:write"])
         read_token = self._gateway_token(["runs:read"])
