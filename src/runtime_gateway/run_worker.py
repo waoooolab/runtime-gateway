@@ -62,6 +62,9 @@ def _build_worker_error_detail(
         "anomaly_ratio",
         "progressed_ratio",
         "queue_depth",
+        "queue_depth_before",
+        "queue_depth_after",
+        "max_items",
         "processed",
         "remaining",
         "should_continue",
@@ -84,6 +87,14 @@ def _build_worker_error_detail(
             nested_poll_hint = scheduling_signal.get("recommended_poll_after_ms")
             if nested_poll_hint is not None:
                 detail["recommended_poll_after_ms"] = nested_poll_hint
+    for key in ("queue_depth_before", "queue_depth_after", "max_items"):
+        if key in detail:
+            continue
+        scheduling_signal = detail.get("scheduling_signal")
+        if isinstance(scheduling_signal, dict):
+            nested_value = scheduling_signal.get(key)
+            if nested_value is not None:
+                detail[key] = nested_value
     return detail
 
 
@@ -109,6 +120,9 @@ def _build_worker_error_audit_metadata(
         "anomaly_ratio",
         "progressed_ratio",
         "queue_depth",
+        "queue_depth_before",
+        "queue_depth_after",
+        "max_items",
         "processed",
         "remaining",
         "should_continue",
@@ -131,6 +145,14 @@ def _build_worker_error_audit_metadata(
             nested_poll_hint = scheduling_signal.get("recommended_poll_after_ms")
             if nested_poll_hint is not None:
                 metadata["recommended_poll_after_ms"] = nested_poll_hint
+    for key in ("queue_depth_before", "queue_depth_after", "max_items"):
+        if key in metadata:
+            continue
+        scheduling_signal = metadata.get("scheduling_signal")
+        if isinstance(scheduling_signal, dict):
+            nested_value = scheduling_signal.get(key)
+            if nested_value is not None:
+                metadata[key] = nested_value
     return metadata
 
 

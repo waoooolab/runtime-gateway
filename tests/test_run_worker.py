@@ -221,6 +221,9 @@ def test_worker_drain_downstream_4xx_error(
     assert detail["scheduling_signal"]["stalled_signal"] is True
     assert detail["scheduling_signal"]["recommended_poll_after_ms"] == 1000
     assert detail["recommended_poll_after_ms"] == 1000
+    assert detail["queue_depth_before"] == 3
+    assert detail["queue_depth_after"] == 3
+    assert detail["max_items"] == 1
     assert "HTTP 422" in detail["message"]
     audit = get_audit_events(limit=1)[0]
     assert audit["action"] == "orchestration.worker_drain"
@@ -238,6 +241,9 @@ def test_worker_drain_downstream_4xx_error(
     assert audit["metadata"]["scheduling_signal"]["stalled_signal"] is True
     assert audit["metadata"]["scheduling_signal"]["recommended_poll_after_ms"] == 1000
     assert audit["metadata"]["recommended_poll_after_ms"] == 1000
+    assert audit["metadata"]["queue_depth_before"] == 3
+    assert audit["metadata"]["queue_depth_after"] == 3
+    assert audit["metadata"]["max_items"] == 1
 
 
 def test_worker_tick_downstream_connection_error(

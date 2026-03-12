@@ -683,7 +683,10 @@ class EndToEndRunFlowTests(unittest.TestCase):
         detail = drain.json()["detail"]
         self.assertEqual(detail["status_code"], 422)
         self.assertIn("max_items must be <= 512", detail["downstream_detail"])
+        self.assertEqual(int(detail["max_items"]), 600)
         self.assertEqual(int(detail["processed"]), 0)
+        self.assertEqual(int(detail["queue_depth_before"]), 0)
+        self.assertEqual(int(detail["queue_depth_after"]), 0)
         self.assertEqual(int(detail["remaining"]), 0)
         self.assertIs(detail["should_continue"], False)
         self.assertEqual(detail["outcome_counts"], {"progressed": 0, "missing_run": 0, "skipped": 0})
