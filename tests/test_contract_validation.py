@@ -10,6 +10,7 @@ from runtime_gateway.contracts.validation import (
     validate_execution_context_contract,
     validate_executor_profile_catalog_contract,
     validate_orchestration_hints_contract,
+    validate_runtime_events_page_contract,
     validate_token_exchange_contract,
 )
 from runtime_gateway.events.envelope import build_event_envelope
@@ -148,6 +149,39 @@ class ContractValidationTests(unittest.TestCase):
         }
         with self.assertRaises(ContractValidationError):
             validate_orchestration_hints_contract(payload)
+
+    def test_runtime_events_page_contract_valid(self) -> None:
+        payload = {
+            "items": [
+                {
+                    "bus_seq": 1,
+                    "event": {
+                        "event_id": "evt-1",
+                        "event_type": "runtime.run.status",
+                        "tenant_id": "t1",
+                        "app_id": "covernow",
+                        "session_key": "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+                        "trace_id": "trace-1",
+                        "correlation_id": "run-1",
+                        "ts": "2026-03-12T00:00:00Z",
+                        "payload": {"run_id": "run-1", "status": "queued"},
+                    },
+                }
+            ],
+            "next_cursor": 1,
+            "has_more": False,
+            "stats": {"connections": 0, "buffered_events": 1, "next_seq": 2},
+        }
+        validate_runtime_events_page_contract(payload)
+
+    def test_runtime_events_page_contract_rejects_missing_has_more(self) -> None:
+        payload = {
+            "items": [],
+            "next_cursor": 0,
+            "stats": {"connections": 0, "buffered_events": 0, "next_seq": 1},
+        }
+        with self.assertRaises(ContractValidationError):
+            validate_runtime_events_page_contract(payload)
 
 
 if __name__ == "__main__":

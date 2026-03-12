@@ -8,7 +8,11 @@ from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
 
 from .api.schemas import TokenExchangeRequest, TokenExchangeResponse
 from .audit.emitter import emit_audit_event, get_audit_events, read_audit_log
-from .contracts import ContractValidationError, validate_executor_profile_catalog_contract
+from .contracts import (
+    ContractValidationError,
+    validate_executor_profile_catalog_contract,
+    validate_runtime_events_page_contract,
+)
 from .events.bus import InMemoryEventBus
 from .events.validation import validate_event_envelope
 from .executor_profiles import list_executor_profiles
@@ -122,12 +126,17 @@ def list_recent_events(
     next_cursor = cursor if cursor is not None else 0
     if items:
         next_cursor = int(items[-1]["bus_seq"])
-    return {
+    response_payload = {
         "items": items,
         "next_cursor": next_cursor,
         "has_more": has_more,
         "stats": _event_bus.stats(),
     }
+    try:
+        validate_runtime_events_page_contract(response_payload)
+    except ContractValidationError as exc:
+        raise HTTPException(status_code=500, detail=f"invalid recent events response: {exc}") from exc
+    return response_payload
 
 
 @app.post("/v1/events/publish")

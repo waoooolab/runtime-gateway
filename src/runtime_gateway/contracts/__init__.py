@@ -8,6 +8,7 @@ from .validation import (
     validate_executor_profile_catalog_contract,
     validate_event_envelope_contract,
     validate_orchestration_hints_contract,
+    validate_runtime_events_page_contract,
     validate_token_exchange_contract,
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     "validate_executor_profile_catalog_contract",
     "validate_event_envelope_contract",
     "validate_orchestration_hints_contract",
+    "validate_runtime_events_page_contract",
     "validate_token_exchange_contract",
 ]

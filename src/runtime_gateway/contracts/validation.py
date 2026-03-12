@@ -17,6 +17,7 @@ COMMAND_ENVELOPE_SCHEMA = "command-envelope.v1.json"
 EXECUTION_CONTEXT_SCHEMA = "runtime/execution-context.v1.json"
 EXECUTOR_PROFILE_CATALOG_SCHEMA = "runtime/executor-profile-catalog.v1.json"
 ORCHESTRATION_HINTS_SCHEMA = "runtime/orchestration-hints.v1.json"
+RUNTIME_EVENTS_PAGE_SCHEMA = "runtime/runtime-events-page.v1.json"
 
 _VALIDATOR_CACHE: dict[str, Draft202012Validator] = {}
 _CACHE_LOCK = Lock()
@@ -120,3 +121,7 @@ def validate_executor_profile_catalog_contract(payload: dict[str, Any]) -> None:
 
 def validate_orchestration_hints_contract(payload: dict[str, Any]) -> None:
     validate_contract(ORCHESTRATION_HINTS_SCHEMA, payload)
+
+
+def validate_runtime_events_page_contract(payload: dict[str, Any]) -> None:
+    validate_contract(RUNTIME_EVENTS_PAGE_SCHEMA, payload)

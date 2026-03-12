@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "items",
+    "next_cursor",
+    "has_more",
+    "stats"
+  ],
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "bus_seq",
+          "event"
+        ],
+        "properties": {
+          "bus_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "event": {
+            "type": "object",
+            "required": [
+              "event_id",
+              "event_type",
+              "tenant_id",
+              "app_id",
+              "session_key",
+              "trace_id",
+              "correlation_id",
+              "ts",
+              "payload"
+            ],
+            "properties": {
+              "event_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "event_type": {
+                "type": "string",
+                "minLength": 1
+              },
+              "tenant_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "app_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "session_key": {
+                "type": "string",
+                "minLength": 1
+              },
+              "trace_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "correlation_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "ts": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "payload": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "next_cursor": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "has_more": {
+      "type": "boolean"
+    },
+    "stats": {
+      "type": "object",
+      "required": [
+        "connections",
+        "buffered_events",
+        "next_seq"
+      ],
+      "properties": {
+        "connections": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "buffered_events": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "next_seq": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}
