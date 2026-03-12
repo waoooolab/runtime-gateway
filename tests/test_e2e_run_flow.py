@@ -222,6 +222,28 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(timed_out_event["payload"]["run_id"], run_id)
         self.assertEqual(timed_out_event["payload"]["status"], "timed_out")
 
+    def test_gateway_to_execution_worker_health_flow(self) -> None:
+        write_token = self._gateway_token(["runs:write"])
+        read_token = self._gateway_token(["runs:read"])
+        _ = self._submit_run(write_token, "verify worker health e2e flow")
+
+        tick = self.gateway_client.post(
+            "/v1/orchestration/worker:tick?fair=true&auto_start=true",
+            headers={"Authorization": f"Bearer {write_token}"},
+        )
+        self.assertEqual(tick.status_code, 200)
+        tick_payload = tick.json()
+        self.assertIn("outcome", tick_payload)
+
+        health = self.gateway_client.get(
+            "/v1/orchestration/worker:health",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(health.status_code, 200)
+        health_payload = health.json()
+        self.assertGreaterEqual(int(health_payload["ticks_total"]), 1)
+        self.assertIn("last_tick_outcome", health_payload)
+
     def test_gateway_and_execution_profile_catalog_are_aligned(self) -> None:
         gateway_response = self.gateway_client.get(
             "/v1/executors/profiles",
