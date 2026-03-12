@@ -97,6 +97,7 @@ def test_get_run_status_happy_path(
     assert payload["event_type"] == "runtime.run.status"
     assert payload["payload"]["run_id"] == "run-status-1"
     assert payload["payload"]["status"] == "queued"
+    assert payload["recommended_poll_after_ms"] == 1500
     mock_execution_client.get_run_status.assert_called_once_with(
         run_id="run-status-1",
         auth_token="delegated-token",
@@ -108,6 +109,33 @@ def test_get_run_status_happy_path(
     assert audit["metadata"]["run_id"] == "run-status-1"
     assert audit["metadata"]["downstream_event_type"] == "runtime.run.status"
     assert audit["metadata"]["downstream_status"] == "queued"
+    assert audit["metadata"]["recommended_poll_after_ms"] == 1500
+
+
+def test_get_run_status_terminal_recommends_slow_poll(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    read_auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.get_run_status.return_value = _run_status_event(
+        run_id="run-status-terminal",
+        status="succeeded",
+    )
+    client = TestClient(app)
+    response = client.get(
+        "/v1/runs/run-status-terminal",
+        headers=read_auth_headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["recommended_poll_after_ms"] == 10000
+    mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "runs.read"
+    assert audit["decision"] == "allow"
+    assert audit["metadata"]["run_id"] == "run-status-terminal"
+    assert audit["metadata"]["downstream_status"] == "succeeded"
+    assert audit["metadata"]["recommended_poll_after_ms"] == 10000
 
 
 def test_get_run_status_downstream_error_maps_status(

@@ -12,6 +12,17 @@ from .contracts import ContractValidationError, validate_runtime_run_lease_contr
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
 
 
+def _recommended_poll_after_ms_for_lease_state(lease_state: str | None) -> int:
+    normalized = (lease_state or "").strip().lower()
+    if normalized in {"released", "expired"}:
+        return 10000
+    if normalized == "active":
+        return 2000
+    if normalized:
+        return 4000
+    return 5000
+
+
 def _extract_lease_state(payload: dict[str, Any]) -> str | None:
     lease = payload.get("lease")
     if not isinstance(lease, dict):
@@ -138,6 +149,10 @@ def dispatch_get_run_lease(
         actor_id=actor_id,
         trace_id=trace_id,
     )
+    lease_state = _extract_lease_state(result)
+    recommended_poll_after_ms = _recommended_poll_after_ms_for_lease_state(lease_state)
+    response_payload = dict(result)
+    response_payload["recommended_poll_after_ms"] = recommended_poll_after_ms
 
     emit_audit_event(
         action=action,
@@ -146,8 +161,9 @@ def dispatch_get_run_lease(
         trace_id=trace_id,
         metadata={
             "run_id": run_id,
-            "lease_state": _extract_lease_state(result),
+            "lease_state": lease_state,
             "device_hub_status": _extract_device_hub_status(result),
+            "recommended_poll_after_ms": recommended_poll_after_ms,
         },
     )
-    return result
+    return response_payload

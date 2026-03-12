@@ -80,6 +80,7 @@ def test_get_run_lease_happy_path(
     assert payload["run_id"] == "run-lease-1"
     assert payload["lease"]["lease_id"] == "lease-1"
     assert payload["lease"]["state"] == "active"
+    assert payload["recommended_poll_after_ms"] == 2000
     mock_execution_client.get_run_lease.assert_called_once_with(
         run_id="run-lease-1",
         auth_token="delegated-token",
@@ -91,6 +92,34 @@ def test_get_run_lease_happy_path(
     assert audit["metadata"]["run_id"] == "run-lease-1"
     assert audit["metadata"]["lease_state"] == "active"
     assert audit["metadata"]["device_hub_status"] == "ok"
+    assert audit["metadata"]["recommended_poll_after_ms"] == 2000
+
+
+def test_get_run_lease_terminal_recommends_slow_poll(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    read_auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.get_run_lease.return_value = {
+        "run_id": "run-lease-terminal",
+        "lease": {"lease_id": "lease-terminal", "task_id": "run-lease-terminal:root", "state": "expired"},
+        "device_hub": {"status": "ok", "snapshot": {"status": "expired"}},
+    }
+    client = TestClient(app)
+    response = client.get(
+        "/v1/runs/run-lease-terminal/lease",
+        headers=read_auth_headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["recommended_poll_after_ms"] == 10000
+    mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "runs.lease"
+    assert audit["decision"] == "allow"
+    assert audit["metadata"]["run_id"] == "run-lease-terminal"
+    assert audit["metadata"]["lease_state"] == "expired"
+    assert audit["metadata"]["recommended_poll_after_ms"] == 10000
 
 
 def test_get_run_lease_downstream_error_maps_status(
@@ -184,6 +213,7 @@ def test_get_run_lease_allows_not_bound_payload(
     )
     assert response.status_code == 200
     assert response.json()["device_hub"]["status"] == "not_bound"
+    assert response.json()["recommended_poll_after_ms"] == 5000
     mock_token_exchange.assert_called_once()
 
 

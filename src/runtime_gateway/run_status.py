@@ -11,6 +11,8 @@ from .auth.exchange import ExchangeError, exchange_subject_token
 from .events.validation import validate_event_envelope
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
 
+_TERMINAL_RUN_STATUSES = {"succeeded", "failed", "canceled", "timed_out", "rejected"}
+
 
 def _extract_downstream_status(event: dict[str, Any]) -> str | None:
     payload = event.get("payload")
@@ -33,6 +35,17 @@ def _extract_downstream_run_id(event: dict[str, Any]) -> str | None:
         return None
     normalized = run_id.strip()
     return normalized or None
+
+
+def _recommended_poll_after_ms_for_run_status(status: str | None) -> int:
+    normalized = (status or "").strip().lower()
+    if normalized in _TERMINAL_RUN_STATUSES:
+        return 10000
+    if normalized in {"running", "dispatching", "retrying"}:
+        return 1000
+    if normalized in {"requested", "queued"}:
+        return 1500
+    return 3000
 
 
 def _ensure_downstream_run_id_matches(
@@ -127,6 +140,10 @@ def dispatch_get_run_status(
         actor_id=actor_id,
         trace_id=trace_id,
     )
+    downstream_status = _extract_downstream_status(result)
+    recommended_poll_after_ms = _recommended_poll_after_ms_for_run_status(downstream_status)
+    response_payload = dict(result)
+    response_payload["recommended_poll_after_ms"] = recommended_poll_after_ms
 
     emit_audit_event(
         action=action,
@@ -136,7 +153,8 @@ def dispatch_get_run_status(
         metadata={
             "run_id": run_id,
             "downstream_event_type": result.get("event_type"),
-            "downstream_status": _extract_downstream_status(result),
+            "downstream_status": downstream_status,
+            "recommended_poll_after_ms": recommended_poll_after_ms,
         },
     )
-    return result
+    return response_payload
