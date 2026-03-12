@@ -255,6 +255,32 @@ class EventBusWebsocketTests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertIn("since_ts must be valid ISO-8601 date-time", response.json()["detail"])
 
+    def test_recent_events_accepts_naive_since_ts_as_utc(self) -> None:
+        token = self._token(scope=["runs:write"])
+        first_event = _event_envelope("runtime.run.status", run_id="run-since-naive")
+        first_event["ts"] = "2026-03-12T00:00:00Z"
+        second_event = _event_envelope("runtime.run.completed", run_id="run-since-naive")
+        second_event["ts"] = "2026-03-12T00:08:00Z"
+        self.client.post(
+            "/v1/events/publish",
+            json=first_event,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.client.post(
+            "/v1/events/publish",
+            json=second_event,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        filtered = self.client.get(
+            "/v1/events/recent?run_id=run-since-naive&since_ts=2026-03-12T00:05:00",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(filtered.status_code, 200)
+        items = filtered.json()["items"]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["event"]["event_type"], "runtime.run.completed")
+
     def test_recent_events_sets_has_more_for_recent_window(self) -> None:
         token = self._token(scope=["runs:write"])
         self.client.post(

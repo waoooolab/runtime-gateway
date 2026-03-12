@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
@@ -81,9 +81,12 @@ def _parse_since_ts_or_raise(raw_since_ts: str | None) -> datetime | None:
     if not normalized:
         return None
     try:
-        return datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="since_ts must be valid ISO-8601 date-time") from exc
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 @app.get("/healthz")
