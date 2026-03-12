@@ -83,6 +83,11 @@
     "has_more": {
       "type": "boolean"
     },
+    "recommended_poll_after_ms": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 60000
+    },
     "stats": {
       "type": "object",
       "required": [

@@ -170,9 +170,21 @@ class ContractValidationTests(unittest.TestCase):
             ],
             "next_cursor": 1,
             "has_more": False,
+            "recommended_poll_after_ms": 1500,
             "stats": {"connections": 0, "buffered_events": 1, "next_seq": 2},
         }
         validate_runtime_events_page_contract(payload)
+
+    def test_runtime_events_page_contract_rejects_invalid_recommended_poll(self) -> None:
+        payload = {
+            "items": [],
+            "next_cursor": 0,
+            "has_more": False,
+            "recommended_poll_after_ms": 50,
+            "stats": {"connections": 0, "buffered_events": 0, "next_seq": 1},
+        }
+        with self.assertRaises(ContractValidationError):
+            validate_runtime_events_page_contract(payload)
 
     def test_runtime_events_page_contract_rejects_missing_has_more(self) -> None:
         payload = {
