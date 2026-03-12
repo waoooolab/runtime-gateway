@@ -364,6 +364,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(canceled_event["event_type"], "runtime.run.status")
         self.assertEqual(canceled_event["payload"]["run_id"], run_id)
         self.assertEqual(canceled_event["payload"]["status"], "canceled")
+        self.assertEqual(canceled_event["payload"]["orchestration"]["failure_reason_code"], "run_canceled")
 
     def test_gateway_to_execution_timeout_flow(self) -> None:
         token = self._gateway_token(["runs:write"])
@@ -379,6 +380,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(timed_out_event["event_type"], "runtime.run.status")
         self.assertEqual(timed_out_event["payload"]["run_id"], run_id)
         self.assertEqual(timed_out_event["payload"]["status"], "timed_out")
+        self.assertEqual(timed_out_event["payload"]["orchestration"]["failure_reason_code"], "run_timed_out")
 
     def test_gateway_to_execution_complete_success_flow(self) -> None:
         token = self._gateway_token(["runs:write"])
