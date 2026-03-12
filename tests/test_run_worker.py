@@ -106,6 +106,7 @@ def test_worker_health_happy_path(
         "is_backlogged": False,
         "is_stalled": False,
         "health_state": "healthy",
+        "recommended_poll_after_ms": 5000,
     }
 
     client = TestClient(app)
@@ -118,6 +119,7 @@ def test_worker_health_happy_path(
     assert payload["drain_processed_total"] == 17
     assert payload["is_stalled"] is False
     assert payload["health_state"] == "healthy"
+    assert payload["recommended_poll_after_ms"] == 5000
     mock_execution_client.worker_health.assert_called_once_with(
         auth_token="delegated-token",
     )
@@ -132,6 +134,7 @@ def test_worker_drain_happy_path(
         "processed": 2,
         "remaining": 1,
         "should_continue": True,
+        "recommended_poll_after_ms": 250,
         "outcome_counts": {"progressed": 2, "missing_run": 0, "skipped": 0},
         "anomaly_ratio": 0.0,
         "progressed_ratio": 1.0,
@@ -146,6 +149,7 @@ def test_worker_drain_happy_path(
     assert payload["processed"] == 2
     assert payload["remaining"] == 1
     assert payload["should_continue"] is True
+    assert payload["recommended_poll_after_ms"] == 250
     assert payload["outcome_counts"]["progressed"] == 2
     assert payload["anomaly_ratio"] == 0.0
     assert payload["stalled_signal"] is False
@@ -204,6 +208,31 @@ def test_worker_tick_downstream_connection_error(
 
     assert response.status_code == 502
     assert "connection error" in response.text
+
+
+def test_worker_tick_downstream_4xx_error_is_structured(
+    mock_execution_client: Mock, mock_token_exchange: Mock, auth_headers: dict[str, str]
+) -> None:
+    _ = mock_token_exchange
+    mock_execution_client.worker_tick.side_effect = RuntimeExecutionClientError(
+        "HTTP 409 calling worker tick endpoint",
+        status_code=409,
+        response_body={
+            "detail": "worker is temporarily paused",
+            "queue_depth": 3,
+            "stalled_signal": True,
+        },
+    )
+
+    client = TestClient(app)
+    response = client.post("/v1/orchestration/worker:tick", headers=auth_headers)
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert isinstance(detail, dict)
+    assert detail["status_code"] == 409
+    assert detail["downstream_detail"] == "worker is temporarily paused"
+    assert detail["queue_depth"] == 3
+    assert detail["stalled_signal"] is True
 
 
 def test_worker_health_downstream_connection_error(
