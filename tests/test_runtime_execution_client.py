@@ -168,6 +168,121 @@ class RuntimeExecutionClientTests(unittest.TestCase):
         self.assertIn("/v1/orchestration/worker:health", captured["url"])
         self.assertEqual(captured["method"], "GET")
 
+    def test_worker_start_posts_reason_payload(self) -> None:
+        captured: dict[str, str] = {}
+
+        class _Response:
+            def getcode(self) -> int:
+                return 200
+
+            def read(self) -> bytes:
+                return b'{"action":"start","lifecycle_state":"running","changed":true}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+                return None
+
+        def transport(request, timeout=10.0):
+            _ = timeout
+            captured["url"] = request.full_url
+            captured["method"] = request.get_method()
+            captured["body"] = request.data.decode("utf-8")
+            return _Response()
+
+        client = RuntimeExecutionClient(
+            base_url="http://runtime-execution.test",
+            _transport=transport,
+        )
+        payload = client.worker_start(auth_token="token-1", reason="resume")
+
+        self.assertEqual(payload["action"], "start")
+        self.assertIn("/v1/orchestration/worker:start", captured["url"])
+        self.assertEqual(captured["method"], "POST")
+        self.assertIn('"reason":"resume"', captured["body"])
+
+    def test_worker_stop_and_restart_post_reason_payload(self) -> None:
+        captured: dict[str, str] = {}
+
+        class _Response:
+            def __init__(self, body: bytes):
+                self._body = body
+
+            def getcode(self) -> int:
+                return 200
+
+            def read(self) -> bytes:
+                return self._body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+                return None
+
+        call_count = {"n": 0}
+
+        def transport(request, timeout=10.0):
+            _ = timeout
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                captured["stop_url"] = request.full_url
+                captured["stop_body"] = request.data.decode("utf-8")
+                return _Response(b'{"action":"stop","lifecycle_state":"stopped","changed":true}')
+            captured["restart_url"] = request.full_url
+            captured["restart_body"] = request.data.decode("utf-8")
+            return _Response(b'{"action":"restart","lifecycle_state":"running","changed":true}')
+
+        client = RuntimeExecutionClient(
+            base_url="http://runtime-execution.test",
+            _transport=transport,
+        )
+        stop_payload = client.worker_stop(auth_token="token-1", reason="maintenance")
+        restart_payload = client.worker_restart(auth_token="token-1", reason="refresh")
+
+        self.assertEqual(stop_payload["action"], "stop")
+        self.assertEqual(restart_payload["action"], "restart")
+        self.assertIn("/v1/orchestration/worker:stop", captured["stop_url"])
+        self.assertIn("/v1/orchestration/worker:restart", captured["restart_url"])
+        self.assertIn('"reason":"maintenance"', captured["stop_body"])
+        self.assertIn('"reason":"refresh"', captured["restart_body"])
+
+    def test_worker_status_uses_get_method(self) -> None:
+        captured: dict[str, str] = {}
+
+        class _Response:
+            def getcode(self) -> int:
+                return 200
+
+            def read(self) -> bytes:
+                return b'{"lifecycle_state":"running","is_running":true,"restart_total":0}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+                return None
+
+        def transport(request, timeout=10.0):
+            _ = timeout
+            captured["url"] = request.full_url
+            captured["method"] = request.get_method()
+            return _Response()
+
+        client = RuntimeExecutionClient(
+            base_url="http://runtime-execution.test",
+            _transport=transport,
+        )
+        payload = client.worker_status(auth_token="token-1")
+
+        self.assertEqual(payload["lifecycle_state"], "running")
+        self.assertIn("/v1/orchestration/worker:status", captured["url"])
+        self.assertEqual(captured["method"], "GET")
+
     def test_get_run_status_uses_get_method(self) -> None:
         captured: dict[str, str] = {}
 

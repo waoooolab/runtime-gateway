@@ -13,7 +13,15 @@ from .run_control import dispatch_cancel_run, dispatch_complete_run, dispatch_ti
 from .run_dispatch import dispatch_create_run
 from .run_lease import dispatch_get_run_lease
 from .run_status import dispatch_get_run_status
-from .run_worker import dispatch_worker_drain, dispatch_worker_health, dispatch_worker_tick
+from .run_worker import (
+    dispatch_worker_drain,
+    dispatch_worker_health,
+    dispatch_worker_restart,
+    dispatch_worker_start,
+    dispatch_worker_status,
+    dispatch_worker_stop,
+    dispatch_worker_tick,
+)
 from .security import AuthContext, require_runs_read_context, require_runs_write_context
 
 
@@ -215,6 +223,55 @@ def _register_worker_routes(
         auth_context: AuthContext = Depends(require_runs_read_context),
     ) -> dict[str, Any]:
         return dispatch_worker_health(
+            claims=auth_context.claims,
+            subject_token=auth_context.subject_token,
+            execution_client=get_execution_client(),
+        )
+
+    @app.post("/v1/orchestration/worker:start")
+    def worker_start(
+        body: dict[str, Any] | None = None,
+        auth_context: AuthContext = Depends(require_runs_write_context),
+    ) -> dict[str, Any]:
+        reason = str(body.get("reason", "")).strip() if isinstance(body, dict) else ""
+        return dispatch_worker_start(
+            claims=auth_context.claims,
+            subject_token=auth_context.subject_token,
+            execution_client=get_execution_client(),
+            reason=reason or None,
+        )
+
+    @app.post("/v1/orchestration/worker:stop")
+    def worker_stop(
+        body: dict[str, Any] | None = None,
+        auth_context: AuthContext = Depends(require_runs_write_context),
+    ) -> dict[str, Any]:
+        reason = str(body.get("reason", "")).strip() if isinstance(body, dict) else ""
+        return dispatch_worker_stop(
+            claims=auth_context.claims,
+            subject_token=auth_context.subject_token,
+            execution_client=get_execution_client(),
+            reason=reason or None,
+        )
+
+    @app.post("/v1/orchestration/worker:restart")
+    def worker_restart(
+        body: dict[str, Any] | None = None,
+        auth_context: AuthContext = Depends(require_runs_write_context),
+    ) -> dict[str, Any]:
+        reason = str(body.get("reason", "")).strip() if isinstance(body, dict) else ""
+        return dispatch_worker_restart(
+            claims=auth_context.claims,
+            subject_token=auth_context.subject_token,
+            execution_client=get_execution_client(),
+            reason=reason or None,
+        )
+
+    @app.get("/v1/orchestration/worker:status")
+    def worker_status(
+        auth_context: AuthContext = Depends(require_runs_read_context),
+    ) -> dict[str, Any]:
+        return dispatch_worker_status(
             claims=auth_context.claims,
             subject_token=auth_context.subject_token,
             execution_client=get_execution_client(),

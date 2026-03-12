@@ -171,6 +171,68 @@ def test_worker_drain_happy_path(
     assert mock_token_exchange.call_args.kwargs["scope"] == ["runs:write"]
 
 
+def test_worker_lifecycle_happy_path(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    auth_headers: dict[str, str],
+    read_auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.worker_stop.return_value = {
+        "action": "stop",
+        "lifecycle_state": "stopped",
+        "changed": True,
+        "recommended_poll_after_ms": 1500,
+    }
+    mock_execution_client.worker_start.return_value = {
+        "action": "start",
+        "lifecycle_state": "running",
+        "changed": True,
+        "recommended_poll_after_ms": 5000,
+    }
+    mock_execution_client.worker_restart.return_value = {
+        "action": "restart",
+        "lifecycle_state": "running",
+        "changed": True,
+        "restart_total": 1,
+        "recommended_poll_after_ms": 5000,
+    }
+    mock_execution_client.worker_status.return_value = {
+        "lifecycle_state": "running",
+        "is_running": True,
+        "restart_total": 1,
+        "recommended_poll_after_ms": 5000,
+    }
+
+    client = TestClient(app)
+    stop = client.post("/v1/orchestration/worker:stop", json={"reason": "maintenance"}, headers=auth_headers)
+    start = client.post("/v1/orchestration/worker:start", json={"reason": "resume"}, headers=auth_headers)
+    restart = client.post("/v1/orchestration/worker:restart", json={"reason": "refresh"}, headers=auth_headers)
+    status = client.get("/v1/orchestration/worker:status", headers=read_auth_headers)
+
+    assert stop.status_code == 200
+    assert stop.json()["lifecycle_state"] == "stopped"
+    assert start.status_code == 200
+    assert start.json()["action"] == "start"
+    assert restart.status_code == 200
+    assert restart.json()["action"] == "restart"
+    assert status.status_code == 200
+    assert status.json()["is_running"] is True
+    mock_execution_client.worker_stop.assert_called_once_with(
+        auth_token="delegated-token",
+        reason="maintenance",
+    )
+    mock_execution_client.worker_start.assert_called_once_with(
+        auth_token="delegated-token",
+        reason="resume",
+    )
+    mock_execution_client.worker_restart.assert_called_once_with(
+        auth_token="delegated-token",
+        reason="refresh",
+    )
+    mock_execution_client.worker_status.assert_called_once_with(auth_token="delegated-token")
+    assert mock_token_exchange.call_count == 4
+
+
 def test_worker_drain_downstream_4xx_error(
     mock_execution_client: Mock, mock_token_exchange: Mock, auth_headers: dict[str, str]
 ) -> None:
@@ -276,7 +338,13 @@ def test_worker_tick_downstream_4xx_error_is_structured(
         "HTTP 409 calling worker tick endpoint",
         status_code=409,
         response_body={
-            "detail": "worker is temporarily paused",
+            "detail": "worker is not running",
+            "requested_action": "tick",
+            "lifecycle_state": "stopped",
+            "is_running": False,
+            "can_start": True,
+            "last_transition": "stop",
+            "last_transition_at": "2026-03-13T00:00:00+00:00",
             "queue_depth": 3,
             "stalled_signal": True,
         },
@@ -288,14 +356,22 @@ def test_worker_tick_downstream_4xx_error_is_structured(
     detail = response.json()["detail"]
     assert isinstance(detail, dict)
     assert detail["status_code"] == 409
-    assert detail["downstream_detail"] == "worker is temporarily paused"
+    assert detail["downstream_detail"] == "worker is not running"
+    assert detail["lifecycle_state"] == "stopped"
+    assert detail["is_running"] is False
+    assert detail["can_start"] is True
+    assert detail["requested_action"] == "tick"
     assert detail["queue_depth"] == 3
     assert detail["stalled_signal"] is True
     audit = get_audit_events(limit=1)[0]
     assert audit["action"] == "orchestration.worker_tick"
     assert audit["decision"] == "deny"
     assert audit["metadata"]["status_code"] == 409
-    assert audit["metadata"]["downstream_detail"] == "worker is temporarily paused"
+    assert audit["metadata"]["downstream_detail"] == "worker is not running"
+    assert audit["metadata"]["lifecycle_state"] == "stopped"
+    assert audit["metadata"]["is_running"] is False
+    assert audit["metadata"]["can_start"] is True
+    assert audit["metadata"]["requested_action"] == "tick"
     assert audit["metadata"]["queue_depth"] == 3
     assert audit["metadata"]["stalled_signal"] is True
 
@@ -391,6 +467,18 @@ def test_worker_endpoints_require_bearer_token() -> None:
     health = client.get("/v1/orchestration/worker:health")
     assert health.status_code == 401
 
+    start = client.post("/v1/orchestration/worker:start")
+    assert start.status_code == 401
+
+    stop = client.post("/v1/orchestration/worker:stop")
+    assert stop.status_code == 401
+
+    restart = client.post("/v1/orchestration/worker:restart")
+    assert restart.status_code == 401
+
+    status = client.get("/v1/orchestration/worker:status")
+    assert status.status_code == 401
+
 
 def test_worker_endpoints_require_runs_write_scope() -> None:
     token = _make_token(audience="runtime-gateway", scope=["runs:read"])
@@ -403,6 +491,15 @@ def test_worker_endpoints_require_runs_write_scope() -> None:
     drain = client.post("/v1/orchestration/worker:drain", headers=headers)
     assert drain.status_code == 403
 
+    start = client.post("/v1/orchestration/worker:start", headers=headers)
+    assert start.status_code == 403
+
+    stop = client.post("/v1/orchestration/worker:stop", headers=headers)
+    assert stop.status_code == 403
+
+    restart = client.post("/v1/orchestration/worker:restart", headers=headers)
+    assert restart.status_code == 403
+
 
 def test_worker_health_requires_runs_read_scope() -> None:
     token = _make_token(audience="runtime-gateway", scope=["runs:write"])
@@ -411,3 +508,6 @@ def test_worker_health_requires_runs_read_scope() -> None:
 
     response = client.get("/v1/orchestration/worker:health", headers=headers)
     assert response.status_code == 403
+
+    status = client.get("/v1/orchestration/worker:status", headers=headers)
+    assert status.status_code == 403

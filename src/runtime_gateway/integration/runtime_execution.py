@@ -292,6 +292,55 @@ class RuntimeExecutionClient:
             auth_token=auth_token,
         )
 
+    def worker_start(
+        self,
+        *,
+        auth_token: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        body = {"reason": reason} if reason is not None else {}
+        return self._post_json(
+            path="v1/orchestration/worker:start",
+            auth_token=auth_token,
+            body=body,
+        )
+
+    def worker_stop(
+        self,
+        *,
+        auth_token: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        body = {"reason": reason} if reason is not None else {}
+        return self._post_json(
+            path="v1/orchestration/worker:stop",
+            auth_token=auth_token,
+            body=body,
+        )
+
+    def worker_restart(
+        self,
+        *,
+        auth_token: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        body = {"reason": reason} if reason is not None else {}
+        return self._post_json(
+            path="v1/orchestration/worker:restart",
+            auth_token=auth_token,
+            body=body,
+        )
+
+    def worker_status(
+        self,
+        *,
+        auth_token: str,
+    ) -> dict[str, Any]:
+        return self._get_json(
+            path="v1/orchestration/worker:status",
+            auth_token=auth_token,
+        )
+
     def get_run_status(
         self,
         *,

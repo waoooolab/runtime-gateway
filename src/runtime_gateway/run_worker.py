@@ -61,6 +61,14 @@ def _build_worker_error_detail(
         "stalled_signal",
         "anomaly_ratio",
         "progressed_ratio",
+        "lifecycle_state",
+        "is_running",
+        "lifecycle_health",
+        "last_transition",
+        "last_transition_at",
+        "last_heartbeat_at",
+        "last_heartbeat_age_seconds",
+        "is_heartbeat_stale",
         "queue_depth",
         "queue_depth_before",
         "queue_depth_after",
@@ -69,6 +77,11 @@ def _build_worker_error_detail(
         "remaining",
         "should_continue",
         "recommended_poll_after_ms",
+        "start_total",
+        "stop_total",
+        "restart_total",
+        "can_start",
+        "requested_action",
     ):
         value = response_body.get(key)
         if value is not None:
@@ -119,6 +132,14 @@ def _build_worker_error_audit_metadata(
         "stalled_signal",
         "anomaly_ratio",
         "progressed_ratio",
+        "lifecycle_state",
+        "is_running",
+        "lifecycle_health",
+        "last_transition",
+        "last_transition_at",
+        "last_heartbeat_at",
+        "last_heartbeat_age_seconds",
+        "is_heartbeat_stale",
         "queue_depth",
         "queue_depth_before",
         "queue_depth_after",
@@ -127,6 +148,11 @@ def _build_worker_error_audit_metadata(
         "remaining",
         "should_continue",
         "recommended_poll_after_ms",
+        "start_total",
+        "stop_total",
+        "restart_total",
+        "can_start",
+        "requested_action",
     ):
         value = response_body.get(key)
         if value is not None:
@@ -281,6 +307,197 @@ def dispatch_worker_health(
     )
     try:
         result = execution_client.worker_health(auth_token=token)
+    except RuntimeExecutionClientError as exc:
+        detail: str | dict[str, Any] = str(exc)
+        if isinstance(exc.response_body, dict):
+            detail = _build_worker_error_detail(
+                message=str(exc),
+                status_code=exc.status_code or 502,
+                response_body=exc.response_body,
+            )
+        emit_audit_event(
+            action=action,
+            decision="deny",
+            actor_id=actor_id,
+            trace_id=trace_id,
+            metadata=_build_worker_error_audit_metadata(
+                reason=str(exc),
+                status_code=exc.status_code,
+                response_body=exc.response_body if isinstance(exc.response_body, dict) else None,
+            ),
+        )
+        raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
+    emit_audit_event(
+        action=action,
+        decision="allow",
+        actor_id=actor_id,
+        trace_id=trace_id,
+        metadata={"result": result},
+    )
+    return result
+
+
+def dispatch_worker_start(
+    *,
+    claims: Mapping[str, Any],
+    subject_token: str,
+    execution_client: RuntimeExecutionClient,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    action = "orchestration.worker_start"
+    trace_id = str(claims.get("trace_id", ""))
+    actor_id = str(claims.get("sub", "unknown"))
+    token = _exchange_runtime_execution_token(
+        action=action,
+        claims=claims,
+        subject_token=subject_token,
+        scope=["runs:write"],
+    )
+    try:
+        result = execution_client.worker_start(auth_token=token, reason=reason)
+    except RuntimeExecutionClientError as exc:
+        detail: str | dict[str, Any] = str(exc)
+        if isinstance(exc.response_body, dict):
+            detail = _build_worker_error_detail(
+                message=str(exc),
+                status_code=exc.status_code or 502,
+                response_body=exc.response_body,
+            )
+        emit_audit_event(
+            action=action,
+            decision="deny",
+            actor_id=actor_id,
+            trace_id=trace_id,
+            metadata=_build_worker_error_audit_metadata(
+                reason=str(exc),
+                status_code=exc.status_code,
+                response_body=exc.response_body if isinstance(exc.response_body, dict) else None,
+            ),
+        )
+        raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
+    emit_audit_event(
+        action=action,
+        decision="allow",
+        actor_id=actor_id,
+        trace_id=trace_id,
+        metadata={"result": result},
+    )
+    return result
+
+
+def dispatch_worker_stop(
+    *,
+    claims: Mapping[str, Any],
+    subject_token: str,
+    execution_client: RuntimeExecutionClient,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    action = "orchestration.worker_stop"
+    trace_id = str(claims.get("trace_id", ""))
+    actor_id = str(claims.get("sub", "unknown"))
+    token = _exchange_runtime_execution_token(
+        action=action,
+        claims=claims,
+        subject_token=subject_token,
+        scope=["runs:write"],
+    )
+    try:
+        result = execution_client.worker_stop(auth_token=token, reason=reason)
+    except RuntimeExecutionClientError as exc:
+        detail: str | dict[str, Any] = str(exc)
+        if isinstance(exc.response_body, dict):
+            detail = _build_worker_error_detail(
+                message=str(exc),
+                status_code=exc.status_code or 502,
+                response_body=exc.response_body,
+            )
+        emit_audit_event(
+            action=action,
+            decision="deny",
+            actor_id=actor_id,
+            trace_id=trace_id,
+            metadata=_build_worker_error_audit_metadata(
+                reason=str(exc),
+                status_code=exc.status_code,
+                response_body=exc.response_body if isinstance(exc.response_body, dict) else None,
+            ),
+        )
+        raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
+    emit_audit_event(
+        action=action,
+        decision="allow",
+        actor_id=actor_id,
+        trace_id=trace_id,
+        metadata={"result": result},
+    )
+    return result
+
+
+def dispatch_worker_restart(
+    *,
+    claims: Mapping[str, Any],
+    subject_token: str,
+    execution_client: RuntimeExecutionClient,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    action = "orchestration.worker_restart"
+    trace_id = str(claims.get("trace_id", ""))
+    actor_id = str(claims.get("sub", "unknown"))
+    token = _exchange_runtime_execution_token(
+        action=action,
+        claims=claims,
+        subject_token=subject_token,
+        scope=["runs:write"],
+    )
+    try:
+        result = execution_client.worker_restart(auth_token=token, reason=reason)
+    except RuntimeExecutionClientError as exc:
+        detail: str | dict[str, Any] = str(exc)
+        if isinstance(exc.response_body, dict):
+            detail = _build_worker_error_detail(
+                message=str(exc),
+                status_code=exc.status_code or 502,
+                response_body=exc.response_body,
+            )
+        emit_audit_event(
+            action=action,
+            decision="deny",
+            actor_id=actor_id,
+            trace_id=trace_id,
+            metadata=_build_worker_error_audit_metadata(
+                reason=str(exc),
+                status_code=exc.status_code,
+                response_body=exc.response_body if isinstance(exc.response_body, dict) else None,
+            ),
+        )
+        raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
+    emit_audit_event(
+        action=action,
+        decision="allow",
+        actor_id=actor_id,
+        trace_id=trace_id,
+        metadata={"result": result},
+    )
+    return result
+
+
+def dispatch_worker_status(
+    *,
+    claims: Mapping[str, Any],
+    subject_token: str,
+    execution_client: RuntimeExecutionClient,
+) -> dict[str, Any]:
+    action = "orchestration.worker_status"
+    trace_id = str(claims.get("trace_id", ""))
+    actor_id = str(claims.get("sub", "unknown"))
+    token = _exchange_runtime_execution_token(
+        action=action,
+        claims=claims,
+        subject_token=subject_token,
+        scope=["runs:read"],
+    )
+    try:
+        result = execution_client.worker_status(auth_token=token)
     except RuntimeExecutionClientError as exc:
         detail: str | dict[str, Any] = str(exc)
         if isinstance(exc.response_body, dict):

@@ -646,6 +646,77 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertIs(health_payload["is_tick_stale"], False)
         self.assertEqual(health_payload["health_state"], "healthy")
 
+    def test_gateway_to_execution_worker_lifecycle_flow(self) -> None:
+        write_token = self._gateway_token(["runs:write"])
+        read_token = self._gateway_token(["runs:read"])
+
+        status_before = self.gateway_client.get(
+            "/v1/orchestration/worker:status",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(status_before.status_code, 200)
+        self.assertEqual(status_before.json()["lifecycle_state"], "running")
+        self.assertIs(status_before.json()["is_running"], True)
+
+        stop = self.gateway_client.post(
+            "/v1/orchestration/worker:stop",
+            json={"reason": "maintenance"},
+            headers={"Authorization": f"Bearer {write_token}"},
+        )
+        self.assertEqual(stop.status_code, 200)
+        self.assertEqual(stop.json()["action"], "stop")
+        self.assertEqual(stop.json()["lifecycle_state"], "stopped")
+        self.assertIs(stop.json()["is_running"], False)
+
+        tick_while_stopped = self.gateway_client.post(
+            "/v1/orchestration/worker:tick?fair=true&auto_start=true",
+            headers={"Authorization": f"Bearer {write_token}"},
+        )
+        self.assertEqual(tick_while_stopped.status_code, 409)
+        detail = tick_while_stopped.json()["detail"]
+        self.assertEqual(detail["lifecycle_state"], "stopped")
+        self.assertIs(detail["is_running"], False)
+        self.assertEqual(detail["requested_action"], "tick")
+        self.assertIn("recommended_poll_after_ms", detail)
+
+        start = self.gateway_client.post(
+            "/v1/orchestration/worker:start",
+            json={"reason": "resume"},
+            headers={"Authorization": f"Bearer {write_token}"},
+        )
+        self.assertEqual(start.status_code, 200)
+        self.assertEqual(start.json()["action"], "start")
+        self.assertEqual(start.json()["lifecycle_state"], "running")
+        self.assertIs(start.json()["is_running"], True)
+
+        run_id = self._submit_run(write_token, "verify worker lifecycle e2e flow")
+        tick_after_start = self.gateway_client.post(
+            "/v1/orchestration/worker:tick?fair=true&auto_start=true",
+            headers={"Authorization": f"Bearer {write_token}"},
+        )
+        self.assertEqual(tick_after_start.status_code, 200)
+        self.assertEqual(tick_after_start.json()["outcome"], "progressed")
+        self.assertEqual(tick_after_start.json()["leased_run_id"], run_id)
+
+        restart = self.gateway_client.post(
+            "/v1/orchestration/worker:restart",
+            json={"reason": "refresh"},
+            headers={"Authorization": f"Bearer {write_token}"},
+        )
+        self.assertEqual(restart.status_code, 200)
+        self.assertEqual(restart.json()["action"], "restart")
+        self.assertEqual(restart.json()["lifecycle_state"], "running")
+        self.assertGreaterEqual(int(restart.json()["restart_total"]), 1)
+
+        status_after = self.gateway_client.get(
+            "/v1/orchestration/worker:status",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(status_after.status_code, 200)
+        self.assertEqual(status_after.json()["lifecycle_state"], "running")
+        self.assertIs(status_after.json()["is_running"], True)
+        self.assertGreaterEqual(int(status_after.json()["restart_total"]), 1)
+
     def test_gateway_to_execution_worker_drain_signal_flow(self) -> None:
         write_token = self._gateway_token(["runs:write"])
         _ = self._submit_run(write_token, "verify worker drain signal e2e flow #1")
