@@ -60,9 +60,11 @@ def _build_worker_error_detail(
         "is_stalled",
         "stalled_signal",
         "anomaly_ratio",
+        "progressed_ratio",
         "queue_depth",
         "processed",
         "remaining",
+        "should_continue",
         "recommended_poll_after_ms",
     ):
         value = response_body.get(key)
@@ -105,9 +107,11 @@ def _build_worker_error_audit_metadata(
         "is_stalled",
         "stalled_signal",
         "anomaly_ratio",
+        "progressed_ratio",
         "queue_depth",
         "processed",
         "remaining",
+        "should_continue",
         "recommended_poll_after_ms",
     ):
         value = response_body.get(key)

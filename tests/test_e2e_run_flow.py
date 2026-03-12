@@ -672,6 +672,30 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertIs(payload["scheduling_signal"]["stalled_signal"], False)
         self.assertAlmostEqual(float(payload["scheduling_signal"]["anomaly_ratio"]), 0.0, places=6)
 
+    def test_gateway_to_execution_worker_drain_invalid_max_items_returns_structured_error(self) -> None:
+        write_token = self._gateway_token(["runs:write"])
+
+        drain = self.gateway_client.post(
+            "/v1/orchestration/worker:drain?max_items=600&fair=true&auto_start=true",
+            headers={"Authorization": f"Bearer {write_token}"},
+        )
+        self.assertEqual(drain.status_code, 422)
+        detail = drain.json()["detail"]
+        self.assertEqual(detail["status_code"], 422)
+        self.assertIn("max_items must be <= 512", detail["downstream_detail"])
+        self.assertEqual(int(detail["processed"]), 0)
+        self.assertEqual(int(detail["remaining"]), 0)
+        self.assertIs(detail["should_continue"], False)
+        self.assertEqual(detail["outcome_counts"], {"progressed": 0, "missing_run": 0, "skipped": 0})
+        self.assertEqual(detail["anomaly_counts"], {"missing_run": 0, "skipped": 0, "total": 0})
+        self.assertAlmostEqual(float(detail["anomaly_ratio"]), 0.0, places=6)
+        self.assertAlmostEqual(float(detail["progressed_ratio"]), 0.0, places=6)
+        self.assertIs(detail["stalled_signal"], False)
+        self.assertEqual(int(detail["recommended_poll_after_ms"]), 5000)
+        self.assertIn("scheduling_signal", detail)
+        self.assertEqual(int(detail["scheduling_signal"]["recommended_poll_after_ms"]), 5000)
+        self.assertIs(detail["scheduling_signal"]["stalled_signal"], False)
+
     def test_gateway_and_execution_profile_catalog_are_aligned(self) -> None:
         gateway_response = self.gateway_client.get(
             "/v1/executors/profiles",

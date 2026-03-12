@@ -182,8 +182,10 @@ def test_worker_drain_downstream_4xx_error(
             "detail": "max_items must be integer > 0",
             "processed": 0,
             "remaining": 3,
+            "should_continue": False,
             "stalled_signal": True,
             "anomaly_ratio": 1.0,
+            "progressed_ratio": 0.0,
             "outcome_counts": {"progressed": 0, "missing_run": 2, "skipped": 1},
             "anomaly_counts": {"missing_run": 2, "skipped": 1, "total": 3},
             "scheduling_signal": {
@@ -210,8 +212,10 @@ def test_worker_drain_downstream_4xx_error(
     assert detail["downstream_detail"] == "max_items must be integer > 0"
     assert detail["processed"] == 0
     assert detail["remaining"] == 3
+    assert detail["should_continue"] is False
     assert detail["stalled_signal"] is True
     assert detail["anomaly_ratio"] == 1.0
+    assert detail["progressed_ratio"] == 0.0
     assert detail["outcome_counts"] == {"progressed": 0, "missing_run": 2, "skipped": 1}
     assert detail["anomaly_counts"] == {"missing_run": 2, "skipped": 1, "total": 3}
     assert detail["scheduling_signal"]["stalled_signal"] is True
@@ -225,8 +229,10 @@ def test_worker_drain_downstream_4xx_error(
     assert audit["metadata"]["downstream_detail"] == "max_items must be integer > 0"
     assert audit["metadata"]["processed"] == 0
     assert audit["metadata"]["remaining"] == 3
+    assert audit["metadata"]["should_continue"] is False
     assert audit["metadata"]["stalled_signal"] is True
     assert audit["metadata"]["anomaly_ratio"] == 1.0
+    assert audit["metadata"]["progressed_ratio"] == 0.0
     assert audit["metadata"]["outcome_counts"] == {"progressed": 0, "missing_run": 2, "skipped": 1}
     assert audit["metadata"]["anomaly_counts"] == {"missing_run": 2, "skipped": 1, "total": 3}
     assert audit["metadata"]["scheduling_signal"]["stalled_signal"] is True
