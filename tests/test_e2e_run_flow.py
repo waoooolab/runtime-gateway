@@ -813,6 +813,150 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(device_hub_app_module._hub.leases[lease_id].status, "expired")
         self.assertEqual(device_hub_app_module._hub.leases[lease_id].expire_reason_code, "ttl_expired")
 
+    def test_gateway_submit_compute_rejected_when_tenant_quota_exhausted_e2e(self) -> None:
+        if not DEVICE_HUB_AVAILABLE:
+            self.skipTest("device-hub stack not available")
+
+        device_hub_app_module._hub = DeviceHubService(max_active_leases_per_tenant=1)
+        device_hub_client = TestClient(device_hub_app_module.app)
+        execution_app_module._runtime = RuntimeExecutionService(
+            device_hub_client=_DeviceHubBoundaryClient(
+                client=device_hub_client,
+                token_factory=self._device_hub_token,
+            )
+        )
+        self.execution_client = TestClient(execution_app_module.app)
+
+        register = device_hub_client.post(
+            "/v1/devices/register",
+            json=build_command_envelope(
+                command_type="device.register",
+                payload={"device_id": "gpu-node-gateway-tenant-quota-e2e", "capabilities": ["compute.comfyui.local"]},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-tenant-quota-device-register",
+                run_id="run-gateway-tenant-quota-device-bootstrap",
+                task_id="task-gateway-tenant-quota-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(register.status_code, 200)
+        pair_request = device_hub_client.post(
+            "/v1/devices/pairing/request",
+            json=build_command_envelope(
+                command_type="device.pairing.request",
+                payload={"device_id": "gpu-node-gateway-tenant-quota-e2e"},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-tenant-quota-device-pair",
+                run_id="run-gateway-tenant-quota-device-bootstrap",
+                task_id="task-gateway-tenant-quota-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(pair_request.status_code, 200)
+        pair_code = pair_request.json()["payload"]["code"]
+        approve = device_hub_client.post(
+            "/v1/devices/pairing/approve",
+            json=build_command_envelope(
+                command_type="device.pairing.approve",
+                payload={"code": pair_code},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-tenant-quota-device-approve",
+                run_id="run-gateway-tenant-quota-device-bootstrap",
+                task_id="task-gateway-tenant-quota-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(approve.status_code, 200)
+        heartbeat = device_hub_client.post(
+            "/v1/devices/heartbeat",
+            json=build_command_envelope(
+                command_type="device.heartbeat",
+                payload={"device_id": "gpu-node-gateway-tenant-quota-e2e"},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-tenant-quota-device-heartbeat",
+                run_id="run-gateway-tenant-quota-device-bootstrap",
+                task_id="task-gateway-tenant-quota-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(heartbeat.status_code, 200)
+
+        write_token = self._gateway_token(["runs:write"])
+        first_run_id = self._submit_run(
+            write_token,
+            "gateway compute tenant quota first run",
+            execution_profile={
+                "execution_mode": "compute",
+                "inference_target": "none",
+                "resource_class": "gpu",
+                "placement_constraints": {
+                    "tenant_id": "t1",
+                    "required_capabilities": ["compute.comfyui.local"],
+                },
+            },
+        )
+        first_run = execution_app_module._runtime.runs[first_run_id]
+        self.assertEqual(first_run.device_lease_state, "active")
+        first_lease_id = first_run.device_lease_id
+        self.assertIsInstance(first_lease_id, str)
+        assert first_lease_id is not None
+        self.assertEqual(device_hub_app_module._hub.leases[first_lease_id].tenant_id, "t1")
+        run_ids_before_second = set(execution_app_module._runtime.runs.keys())
+
+        second = self.gateway_client.post(
+            "/v1/runs",
+            json={
+                "tenant_id": "t1",
+                "app_id": "covernow",
+                "session_key": "tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                "payload": {
+                    "goal": "gateway compute tenant quota second run",
+                    "dispatch_policy": {
+                        "queue": {
+                            "dispatch_min_score": -999,
+                            "max_queue_depth_for_dispatch": 0,
+                        }
+                    },
+                    "execution_profile": {
+                        "execution_mode": "compute",
+                        "inference_target": "none",
+                        "resource_class": "gpu",
+                        "placement_constraints": {
+                            "tenant_id": "t1",
+                            "required_capabilities": ["compute.comfyui.local"],
+                        },
+                    },
+                },
+            },
+            headers={"Authorization": f"Bearer {write_token}"},
+        )
+        self.assertEqual(second.status_code, 409)
+        detail = second.json().get("detail")
+        self.assertIsNotNone(detail)
+        self.assertIn("409", str(detail))
+
+        run_ids_after_second = set(execution_app_module._runtime.runs.keys())
+        rejected_run_ids = run_ids_after_second - run_ids_before_second
+        self.assertEqual(len(rejected_run_ids), 1)
+        rejected_run_id = next(iter(rejected_run_ids))
+
+        recent = self.gateway_client.get(
+            f"/v1/events/recent?run_id={rejected_run_id}&limit=10",
+            headers={"Authorization": f"Bearer {self._gateway_token(['runs:read'])}"},
+        )
+        self.assertEqual(recent.status_code, 200)
+        recent_items = recent.json()["items"]
+        matching = [
+            item["event"]
+            for item in recent_items
+            if item.get("event", {}).get("event_type") == "runtime.route.failed"
+            and item.get("event", {}).get("payload", {}).get("run_id") == rejected_run_id
+            and item.get("event", {}).get("payload", {}).get("failure", {}).get("code")
+            == "tenant_quota_exhausted"
+        ]
+        self.assertGreaterEqual(len(matching), 1)
+        self.assertEqual(matching[0]["payload"]["failure"]["classification"], "capacity")
+
     def test_gateway_cancel_expires_device_hub_lease_e2e(self) -> None:
         if not DEVICE_HUB_AVAILABLE:
             self.skipTest("device-hub stack not available")
