@@ -138,15 +138,13 @@ class EndToEndRunFlowTests(unittest.TestCase):
             ttl_seconds=300,
         )
 
-    def test_gateway_to_execution_e2e_run_flow(self) -> None:
-        token = self._gateway_token(["runs:write"])
+    def _submit_run(self, token: str, goal: str) -> str:
         payload = {
             "tenant_id": "t1",
             "app_id": "covernow",
             "session_key": "tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
-            "payload": {"goal": "verify e2e run flow"},
+            "payload": {"goal": goal},
         }
-
         response = self.gateway_client.post(
             "/v1/runs",
             json=payload,
@@ -155,7 +153,11 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["status"], "queued")
-        run_id = data["run_id"]
+        return str(data["run_id"])
+
+    def test_gateway_to_execution_e2e_run_flow(self) -> None:
+        token = self._gateway_token(["runs:write"])
+        run_id = self._submit_run(token, "verify e2e run flow")
 
         self.assertIn(run_id, execution_app_module._runtime.runs)
         run = execution_app_module._runtime.runs[run_id]
@@ -189,6 +191,36 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertIsInstance(signal["queue_score"], float)
         self.assertIsInstance(signal["dispatch_min_score"], float)
         self.assertEqual(matching[0]["payload"]["route"]["scheduling_signal"], signal)
+
+    def test_gateway_to_execution_cancel_flow(self) -> None:
+        token = self._gateway_token(["runs:write"])
+        run_id = self._submit_run(token, "verify cancel flow")
+
+        cancel_response = self.gateway_client.post(
+            f"/v1/runs/{run_id}:cancel",
+            json={"reason": "operator_cancel_test", "cascade_children": True},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(cancel_response.status_code, 200)
+        canceled_event = cancel_response.json()
+        self.assertEqual(canceled_event["event_type"], "runtime.run.status")
+        self.assertEqual(canceled_event["payload"]["run_id"], run_id)
+        self.assertEqual(canceled_event["payload"]["status"], "canceled")
+
+    def test_gateway_to_execution_timeout_flow(self) -> None:
+        token = self._gateway_token(["runs:write"])
+        run_id = self._submit_run(token, "verify timeout flow")
+
+        timeout_response = self.gateway_client.post(
+            f"/v1/runs/{run_id}:timeout",
+            json={"reason": "deadline_exceeded_test", "cascade_children": True},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(timeout_response.status_code, 200)
+        timed_out_event = timeout_response.json()
+        self.assertEqual(timed_out_event["event_type"], "runtime.run.status")
+        self.assertEqual(timed_out_event["payload"]["run_id"], run_id)
+        self.assertEqual(timed_out_event["payload"]["status"], "timed_out")
 
     def test_gateway_and_execution_profile_catalog_are_aligned(self) -> None:
         gateway_response = self.gateway_client.get(
