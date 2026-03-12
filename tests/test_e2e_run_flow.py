@@ -6,6 +6,7 @@ import os
 import sys
 import unittest
 import urllib.error
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -34,11 +35,29 @@ if candidate_src.exists():
 
 try:
     from runtime_execution.service import RuntimeExecutionService
+    from runtime_execution.modules.integration.envelope import build_command_envelope
 except Exception:
     RUNTIME_EXECUTION_AVAILABLE = False
 else:
     execution_app_module = importlib.import_module("runtime_execution.service_api.app")
     RUNTIME_EXECUTION_AVAILABLE = True
+
+_DEVICE_HUB_SRC = os.environ.get("WAOOOOLAB_DEVICE_HUB_SRC_DIR")
+if _DEVICE_HUB_SRC:
+    candidate_device_src = Path(_DEVICE_HUB_SRC)
+else:
+    candidate_device_src = Path(__file__).resolve().parents[2] / "device-hub" / "src"
+
+if candidate_device_src.exists():
+    sys.path.insert(0, str(candidate_device_src))
+
+try:
+    from device_hub.service import DeviceHubService
+except Exception:
+    DEVICE_HUB_AVAILABLE = False
+else:
+    device_hub_app_module = importlib.import_module("device_hub.service_api.app")
+    DEVICE_HUB_AVAILABLE = True
 
 
 class _ProxyResponse:
@@ -57,6 +76,127 @@ class _ProxyResponse:
 
     def read(self) -> bytes:
         return self._body
+
+
+class _DeviceHubBoundaryClient:
+    def __init__(self, *, client: TestClient, token_factory):
+        self._client = client
+        self._token_factory = token_factory
+
+    def _headers(self, scopes: list[str]) -> dict[str, str]:
+        token = self._token_factory(scopes)
+        return {"Authorization": f"Bearer {token}"}
+
+    def allocate_placement(
+        self,
+        *,
+        run_id: str,
+        task_id: str,
+        session_key: str,
+        trace_id: str,
+        execution_profile: dict,
+    ) -> dict:
+        envelope = build_command_envelope(
+            command_type="device.placement.allocate",
+            payload={
+                "run_id": run_id,
+                "task_id": task_id,
+                "execution_profile": execution_profile,
+            },
+            session_key=session_key,
+            trace_id=trace_id,
+            run_id=run_id,
+            task_id=task_id,
+        )
+        response = self._client.post(
+            "/v1/placements/allocate",
+            json=envelope,
+            headers=self._headers(["devices:write", "devices:read"]),
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(f"device-hub allocate failed: {response.status_code} {response.text}")
+        return response.json()
+
+    def release_placement(
+        self,
+        *,
+        lease_id: str,
+        session_key: str,
+        trace_id: str,
+        run_id: str | None = None,
+        task_id: str | None = None,
+    ) -> dict:
+        payload = {"lease_id": lease_id}
+        if run_id:
+            payload["run_id"] = run_id
+        if task_id:
+            payload["task_id"] = task_id
+        envelope = build_command_envelope(
+            command_type="device.placement.release",
+            payload=payload,
+            session_key=session_key,
+            trace_id=trace_id,
+            run_id=run_id,
+            task_id=task_id,
+        )
+        response = self._client.post(
+            "/v1/placements/release",
+            json=envelope,
+            headers=self._headers(["devices:write", "devices:read"]),
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(f"device-hub release failed: {response.status_code} {response.text}")
+        return response.json()
+
+    def expire_placement(
+        self,
+        *,
+        lease_id: str,
+        reason_code: str,
+        session_key: str,
+        trace_id: str,
+        run_id: str | None = None,
+        task_id: str | None = None,
+    ) -> dict:
+        payload = {
+            "lease_id": lease_id,
+            "reason_code": reason_code,
+        }
+        if run_id:
+            payload["run_id"] = run_id
+        if task_id:
+            payload["task_id"] = task_id
+        envelope = build_command_envelope(
+            command_type="device.placement.expire",
+            payload=payload,
+            session_key=session_key,
+            trace_id=trace_id,
+            run_id=run_id,
+            task_id=task_id,
+        )
+        response = self._client.post(
+            "/v1/placements/expire",
+            json=envelope,
+            headers=self._headers(["devices:write", "devices:read"]),
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(f"device-hub expire failed: {response.status_code} {response.text}")
+        return response.json()
+
+    def fetch_placement_capacity(
+        self,
+        *,
+        session_key: str,
+        trace_id: str,
+    ) -> dict:
+        _ = session_key, trace_id
+        response = self._client.get(
+            "/v1/placements/capacity",
+            headers=self._headers(["devices:read"]),
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(f"device-hub capacity failed: {response.status_code} {response.text}")
+        return response.json()
 
 
 @unittest.skipUnless(
@@ -138,13 +278,31 @@ class EndToEndRunFlowTests(unittest.TestCase):
             ttl_seconds=300,
         )
 
-    def _submit_run(self, token: str, goal: str) -> str:
+    def _device_hub_token(self, scope: list[str]) -> str:
+        return issue_token(
+            {
+                "iss": "runtime-gateway",
+                "sub": "svc:runtime-gateway",
+                "aud": "device-hub",
+                "tenant_id": "t1",
+                "app_id": "covernow",
+                "scope": scope,
+                "token_use": "service",
+                "trace_id": "trace-e2e-device-hub",
+                "session_key": "tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+            },
+            ttl_seconds=300,
+        )
+
+    def _submit_run(self, token: str, goal: str, execution_profile: dict | None = None) -> str:
         payload = {
             "tenant_id": "t1",
             "app_id": "covernow",
             "session_key": "tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
             "payload": {"goal": goal},
         }
+        if execution_profile is not None:
+            payload["payload"]["execution_profile"] = execution_profile
         response = self.gateway_client.post(
             "/v1/runs",
             json=payload,
@@ -271,6 +429,113 @@ class EndToEndRunFlowTests(unittest.TestCase):
             for item in items
         )
         self.assertEqual(normalize(gateway_items), normalize(execution_items))
+
+    def test_gateway_cancel_expires_device_hub_lease_e2e(self) -> None:
+        if not DEVICE_HUB_AVAILABLE:
+            self.skipTest("device-hub stack not available")
+
+        device_hub_app_module._hub = DeviceHubService()
+        device_hub_client = TestClient(device_hub_app_module.app)
+        execution_app_module._runtime = RuntimeExecutionService(
+            device_hub_client=_DeviceHubBoundaryClient(
+                client=device_hub_client,
+                token_factory=self._device_hub_token,
+            )
+        )
+        self.execution_client = TestClient(execution_app_module.app)
+
+        register = device_hub_client.post(
+            "/v1/devices/register",
+            json=build_command_envelope(
+                command_type="device.register",
+                payload={"device_id": "gpu-node-gateway-e2e", "capabilities": ["compute.comfyui.local"]},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-device-register",
+                run_id="run-gateway-device-bootstrap",
+                task_id="task-gateway-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(register.status_code, 200)
+        pair_request = device_hub_client.post(
+            "/v1/devices/pairing/request",
+            json=build_command_envelope(
+                command_type="device.pairing.request",
+                payload={"device_id": "gpu-node-gateway-e2e"},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-device-pair",
+                run_id="run-gateway-device-bootstrap",
+                task_id="task-gateway-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(pair_request.status_code, 200)
+        pair_code = pair_request.json()["payload"]["code"]
+        approve = device_hub_client.post(
+            "/v1/devices/pairing/approve",
+            json=build_command_envelope(
+                command_type="device.pairing.approve",
+                payload={"code": pair_code},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-device-approve",
+                run_id="run-gateway-device-bootstrap",
+                task_id="task-gateway-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(approve.status_code, 200)
+        heartbeat = device_hub_client.post(
+            "/v1/devices/heartbeat",
+            json=build_command_envelope(
+                command_type="device.heartbeat",
+                payload={"device_id": "gpu-node-gateway-e2e"},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-device-heartbeat",
+                run_id="run-gateway-device-bootstrap",
+                task_id="task-gateway-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(heartbeat.status_code, 200)
+
+        run_id = self._submit_run(
+            self._gateway_token(["runs:write"]),
+            "gateway compute cancel flow",
+            execution_profile={
+                "execution_mode": "compute",
+                "inference_target": "none",
+                "resource_class": "gpu",
+                "placement_constraints": {
+                    "tenant_id": "t1",
+                    "required_capabilities": ["compute.comfyui.local"],
+                },
+            },
+        )
+        leased_run = execution_app_module._runtime.runs[run_id]
+        self.assertEqual(leased_run.device_lease_state, "active")
+        lease_id = leased_run.device_lease_id
+        self.assertIsInstance(lease_id, str)
+
+        cancel_response = self.gateway_client.post(
+            f"/v1/runs/{run_id}:cancel",
+            json={"reason": "operator_cancel_gateway_e2e", "cascade_children": True},
+            headers={"Authorization": f"Bearer {self._gateway_token(['runs:write'])}"},
+        )
+        self.assertEqual(cancel_response.status_code, 200)
+        self.assertEqual(cancel_response.json()["payload"]["status"], "canceled")
+
+        self.assertEqual(execution_app_module._runtime.runs[run_id].device_lease_state, "expired")
+        assert lease_id is not None
+        lease = device_hub_app_module._hub.leases[lease_id]
+        self.assertEqual(lease.status, "expired")
+        self.assertEqual(lease.expire_reason_code, "run_canceled")
+
+        capacity_response = device_hub_client.get(
+            "/v1/placements/capacity",
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:read'])}"},
+        )
+        self.assertEqual(capacity_response.status_code, 200)
+        self.assertEqual(capacity_response.json()["active_leases"], 0)
 
 
 if __name__ == "__main__":
