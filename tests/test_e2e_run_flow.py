@@ -1036,6 +1036,10 @@ class EndToEndRunFlowTests(unittest.TestCase):
         )
         self.assertEqual(final_complete.status_code, 200)
         self.assertEqual(final_complete.json()["payload"]["status"], "failed")
+        self.assertEqual(
+            final_complete.json()["payload"]["orchestration"]["failure_reason_code"],
+            "tool_contract_violation",
+        )
 
         self.assertEqual(execution_app_module._runtime.runs[run_id].device_lease_state, "expired")
         assert lease_id is not None
