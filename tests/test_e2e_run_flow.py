@@ -743,6 +743,14 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(cancel_response.status_code, 200)
         self.assertEqual(cancel_response.json()["payload"]["status"], "canceled")
 
+        status_canceled = self.gateway_client.get(
+            f"/v1/runs/{run_id}",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(status_canceled.status_code, 200)
+        self.assertEqual(status_canceled.json()["payload"]["run_id"], run_id)
+        self.assertEqual(status_canceled.json()["payload"]["status"], "canceled")
+
         lease_expired = self.gateway_client.get(
             f"/v1/runs/{run_id}/lease",
             headers={"Authorization": f"Bearer {read_token}"},
@@ -859,6 +867,14 @@ class EndToEndRunFlowTests(unittest.TestCase):
         )
         self.assertEqual(timeout_response.status_code, 200)
         self.assertEqual(timeout_response.json()["payload"]["status"], "timed_out")
+
+        status_timed_out = self.gateway_client.get(
+            f"/v1/runs/{run_id}",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(status_timed_out.status_code, 200)
+        self.assertEqual(status_timed_out.json()["payload"]["run_id"], run_id)
+        self.assertEqual(status_timed_out.json()["payload"]["status"], "timed_out")
 
         lease_expired = self.gateway_client.get(
             f"/v1/runs/{run_id}/lease",
@@ -994,6 +1010,14 @@ class EndToEndRunFlowTests(unittest.TestCase):
         )
         self.assertEqual(complete_response.status_code, 200)
         self.assertEqual(complete_response.json()["payload"]["status"], "succeeded")
+
+        status_succeeded = self.gateway_client.get(
+            f"/v1/runs/{run_id}",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(status_succeeded.status_code, 200)
+        self.assertEqual(status_succeeded.json()["payload"]["run_id"], run_id)
+        self.assertEqual(status_succeeded.json()["payload"]["status"], "succeeded")
 
         lease_released = self.gateway_client.get(
             f"/v1/runs/{run_id}/lease",
