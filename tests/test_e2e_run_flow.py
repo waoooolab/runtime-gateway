@@ -603,6 +603,21 @@ class EndToEndRunFlowTests(unittest.TestCase):
         read_token = self._gateway_token(["runs:read"])
         _ = self._submit_run(write_token, "verify worker health e2e flow")
 
+        health_before = self.gateway_client.get(
+            "/v1/orchestration/worker:health",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(health_before.status_code, 200)
+        health_before_payload = health_before.json()
+        self.assertEqual(int(health_before_payload["queue_depth"]), 1)
+        self.assertEqual(int(health_before_payload["ticks_total"]), 0)
+        self.assertIsNone(health_before_payload["last_tick_outcome"])
+        self.assertEqual(int(health_before_payload["missing_run_ticks_total"]), 0)
+        self.assertEqual(int(health_before_payload["skipped_ticks_total"]), 0)
+        self.assertEqual(int(health_before_payload["drain_processed_total"]), 0)
+        self.assertIs(health_before_payload["is_backlogged"], True)
+        self.assertIs(health_before_payload["is_stalled"], True)
+
         tick = self.gateway_client.post(
             "/v1/orchestration/worker:tick?fair=true&auto_start=true",
             headers={"Authorization": f"Bearer {write_token}"},
@@ -618,7 +633,15 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(health.status_code, 200)
         health_payload = health.json()
         self.assertGreaterEqual(int(health_payload["ticks_total"]), 1)
-        self.assertIn("last_tick_outcome", health_payload)
+        self.assertEqual(int(health_payload["queue_depth"]), 0)
+        self.assertGreaterEqual(int(health_payload["progressed_ticks_total"]), 1)
+        self.assertEqual(health_payload["last_tick_outcome"], "progressed")
+        self.assertEqual(int(health_payload["missing_run_ticks_total"]), 0)
+        self.assertEqual(int(health_payload["skipped_ticks_total"]), 0)
+        self.assertGreaterEqual(int(health_payload["drain_processed_total"]), 0)
+        self.assertIs(health_payload["is_backlogged"], False)
+        self.assertIs(health_payload["is_stalled"], False)
+        self.assertIs(health_payload["is_tick_stale"], False)
 
     def test_gateway_and_execution_profile_catalog_are_aligned(self) -> None:
         gateway_response = self.gateway_client.get(

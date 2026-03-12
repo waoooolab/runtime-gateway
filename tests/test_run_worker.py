@@ -94,10 +94,17 @@ def test_worker_health_happy_path(
         "ticks_total": 12,
         "idle_ticks_total": 4,
         "progressed_ticks_total": 8,
+        "missing_run_ticks_total": 0,
+        "skipped_ticks_total": 0,
         "drain_calls_total": 3,
+        "drain_processed_total": 17,
         "last_tick_at": "2026-03-12T03:00:00+00:00",
         "last_drain_at": "2026-03-12T03:01:00+00:00",
         "last_tick_outcome": "progressed",
+        "last_tick_age_seconds": 2.5,
+        "is_tick_stale": False,
+        "is_backlogged": False,
+        "is_stalled": False,
     }
 
     client = TestClient(app)
@@ -107,6 +114,8 @@ def test_worker_health_happy_path(
     payload = response.json()
     assert payload["ticks_total"] == 12
     assert payload["last_tick_outcome"] == "progressed"
+    assert payload["drain_processed_total"] == 17
+    assert payload["is_stalled"] is False
     mock_execution_client.worker_health.assert_called_once_with(
         auth_token="delegated-token",
     )
