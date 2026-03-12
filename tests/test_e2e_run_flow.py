@@ -782,6 +782,121 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(capacity_response.status_code, 200)
         self.assertEqual(capacity_response.json()["active_leases"], 0)
 
+    def test_gateway_complete_releases_device_hub_lease_e2e(self) -> None:
+        if not DEVICE_HUB_AVAILABLE:
+            self.skipTest("device-hub stack not available")
+
+        device_hub_app_module._hub = DeviceHubService()
+        device_hub_client = TestClient(device_hub_app_module.app)
+        execution_app_module._runtime = RuntimeExecutionService(
+            device_hub_client=_DeviceHubBoundaryClient(
+                client=device_hub_client,
+                token_factory=self._device_hub_token,
+            )
+        )
+        self.execution_client = TestClient(execution_app_module.app)
+
+        register = device_hub_client.post(
+            "/v1/devices/register",
+            json=build_command_envelope(
+                command_type="device.register",
+                payload={"device_id": "gpu-node-gateway-complete-e2e", "capabilities": ["compute.comfyui.local"]},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-complete-device-register",
+                run_id="run-gateway-complete-device-bootstrap",
+                task_id="task-gateway-complete-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(register.status_code, 200)
+        pair_request = device_hub_client.post(
+            "/v1/devices/pairing/request",
+            json=build_command_envelope(
+                command_type="device.pairing.request",
+                payload={"device_id": "gpu-node-gateway-complete-e2e"},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-complete-device-pair",
+                run_id="run-gateway-complete-device-bootstrap",
+                task_id="task-gateway-complete-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(pair_request.status_code, 200)
+        pair_code = pair_request.json()["payload"]["code"]
+        approve = device_hub_client.post(
+            "/v1/devices/pairing/approve",
+            json=build_command_envelope(
+                command_type="device.pairing.approve",
+                payload={"code": pair_code},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-complete-device-approve",
+                run_id="run-gateway-complete-device-bootstrap",
+                task_id="task-gateway-complete-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(approve.status_code, 200)
+        heartbeat = device_hub_client.post(
+            "/v1/devices/heartbeat",
+            json=build_command_envelope(
+                command_type="device.heartbeat",
+                payload={"device_id": "gpu-node-gateway-complete-e2e"},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-complete-device-heartbeat",
+                run_id="run-gateway-complete-device-bootstrap",
+                task_id="task-gateway-complete-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(heartbeat.status_code, 200)
+
+        token = self._gateway_token(["runs:write"])
+        run_id = self._submit_run(
+            token,
+            "gateway compute complete flow",
+            execution_profile={
+                "execution_mode": "compute",
+                "inference_target": "none",
+                "resource_class": "gpu",
+                "placement_constraints": {
+                    "tenant_id": "t1",
+                    "required_capabilities": ["compute.comfyui.local"],
+                },
+            },
+        )
+        leased_run = execution_app_module._runtime.runs[run_id]
+        self.assertEqual(leased_run.device_lease_state, "active")
+        lease_id = leased_run.device_lease_id
+        self.assertIsInstance(lease_id, str)
+
+        tick = self.gateway_client.post(
+            "/v1/orchestration/worker:tick?fair=true&auto_start=true",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(tick.status_code, 200)
+        self.assertEqual(tick.json()["outcome"], "progressed")
+        self.assertEqual(tick.json()["after_status"], "running")
+
+        complete_response = self.gateway_client.post(
+            f"/v1/runs/{run_id}:complete",
+            json={"success": True},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(complete_response.status_code, 200)
+        self.assertEqual(complete_response.json()["payload"]["status"], "succeeded")
+
+        self.assertEqual(execution_app_module._runtime.runs[run_id].device_lease_state, "released")
+        assert lease_id is not None
+        lease = device_hub_app_module._hub.leases[lease_id]
+        self.assertEqual(lease.status, "released")
+
+        capacity_response = device_hub_client.get(
+            "/v1/placements/capacity",
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:read'])}"},
+        )
+        self.assertEqual(capacity_response.status_code, 200)
+        self.assertEqual(capacity_response.json()["active_leases"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
