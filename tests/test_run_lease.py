@@ -142,6 +142,31 @@ def test_get_run_lease_rejects_invalid_contract_payload(
     assert audit["metadata"]["validation_schema"] == "runtime/runtime-run-lease.v1.json"
 
 
+def test_get_run_lease_rejects_mismatched_run_id(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    read_auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.get_run_lease.return_value = {
+        "run_id": "run-lease-other",
+        "lease": {"lease_id": "lease-1", "task_id": "run-lease-other:root", "state": "active"},
+        "device_hub": {"status": "ok", "snapshot": {"status": "active"}},
+    }
+    client = TestClient(app)
+    response = client.get(
+        "/v1/runs/run-lease-expected/lease",
+        headers=read_auth_headers,
+    )
+    assert response.status_code == 502
+    assert "run_id mismatch" in response.text
+    mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "runs.lease"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["run_id"] == "run-lease-expected"
+    assert audit["metadata"]["downstream_run_id"] == "run-lease-other"
+
+
 def test_get_run_lease_allows_not_bound_payload(
     mock_execution_client: Mock,
     mock_token_exchange: Mock,

@@ -32,6 +32,55 @@ def _extract_device_hub_status(payload: dict[str, Any]) -> str | None:
     return None
 
 
+def _extract_run_id(payload: dict[str, Any]) -> str | None:
+    run_id = payload.get("run_id")
+    if not isinstance(run_id, str):
+        return None
+    normalized = run_id.strip()
+    return normalized or None
+
+
+def _validate_run_lease_response_or_raise(
+    *,
+    result: dict[str, Any],
+    requested_run_id: str,
+    action: str,
+    actor_id: str,
+    trace_id: str,
+) -> None:
+    try:
+        validate_runtime_run_lease_contract(result)
+    except ContractValidationError as exc:
+        emit_audit_event(
+            action=action,
+            decision="deny",
+            actor_id=actor_id,
+            trace_id=trace_id,
+            metadata={
+                "reason": str(exc),
+                "run_id": requested_run_id,
+                "validation_schema": "runtime/runtime-run-lease.v1.json",
+            },
+        )
+        raise HTTPException(status_code=502, detail=f"invalid run lease response: {exc}") from exc
+
+    downstream_run_id = _extract_run_id(result)
+    if downstream_run_id == requested_run_id:
+        return None
+    emit_audit_event(
+        action=action,
+        decision="deny",
+        actor_id=actor_id,
+        trace_id=trace_id,
+        metadata={
+            "reason": "run lease response mismatches requested run_id",
+            "run_id": requested_run_id,
+            "downstream_run_id": downstream_run_id,
+        },
+    )
+    raise HTTPException(status_code=502, detail="invalid run lease response: run_id mismatch")
+
+
 def dispatch_get_run_lease(
     *,
     run_id: str,
@@ -82,21 +131,13 @@ def dispatch_get_run_lease(
         )
         raise HTTPException(status_code=exc.status_code or 502, detail=str(exc)) from exc
 
-    try:
-        validate_runtime_run_lease_contract(result)
-    except ContractValidationError as exc:
-        emit_audit_event(
-            action=action,
-            decision="deny",
-            actor_id=actor_id,
-            trace_id=trace_id,
-            metadata={
-                "reason": str(exc),
-                "run_id": run_id,
-                "validation_schema": "runtime/runtime-run-lease.v1.json",
-            },
-        )
-        raise HTTPException(status_code=502, detail=f"invalid run lease response: {exc}") from exc
+    _validate_run_lease_response_or_raise(
+        result=result,
+        requested_run_id=run_id,
+        action=action,
+        actor_id=actor_id,
+        trace_id=trace_id,
+    )
 
     emit_audit_event(
         action=action,
