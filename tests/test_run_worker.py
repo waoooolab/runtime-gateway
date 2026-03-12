@@ -184,6 +184,19 @@ def test_worker_drain_downstream_4xx_error(
             "remaining": 3,
             "stalled_signal": True,
             "anomaly_ratio": 1.0,
+            "outcome_counts": {"progressed": 0, "missing_run": 2, "skipped": 1},
+            "anomaly_counts": {"missing_run": 2, "skipped": 1, "total": 3},
+            "scheduling_signal": {
+                "queue_depth_before": 3,
+                "queue_depth_after": 3,
+                "processed": 0,
+                "max_items": 1,
+                "remaining": 3,
+                "should_continue": False,
+                "stalled_signal": True,
+                "anomaly_ratio": 1.0,
+                "recommended_poll_after_ms": 1000,
+            },
         },
     )
 
@@ -199,6 +212,10 @@ def test_worker_drain_downstream_4xx_error(
     assert detail["remaining"] == 3
     assert detail["stalled_signal"] is True
     assert detail["anomaly_ratio"] == 1.0
+    assert detail["outcome_counts"] == {"progressed": 0, "missing_run": 2, "skipped": 1}
+    assert detail["anomaly_counts"] == {"missing_run": 2, "skipped": 1, "total": 3}
+    assert detail["scheduling_signal"]["stalled_signal"] is True
+    assert detail["scheduling_signal"]["recommended_poll_after_ms"] == 1000
     assert "HTTP 422" in detail["message"]
     audit = get_audit_events(limit=1)[0]
     assert audit["action"] == "orchestration.worker_drain"
@@ -209,6 +226,10 @@ def test_worker_drain_downstream_4xx_error(
     assert audit["metadata"]["remaining"] == 3
     assert audit["metadata"]["stalled_signal"] is True
     assert audit["metadata"]["anomaly_ratio"] == 1.0
+    assert audit["metadata"]["outcome_counts"] == {"progressed": 0, "missing_run": 2, "skipped": 1}
+    assert audit["metadata"]["anomaly_counts"] == {"missing_run": 2, "skipped": 1, "total": 3}
+    assert audit["metadata"]["scheduling_signal"]["stalled_signal"] is True
+    assert audit["metadata"]["scheduling_signal"]["recommended_poll_after_ms"] == 1000
 
 
 def test_worker_tick_downstream_connection_error(

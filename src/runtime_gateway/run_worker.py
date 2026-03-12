@@ -68,6 +68,14 @@ def _build_worker_error_detail(
         value = response_body.get(key)
         if value is not None:
             detail[key] = value
+    for key in (
+        "outcome_counts",
+        "anomaly_counts",
+        "scheduling_signal",
+    ):
+        value = response_body.get(key)
+        if isinstance(value, dict):
+            detail[key] = value
     return detail
 
 
@@ -98,6 +106,14 @@ def _build_worker_error_audit_metadata(
     ):
         value = response_body.get(key)
         if value is not None:
+            metadata[key] = value
+    for key in (
+        "outcome_counts",
+        "anomaly_counts",
+        "scheduling_signal",
+    ):
+        value = response_body.get(key)
+        if isinstance(value, dict):
             metadata[key] = value
     return metadata
 
