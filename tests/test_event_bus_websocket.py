@@ -77,6 +77,28 @@ class EventBusWebsocketTests(unittest.TestCase):
         response = self.client.post("/v1/events/publish", json=_event_envelope())
         self.assertEqual(response.status_code, 401)
 
+    def test_publish_event_rejects_cross_tenant_payload(self) -> None:
+        token = self._token(scope=["runs:write"])
+        envelope = _event_envelope("runtime.route.decided")
+        envelope["tenant_id"] = "t2"
+        response = self.client.post(
+            "/v1/events/publish",
+            json=envelope,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("tenant_id must match token claim", response.json()["detail"])
+
+    def test_publish_event_rejects_missing_scope_claims(self) -> None:
+        token = self._token(scope=["runs:write"], app_id=None)
+        response = self.client.post(
+            "/v1/events/publish",
+            json=_event_envelope("runtime.route.decided"),
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("app_id claim is required", response.json()["detail"])
+
     def test_publish_event_and_list_recent(self) -> None:
         token = self._token(scope=["runs:write"])
         publish = self.client.post(

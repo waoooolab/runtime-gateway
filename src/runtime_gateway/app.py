@@ -54,6 +54,13 @@ def _scope_filter_or_forbid(
     return raw_claim
 
 
+def _claim_or_forbid(*, field: str, claims: dict[str, Any]) -> str:
+    value = str(claims.get(field, "")).strip()
+    if not value:
+        raise HTTPException(status_code=403, detail=f"{field} claim is required")
+    return value
+
+
 @app.get("/healthz")
 def healthz() -> dict:
     return {"status": "ok", "service": "runtime-gateway"}
@@ -108,6 +115,7 @@ def publish_event(
     envelope: dict[str, Any],
     auth_context: AuthContext = Depends(require_events_write_context),
 ) -> dict[str, Any]:
+    claims = auth_context.claims
     try:
         validate_event_envelope(envelope)
     except ValueError as exc:
@@ -119,6 +127,29 @@ def publish_event(
             metadata={"reason": f"invalid event envelope: {exc}"},
         )
         raise HTTPException(status_code=422, detail=f"invalid event envelope: {exc}") from exc
+
+    claim_tenant = _claim_or_forbid(field="tenant_id", claims=claims)
+    claim_app = _claim_or_forbid(field="app_id", claims=claims)
+    event_tenant = str(envelope.get("tenant_id", "")).strip()
+    event_app = str(envelope.get("app_id", "")).strip()
+    if event_tenant != claim_tenant:
+        emit_audit_event(
+            action="events.publish",
+            decision="deny",
+            actor_id=str(claims.get("sub", "unknown")),
+            trace_id=str(claims.get("trace_id", "")),
+            metadata={"reason": "tenant_id must match token claim"},
+        )
+        raise HTTPException(status_code=403, detail="tenant_id must match token claim")
+    if event_app != claim_app:
+        emit_audit_event(
+            action="events.publish",
+            decision="deny",
+            actor_id=str(claims.get("sub", "unknown")),
+            trace_id=str(claims.get("trace_id", "")),
+            metadata={"reason": "app_id must match token claim"},
+        )
+        raise HTTPException(status_code=403, detail="app_id must match token claim")
 
     event_type = str(envelope.get("event_type", ""))
     if not allowed_event_type(event_type):
