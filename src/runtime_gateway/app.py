@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
@@ -73,6 +74,18 @@ def _recommended_poll_after_ms_for_recent_events(*, has_more: bool, item_count: 
     return 5000
 
 
+def _parse_since_ts_or_raise(raw_since_ts: str | None) -> datetime | None:
+    if raw_since_ts is None:
+        return None
+    normalized = raw_since_ts.strip()
+    if not normalized:
+        return None
+    try:
+        return datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="since_ts must be valid ISO-8601 date-time") from exc
+
+
 @app.get("/healthz")
 def healthz() -> dict:
     return {"status": "ok", "service": "runtime-gateway"}
@@ -93,6 +106,7 @@ def list_recent_events(
     event_types: str | None = None,
     run_id: str | None = None,
     cursor: int | None = Query(default=None, ge=0),
+    since_ts: str | None = Query(default=None),
     auth_context: AuthContext = Depends(require_events_read_context),
 ) -> dict:
     claims = auth_context.claims
@@ -111,6 +125,7 @@ def list_recent_events(
         if event_types is not None
         else None
     )
+    parsed_since_ts = _parse_since_ts_or_raise(since_ts)
     if cursor is None:
         window = _event_bus.recent(
             limit=limit + 1,
@@ -118,6 +133,7 @@ def list_recent_events(
             app_id=effective_app or None,
             event_types=parsed_types,
             run_id=run_id,
+            since_ts=parsed_since_ts,
         )
         has_more = len(window) > limit
         items = window[-limit:]
@@ -128,6 +144,7 @@ def list_recent_events(
             app_id=effective_app or None,
             event_types=parsed_types,
             run_id=run_id,
+            since_ts=parsed_since_ts,
         )[: limit + 1]
         has_more = len(window) > limit
         items = window[:limit]

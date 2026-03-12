@@ -219,6 +219,42 @@ class EventBusWebsocketTests(unittest.TestCase):
         self.assertEqual(items[0]["event"]["payload"]["run_id"], "run-789")
         self.assertEqual(items[0]["event"]["event_type"], "runtime.run.completed")
 
+    def test_recent_events_can_filter_by_since_ts(self) -> None:
+        token = self._token(scope=["runs:write"])
+        old_event = _event_envelope("runtime.run.started", run_id="run-since-1")
+        old_event["ts"] = "2026-03-12T00:00:00Z"
+        new_event = _event_envelope("runtime.run.completed", run_id="run-since-1")
+        new_event["ts"] = "2026-03-12T00:10:00Z"
+        self.client.post(
+            "/v1/events/publish",
+            json=old_event,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.client.post(
+            "/v1/events/publish",
+            json=new_event,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        filtered = self.client.get(
+            "/v1/events/recent?run_id=run-since-1&since_ts=2026-03-12T00:05:00Z",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(filtered.status_code, 200)
+        items = filtered.json()["items"]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["event"]["event_type"], "runtime.run.completed")
+        self.assertEqual(items[0]["event"]["payload"]["run_id"], "run-since-1")
+
+    def test_recent_events_reject_invalid_since_ts(self) -> None:
+        token = self._token(scope=["runs:read"])
+        response = self.client.get(
+            "/v1/events/recent?since_ts=not-a-time",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("since_ts must be valid ISO-8601 date-time", response.json()["detail"])
+
     def test_recent_events_sets_has_more_for_recent_window(self) -> None:
         token = self._token(scope=["runs:write"])
         self.client.post(

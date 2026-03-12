@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from threading import Lock
 from typing import Any
 
@@ -41,6 +42,7 @@ class InMemoryEventBus:
         app_id: str | None = None,
         event_types: set[str] | None = None,
         run_id: str | None = None,
+        since_ts: datetime | None = None,
     ) -> list[dict[str, Any]]:
         with self._lock:
             snapshot = list(self._records)
@@ -53,6 +55,7 @@ class InMemoryEventBus:
                 app_id=app_id,
                 event_types=event_types,
                 run_id=run_id,
+                since_ts=since_ts,
             )
         ]
         if limit <= 0:
@@ -67,6 +70,7 @@ class InMemoryEventBus:
         app_id: str | None = None,
         event_types: set[str] | None = None,
         run_id: str | None = None,
+        since_ts: datetime | None = None,
     ) -> list[dict[str, Any]]:
         with self._lock:
             snapshot = list(self._records)
@@ -80,6 +84,7 @@ class InMemoryEventBus:
                 app_id=app_id,
                 event_types=event_types,
                 run_id=run_id,
+                since_ts=since_ts,
             )
         ]
 
@@ -109,6 +114,7 @@ def _matches(
     app_id: str | None,
     event_types: set[str] | None,
     run_id: str | None,
+    since_ts: datetime | None,
 ) -> bool:
     if tenant_id and str(event.get("tenant_id")) != tenant_id:
         return False
@@ -123,4 +129,22 @@ def _matches(
             return False
         if str(payload.get("run_id")) != run_id:
             return False
+    if since_ts is not None:
+        event_ts = _parse_event_ts(event.get("ts"))
+        if event_ts is None:
+            return False
+        if event_ts < since_ts:
+            return False
     return True
+
+
+def _parse_event_ts(raw_ts: Any) -> datetime | None:
+    if not isinstance(raw_ts, str) or not raw_ts:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
