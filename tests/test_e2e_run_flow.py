@@ -366,6 +366,40 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(canceled_event["payload"]["status"], "canceled")
         self.assertEqual(canceled_event["payload"]["orchestration"]["failure_reason_code"], "run_canceled")
 
+    def test_gateway_websocket_run_filter_only_receives_target_run_status(self) -> None:
+        write_token = self._gateway_token(["runs:write"])
+        read_token = self._gateway_token(["runs:read"])
+        target_run_id = self._submit_run(write_token, "verify ws run filter target")
+        other_run_id = self._submit_run(write_token, "verify ws run filter other")
+
+        with self.gateway_client.websocket_connect(
+            f"/v1/ws/events?access_token={read_token}&tenant_id=t1&app_id=covernow"
+            f"&run_id={target_run_id}&event_types=runtime.run.status"
+        ) as ws:
+            ready = ws.receive_json()
+            self.assertEqual(ready["kind"], "ws.ready")
+            self.assertEqual(ready["run_id"], target_run_id)
+
+            other_cancel = self.gateway_client.post(
+                f"/v1/runs/{other_run_id}:cancel",
+                json={"reason": "ws-filter-ignore", "cascade_children": True},
+                headers={"Authorization": f"Bearer {write_token}"},
+            )
+            self.assertEqual(other_cancel.status_code, 200)
+            self.assertEqual(other_cancel.json()["payload"]["status"], "canceled")
+
+            target_cancel = self.gateway_client.post(
+                f"/v1/runs/{target_run_id}:cancel",
+                json={"reason": "ws-filter-target", "cascade_children": True},
+                headers={"Authorization": f"Bearer {write_token}"},
+            )
+            self.assertEqual(target_cancel.status_code, 200)
+            self.assertEqual(target_cancel.json()["payload"]["status"], "canceled")
+
+            event = ws.receive_json()
+            self.assertEqual(event["event"]["event_type"], "runtime.run.status")
+            self.assertEqual(event["event"]["payload"]["run_id"], target_run_id)
+
     def test_gateway_to_execution_timeout_flow(self) -> None:
         token = self._gateway_token(["runs:write"])
         run_id = self._submit_run(token, "verify timeout flow")

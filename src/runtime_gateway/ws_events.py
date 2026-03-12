@@ -28,6 +28,13 @@ def _parse_event_types(raw: str | None) -> set[str] | None:
     return {item.strip() for item in raw.split(",") if item.strip()}
 
 
+def _parse_optional_str(raw: str | None) -> str | None:
+    if raw is None:
+        return None
+    value = raw.strip()
+    return value if value else None
+
+
 def _parse_cursor(raw: str) -> int:
     try:
         return max(0, int(raw))
@@ -35,25 +42,36 @@ def _parse_cursor(raw: str) -> int:
         return 0
 
 
-def _websocket_filters(websocket: WebSocket, claims: dict[str, Any]) -> tuple[str, str, set[str] | None, int]:
+def _websocket_filters(
+    websocket: WebSocket, claims: dict[str, Any]
+) -> tuple[str, str, set[str] | None, str | None, int]:
     tenant_id = websocket.query_params.get("tenant_id") or str(claims.get("tenant_id", ""))
     app_id = websocket.query_params.get("app_id") or str(claims.get("app_id", ""))
     event_types = _parse_event_types(websocket.query_params.get("event_types"))
+    run_id = _parse_optional_str(websocket.query_params.get("run_id"))
     cursor = _parse_cursor(websocket.query_params.get("cursor", "0"))
-    return tenant_id, app_id, event_types, cursor
+    return tenant_id, app_id, event_types, run_id, cursor
 
 
 async def _send_ready(
-    websocket: WebSocket, event_bus: InMemoryEventBus, cursor: int, tenant_id: str, app_id: str
+    websocket: WebSocket,
+    event_bus: InMemoryEventBus,
+    cursor: int,
+    tenant_id: str,
+    app_id: str,
+    run_id: str | None,
 ) -> None:
+    payload: dict[str, Any] = {
+        "kind": "ws.ready",
+        "cursor": cursor,
+        "tenant_id": tenant_id,
+        "app_id": app_id,
+        "stats": event_bus.stats(),
+    }
+    if run_id is not None:
+        payload["run_id"] = run_id
     await websocket.send_json(
-        {
-            "kind": "ws.ready",
-            "cursor": cursor,
-            "tenant_id": tenant_id,
-            "app_id": app_id,
-            "stats": event_bus.stats(),
-        }
+        payload
     )
 
 
@@ -64,12 +82,14 @@ async def _push_records(
     tenant_id: str,
     app_id: str,
     event_types: set[str] | None,
+    run_id: str | None,
 ) -> int:
     for item in event_bus.since(
         cursor=cursor,
         tenant_id=tenant_id or None,
         app_id=app_id or None,
         event_types=event_types,
+        run_id=run_id,
     ):
         cursor = max(cursor, int(item["bus_seq"]))
         await websocket.send_json(item)
@@ -106,11 +126,19 @@ async def handle_websocket_events(websocket: WebSocket, event_bus: InMemoryEvent
 
     await websocket.accept()
     event_bus.open_connection()
-    tenant_id, app_id, event_types, cursor = _websocket_filters(websocket, claims)
+    tenant_id, app_id, event_types, run_id, cursor = _websocket_filters(websocket, claims)
     try:
-        await _send_ready(websocket, event_bus, cursor, tenant_id, app_id)
+        await _send_ready(websocket, event_bus, cursor, tenant_id, app_id, run_id)
         while True:
-            cursor = await _push_records(websocket, event_bus, cursor, tenant_id, app_id, event_types)
+            cursor = await _push_records(
+                websocket,
+                event_bus,
+                cursor,
+                tenant_id,
+                app_id,
+                event_types,
+                run_id,
+            )
             if not await _wait_keepalive(websocket, cursor):
                 break
     finally:

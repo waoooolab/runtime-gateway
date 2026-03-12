@@ -199,6 +199,35 @@ class EventBusWebsocketTests(unittest.TestCase):
             self.assertIn("bus_seq", event)
             self.assertEqual(event["event"]["tenant_id"], "t1")
 
+    def test_websocket_can_filter_by_run_id(self) -> None:
+        ws_token = self._token(scope=["runs:read"])
+        publish_token = self._token(scope=["runs:write"])
+
+        with self.client.websocket_connect(
+            f"/v1/ws/events?access_token={ws_token}&tenant_id=t1&app_id=covernow&run_id=run-123"
+        ) as ws:
+            ready = ws.receive_json()
+            self.assertEqual(ready["kind"], "ws.ready")
+            self.assertEqual(ready["run_id"], "run-123")
+
+            first = self.client.post(
+                "/v1/events/publish",
+                json=_event_envelope("runtime.run.status", run_id="run-999"),
+                headers={"Authorization": f"Bearer {publish_token}"},
+            )
+            self.assertEqual(first.status_code, 200)
+
+            second = self.client.post(
+                "/v1/events/publish",
+                json=_event_envelope("runtime.run.status", run_id="run-123"),
+                headers={"Authorization": f"Bearer {publish_token}"},
+            )
+            self.assertEqual(second.status_code, 200)
+
+            event = ws.receive_json()
+            self.assertEqual(event["event"]["event_type"], "runtime.run.status")
+            self.assertEqual(event["event"]["payload"]["run_id"], "run-123")
+
 
 if __name__ == "__main__":
     unittest.main()
