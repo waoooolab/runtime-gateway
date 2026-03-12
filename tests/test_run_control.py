@@ -256,6 +256,13 @@ def test_complete_run_downstream_error_includes_requested_failure_reason_in_audi
         headers=auth_headers,
     )
     assert response.status_code == 409
+    detail = response.json().get("detail")
+    assert isinstance(detail, dict)
+    assert detail["status_code"] == 409
+    assert detail["downstream_event_type"] == "runtime.run.status"
+    assert detail["run_id"] == "run-complete-fail"
+    assert detail["status"] == "failed"
+    assert "HTTP 409" in str(detail["message"])
     mock_token_exchange.assert_called_once()
     audit = get_audit_events(limit=1)[0]
     assert audit["action"] == "runs.complete"

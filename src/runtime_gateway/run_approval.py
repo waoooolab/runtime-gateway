@@ -24,6 +24,44 @@ def _extract_downstream_status(event: dict[str, Any]) -> str | None:
     return None
 
 
+def _build_downstream_error_detail(
+    *,
+    message: str,
+    status_code: int,
+    downstream_event: dict[str, Any],
+    downstream_event_type: str,
+    bus_seq: int | None,
+) -> dict[str, Any]:
+    detail: dict[str, Any] = {
+        "message": message,
+        "status_code": status_code,
+        "downstream_event_type": downstream_event_type,
+    }
+    event_id = downstream_event.get("event_id")
+    if isinstance(event_id, str) and event_id.strip():
+        detail["downstream_event_id"] = event_id
+    correlation_id = downstream_event.get("correlation_id")
+    if isinstance(correlation_id, str) and correlation_id.strip():
+        detail["correlation_id"] = correlation_id
+    payload = downstream_event.get("payload")
+    if isinstance(payload, dict):
+        run_id = payload.get("run_id")
+        if isinstance(run_id, str) and run_id.strip():
+            detail["run_id"] = run_id
+        status = payload.get("status")
+        if isinstance(status, str) and status.strip():
+            detail["status"] = status
+        failure = payload.get("failure")
+        if isinstance(failure, dict):
+            detail["failure"] = failure
+        decision = payload.get("decision")
+        if isinstance(decision, dict):
+            detail["decision"] = decision
+    if bus_seq is not None:
+        detail["bus_seq"] = bus_seq
+    return detail
+
+
 def _exchange_runtime_execution_token(
     *,
     action: str,
@@ -84,12 +122,20 @@ def _submit_approval_action(
         downstream_event_type = None
         downstream_status = None
         bus_seq = None
+        detail: str | dict[str, Any] = str(exc)
         if isinstance(exc.response_body, dict):
             try:
                 validate_event_envelope(exc.response_body)
                 downstream_event_type = str(exc.response_body.get("event_type", ""))
                 downstream_status = _extract_downstream_status(exc.response_body)
                 bus_seq = publish_gateway_event(exc.response_body)
+                detail = _build_downstream_error_detail(
+                    message=str(exc),
+                    status_code=exc.status_code or 502,
+                    downstream_event=exc.response_body,
+                    downstream_event_type=downstream_event_type,
+                    bus_seq=bus_seq,
+                )
             except ValueError:
                 downstream_event_type = None
                 downstream_status = None
@@ -108,7 +154,7 @@ def _submit_approval_action(
                 "bus_seq": bus_seq,
             },
         )
-        raise HTTPException(status_code=exc.status_code or 502, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
     except ValueError as exc:
         emit_audit_event(
             action=action,

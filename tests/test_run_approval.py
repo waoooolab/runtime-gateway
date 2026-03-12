@@ -199,6 +199,13 @@ def test_approve_run_downstream_error_audit_captures_downstream_status(
     client = TestClient(app)
     response = client.post("/v1/runs/run-321:approve", headers=auth_headers)
     assert response.status_code == 409
+    detail = response.json().get("detail")
+    assert isinstance(detail, dict)
+    assert detail["status_code"] == 409
+    assert detail["downstream_event_type"] == "runtime.run.status"
+    assert detail["run_id"] == "run-321"
+    assert detail["status"] == "waiting_approval"
+    assert "HTTP 409" in str(detail["message"])
 
     audit = client.get("/v1/audit/events", headers=auth_headers)
     assert audit.status_code == 200
