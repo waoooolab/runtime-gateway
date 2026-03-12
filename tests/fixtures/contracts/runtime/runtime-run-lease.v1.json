@@ -112,6 +112,11 @@
         }
       ],
       "additionalProperties": true
+    },
+    "recommended_poll_after_ms": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 60000
     }
   },
   "additionalProperties": true
