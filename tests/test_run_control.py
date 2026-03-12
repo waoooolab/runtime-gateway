@@ -158,6 +158,22 @@ def test_complete_run_happy_path(
     mock_token_exchange.assert_called_once()
 
 
+def test_complete_run_rejects_missing_success_field(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    _ = mock_execution_client, mock_token_exchange
+    client = TestClient(app)
+    response = client.post(
+        "/v1/runs/run-complete-2:complete",
+        json={},
+        headers=auth_headers,
+    )
+    assert response.status_code == 422
+    assert "success must be boolean" in response.json()["detail"]
+
+
 def test_cancel_run_accepts_requested_by_run_id_alias(
     mock_execution_client: Mock,
     mock_token_exchange: Mock,

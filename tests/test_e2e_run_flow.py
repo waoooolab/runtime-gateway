@@ -427,6 +427,21 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(completed_event["payload"]["retry_attempts"], 1)
         self.assertEqual(execution_app_module._runtime.runs[run_id].status.value, "queued")
 
+    def test_gateway_to_execution_complete_conflict_flow(self) -> None:
+        token = self._gateway_token(["runs:write"])
+        run_id = self._submit_run(token, "verify complete conflict flow")
+
+        complete_response = self.gateway_client.post(
+            f"/v1/runs/{run_id}:complete",
+            json={"success": True},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(complete_response.status_code, 409)
+        detail = complete_response.json().get("detail")
+        self.assertIsNotNone(detail)
+        self.assertIn("invalid run transition", str(detail))
+        self.assertEqual(execution_app_module._runtime.runs[run_id].status.value, "queued")
+
     def test_gateway_to_execution_approve_waiting_run_flow(self) -> None:
         token = self._gateway_token(["runs:write"])
         response = self.gateway_client.post(
