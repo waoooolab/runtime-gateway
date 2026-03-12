@@ -12,6 +12,18 @@ from .events.validation import validate_event_envelope
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
 
 
+def _extract_downstream_status(event: dict[str, Any]) -> str | None:
+    payload = event.get("payload")
+    if isinstance(payload, dict):
+        status = payload.get("status")
+        if isinstance(status, str) and status.strip():
+            return status.strip()
+    status = event.get("status")
+    if isinstance(status, str) and status.strip():
+        return status.strip()
+    return None
+
+
 def _exchange_runtime_execution_token(
     *,
     action: str,
@@ -70,14 +82,17 @@ def _submit_approval_action(
         bus_seq = publish_gateway_event(result)
     except RuntimeExecutionClientError as exc:
         downstream_event_type = None
+        downstream_status = None
         bus_seq = None
         if isinstance(exc.response_body, dict):
             try:
                 validate_event_envelope(exc.response_body)
                 downstream_event_type = str(exc.response_body.get("event_type", ""))
+                downstream_status = _extract_downstream_status(exc.response_body)
                 bus_seq = publish_gateway_event(exc.response_body)
             except ValueError:
                 downstream_event_type = None
+                downstream_status = None
                 bus_seq = None
         emit_audit_event(
             action=action,
@@ -89,6 +104,7 @@ def _submit_approval_action(
                 "status_code": exc.status_code,
                 "run_id": run_id,
                 "downstream_event_type": downstream_event_type,
+                "downstream_status": downstream_status,
                 "bus_seq": bus_seq,
             },
         )
@@ -111,6 +127,7 @@ def _submit_approval_action(
         metadata={
             "run_id": run_id,
             "downstream_event_type": result.get("event_type"),
+            "downstream_status": _extract_downstream_status(result),
             "bus_seq": bus_seq,
         },
     )

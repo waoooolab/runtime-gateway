@@ -105,6 +105,15 @@ def test_approve_run_happy_path(
     assert len(items) >= 1
     assert items[-1]["event"]["event_type"] == "runtime.run.status"
 
+    audit = client.get("/v1/audit/events", headers=auth_headers)
+    assert audit.status_code == 200
+    audit_items = audit.json()["items"]
+    assert len(audit_items) >= 1
+    latest = audit_items[-1]
+    assert latest["action"] == "runs.approve"
+    assert latest["decision"] == "allow"
+    assert latest["metadata"]["downstream_status"] == "queued"
+
 
 def test_reject_run_happy_path(
     mock_execution_client: Mock, mock_token_exchange: Mock, auth_headers: dict[str, str]
@@ -132,6 +141,15 @@ def test_reject_run_happy_path(
     items = recent.json()["items"]
     assert len(items) >= 1
     assert items[-1]["event"]["event_type"] == "runtime.run.status"
+
+    audit = client.get("/v1/audit/events", headers=auth_headers)
+    assert audit.status_code == 200
+    audit_items = audit.json()["items"]
+    assert len(audit_items) >= 1
+    latest = audit_items[-1]
+    assert latest["action"] == "runs.reject"
+    assert latest["decision"] == "allow"
+    assert latest["metadata"]["downstream_status"] == "canceled"
 
 
 def test_approve_run_downstream_4xx_error(
@@ -166,6 +184,31 @@ def test_reject_run_downstream_5xx_error(
 
     assert response.status_code == 500
     assert "500" in response.text
+
+
+def test_approve_run_downstream_error_audit_captures_downstream_status(
+    mock_execution_client: Mock, mock_token_exchange: Mock, auth_headers: dict[str, str]
+) -> None:
+    """When downstream sends a valid envelope, audit should include downstream status."""
+    mock_execution_client.approve_run.side_effect = RuntimeExecutionClientError(
+        "HTTP 409 calling approve endpoint",
+        status_code=409,
+        response_body=_run_status_event(run_id="run-321", status="waiting_approval"),
+    )
+
+    client = TestClient(app)
+    response = client.post("/v1/runs/run-321:approve", headers=auth_headers)
+    assert response.status_code == 409
+
+    audit = client.get("/v1/audit/events", headers=auth_headers)
+    assert audit.status_code == 200
+    audit_items = audit.json()["items"]
+    assert len(audit_items) >= 1
+    latest = audit_items[-1]
+    assert latest["action"] == "runs.approve"
+    assert latest["decision"] == "deny"
+    assert latest["metadata"]["downstream_event_type"] == "runtime.run.status"
+    assert latest["metadata"]["downstream_status"] == "waiting_approval"
 
 
 def test_approve_run_downstream_connection_error(
