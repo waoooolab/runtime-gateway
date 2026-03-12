@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from runtime_gateway.app import app
+from runtime_gateway.audit.emitter import clear_audit_events, get_audit_events
 from runtime_gateway.auth.tokens import issue_token
 from runtime_gateway.integration import RuntimeExecutionClient, RuntimeExecutionClientError
 os.environ["WAOOOOLAB_PLATFORM_CONTRACTS_DIR"] = str(
@@ -47,6 +48,11 @@ def mock_token_exchange(monkeypatch: pytest.MonkeyPatch) -> Mock:
     mock_exchange = Mock(return_value={"access_token": "delegated-token"})
     monkeypatch.setattr("runtime_gateway.run_control.exchange_subject_token", mock_exchange)
     return mock_exchange
+
+
+@pytest.fixture(autouse=True)
+def clear_audit_state() -> None:
+    clear_audit_events()
 
 
 def _make_token(audience: str, scope: list[str]) -> str:
@@ -199,6 +205,12 @@ def test_complete_run_forwards_custom_failure_reason(
         failure_reason_code="tool_contract_violation",
     )
     mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "runs.complete"
+    assert audit["decision"] == "allow"
+    assert audit["metadata"]["requested_success"] is False
+    assert audit["metadata"]["requested_failure_reason_code"] == "tool_contract_violation"
+    assert audit["metadata"]["downstream_status"] == "failed"
 
 
 def test_complete_run_rejects_failure_reason_when_success_true(
@@ -215,6 +227,41 @@ def test_complete_run_rejects_failure_reason_when_success_true(
     )
     assert response.status_code == 422
     assert "only allowed when success=false" in response.json()["detail"]
+
+
+def test_complete_run_downstream_error_includes_requested_failure_reason_in_audit(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.complete_run.side_effect = RuntimeExecutionClientError(
+        "HTTP 409 calling complete endpoint",
+        status_code=409,
+        response_body={
+            "event_id": "evt-run-complete-fail",
+            "event_type": "runtime.run.status",
+            "tenant_id": "t1",
+            "app_id": "covernow",
+            "session_key": "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+            "trace_id": "trace-test-control",
+            "correlation_id": "run-complete-fail",
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "payload": {"run_id": "run-complete-fail", "status": "failed"},
+        },
+    )
+    client = TestClient(app)
+    response = client.post(
+        "/v1/runs/run-complete-fail:complete",
+        json={"success": False, "failure_reason_code": "tool_contract_violation"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 409
+    mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "runs.complete"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["requested_success"] is False
+    assert audit["metadata"]["requested_failure_reason_code"] == "tool_contract_violation"
 
 
 def test_cancel_run_accepts_requested_by_run_id_alias(

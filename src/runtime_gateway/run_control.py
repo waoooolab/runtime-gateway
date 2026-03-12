@@ -85,6 +85,18 @@ def _parse_requested_by_run_id(payload: dict[str, Any], *, primary_key: str) -> 
     return primary if primary is not None else shared
 
 
+def _extract_downstream_status(event: dict[str, Any]) -> str | None:
+    payload = event.get("payload")
+    if isinstance(payload, dict):
+        status = payload.get("status")
+        if isinstance(status, str) and status.strip():
+            return status.strip()
+    status = event.get("status")
+    if isinstance(status, str) and status.strip():
+        return status.strip()
+    return None
+
+
 def _submit_control_action(
     *,
     action: str,
@@ -94,6 +106,7 @@ def _submit_control_action(
     execution_client: RuntimeExecutionClient,
     publish_gateway_event: Callable[[dict[str, Any]], int | None],
     submitter: Callable[[str, str], dict[str, Any]],
+    audit_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     trace_id = str(claims.get("trace_id", ""))
     actor_id = str(claims.get("sub", "unknown"))
@@ -133,6 +146,7 @@ def _submit_control_action(
                 "run_id": run_id,
                 "downstream_event_type": downstream_event_type,
                 "bus_seq": bus_seq,
+                **(audit_metadata or {}),
             },
         )
         raise HTTPException(status_code=exc.status_code or 502, detail=str(exc)) from exc
@@ -154,7 +168,9 @@ def _submit_control_action(
         metadata={
             "run_id": run_id,
             "downstream_event_type": result.get("event_type"),
+            "downstream_status": _extract_downstream_status(result),
             "bus_seq": bus_seq,
+            **(audit_metadata or {}),
         },
     )
     return result
@@ -253,4 +269,12 @@ def dispatch_complete_run(
             success=success,
             failure_reason_code=failure_reason_code,
         ),
+        audit_metadata={
+            "requested_success": success,
+            **(
+                {"requested_failure_reason_code": failure_reason_code}
+                if failure_reason_code is not None
+                else {}
+            ),
+        },
     )
