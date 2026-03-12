@@ -154,7 +154,12 @@ def test_get_run_status_downstream_error_maps_status(
         headers=read_auth_headers,
     )
     assert response.status_code == 404
-    assert "404" in response.text
+    detail = response.json().get("detail")
+    assert isinstance(detail, dict)
+    assert detail["status_code"] == 404
+    assert detail["requested_run_id"] == "run-missing"
+    assert detail["downstream_response"]["detail"] == "run not found"
+    assert "HTTP 404" in str(detail["message"])
     mock_token_exchange.assert_called_once()
     audit = get_audit_events(limit=1)[0]
     assert audit["action"] == "runs.read"

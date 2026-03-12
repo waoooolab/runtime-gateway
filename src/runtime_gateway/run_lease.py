@@ -51,6 +51,31 @@ def _extract_run_id(payload: dict[str, Any]) -> str | None:
     return normalized or None
 
 
+def _build_downstream_error_detail(
+    *,
+    message: str,
+    status_code: int,
+    requested_run_id: str,
+    response_body: dict[str, Any],
+) -> dict[str, Any]:
+    detail: dict[str, Any] = {
+        "message": message,
+        "status_code": status_code,
+        "requested_run_id": requested_run_id,
+        "downstream_response": response_body,
+    }
+    downstream_run_id = _extract_run_id(response_body)
+    if downstream_run_id is not None:
+        detail["downstream_run_id"] = downstream_run_id
+    lease_state = _extract_lease_state(response_body)
+    if lease_state is not None:
+        detail["lease_state"] = lease_state
+    device_hub_status = _extract_device_hub_status(response_body)
+    if device_hub_status is not None:
+        detail["device_hub_status"] = device_hub_status
+    return detail
+
+
 def _validate_run_lease_response_or_raise(
     *,
     result: dict[str, Any],
@@ -129,6 +154,20 @@ def dispatch_get_run_lease(
             auth_token=delegated_token,
         )
     except RuntimeExecutionClientError as exc:
+        detail: str | dict[str, Any] = str(exc)
+        downstream_run_id = None
+        lease_state = None
+        device_hub_status = None
+        if isinstance(exc.response_body, dict):
+            downstream_run_id = _extract_run_id(exc.response_body)
+            lease_state = _extract_lease_state(exc.response_body)
+            device_hub_status = _extract_device_hub_status(exc.response_body)
+            detail = _build_downstream_error_detail(
+                message=str(exc),
+                status_code=exc.status_code or 502,
+                requested_run_id=run_id,
+                response_body=exc.response_body,
+            )
         emit_audit_event(
             action=action,
             decision="deny",
@@ -138,9 +177,12 @@ def dispatch_get_run_lease(
                 "reason": str(exc),
                 "status_code": exc.status_code,
                 "run_id": run_id,
+                "downstream_run_id": downstream_run_id,
+                "lease_state": lease_state,
+                "device_hub_status": device_hub_status,
             },
         )
-        raise HTTPException(status_code=exc.status_code or 502, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
 
     _validate_run_lease_response_or_raise(
         result=result,

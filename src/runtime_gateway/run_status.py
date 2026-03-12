@@ -48,6 +48,31 @@ def _recommended_poll_after_ms_for_run_status(status: str | None) -> int:
     return 3000
 
 
+def _build_downstream_error_detail(
+    *,
+    message: str,
+    status_code: int,
+    requested_run_id: str,
+    response_body: dict[str, Any],
+) -> dict[str, Any]:
+    detail: dict[str, Any] = {
+        "message": message,
+        "status_code": status_code,
+        "requested_run_id": requested_run_id,
+        "downstream_response": response_body,
+    }
+    downstream_event_type = response_body.get("event_type")
+    if isinstance(downstream_event_type, str) and downstream_event_type.strip():
+        detail["downstream_event_type"] = downstream_event_type
+    downstream_status = _extract_downstream_status(response_body)
+    if downstream_status is not None:
+        detail["downstream_status"] = downstream_status
+    downstream_run_id = _extract_downstream_run_id(response_body)
+    if downstream_run_id is not None:
+        detail["downstream_run_id"] = downstream_run_id
+    return detail
+
+
 def _ensure_downstream_run_id_matches(
     *,
     run_id: str,
@@ -111,6 +136,22 @@ def dispatch_get_run_status(
         )
         validate_event_envelope(result)
     except RuntimeExecutionClientError as exc:
+        detail: str | dict[str, Any] = str(exc)
+        downstream_event_type = None
+        downstream_status = None
+        downstream_run_id = None
+        if isinstance(exc.response_body, dict):
+            downstream_event_type_raw = exc.response_body.get("event_type")
+            if isinstance(downstream_event_type_raw, str) and downstream_event_type_raw.strip():
+                downstream_event_type = downstream_event_type_raw
+            downstream_status = _extract_downstream_status(exc.response_body)
+            downstream_run_id = _extract_downstream_run_id(exc.response_body)
+            detail = _build_downstream_error_detail(
+                message=str(exc),
+                status_code=exc.status_code or 502,
+                requested_run_id=run_id,
+                response_body=exc.response_body,
+            )
         emit_audit_event(
             action=action,
             decision="deny",
@@ -120,9 +161,12 @@ def dispatch_get_run_status(
                 "reason": str(exc),
                 "status_code": exc.status_code,
                 "run_id": run_id,
+                "downstream_event_type": downstream_event_type,
+                "downstream_status": downstream_status,
+                "downstream_run_id": downstream_run_id,
             },
         )
-        raise HTTPException(status_code=exc.status_code or 502, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
     except ValueError as exc:
         emit_audit_event(
             action=action,
