@@ -51,20 +51,27 @@ class EventBusWebsocketTests(unittest.TestCase):
         gateway_app_module._event_bus.clear()
         self.client = TestClient(gateway_app_module.app)
 
-    def _token(self, *, audience: str = "runtime-gateway", scope: list[str]) -> str:
-        return issue_token(
-            {
-                "iss": "runtime-gateway",
-                "sub": "svc:test",
-                "aud": audience,
-                "tenant_id": "t1",
-                "app_id": "covernow",
-                "scope": scope,
-                "token_use": "service",
-                "trace_id": "trace-events-1",
-            },
-            ttl_seconds=300,
-        )
+    def _token(
+        self,
+        *,
+        audience: str = "runtime-gateway",
+        scope: list[str],
+        tenant_id: str | None = "t1",
+        app_id: str | None = "covernow",
+    ) -> str:
+        payload = {
+            "iss": "runtime-gateway",
+            "sub": "svc:test",
+            "aud": audience,
+            "scope": scope,
+            "token_use": "service",
+            "trace_id": "trace-events-1",
+        }
+        if tenant_id is not None:
+            payload["tenant_id"] = tenant_id
+        if app_id is not None:
+            payload["app_id"] = app_id
+        return issue_token(payload, ttl_seconds=300)
 
     def test_publish_event_requires_bearer_token(self) -> None:
         response = self.client.post("/v1/events/publish", json=_event_envelope())
@@ -100,6 +107,15 @@ class EventBusWebsocketTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 403)
         self.assertIn("tenant_id query must match token claim", response.json()["detail"])
+
+    def test_recent_events_reject_missing_scope_claims(self) -> None:
+        token = self._token(scope=["runs:read"], tenant_id=None)
+        response = self.client.get(
+            "/v1/events/recent",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("tenant_id claim is required", response.json()["detail"])
 
     def test_recent_events_can_filter_by_event_type(self) -> None:
         token = self._token(scope=["runs:write"])
@@ -215,6 +231,14 @@ class EventBusWebsocketTests(unittest.TestCase):
         with self.assertRaises(WebSocketDisconnect):
             with self.client.websocket_connect(
                 f"/v1/ws/events?access_token={ws_token}&tenant_id=t2&app_id=covernow"
+            ):
+                pass
+
+    def test_websocket_rejects_missing_scope_claims(self) -> None:
+        ws_token = self._token(scope=["runs:read"], tenant_id=None)
+        with self.assertRaises(WebSocketDisconnect):
+            with self.client.websocket_connect(
+                f"/v1/ws/events?access_token={ws_token}&app_id=covernow"
             ):
                 pass
 

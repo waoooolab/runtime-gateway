@@ -44,13 +44,13 @@ def _scope_filter_or_forbid(
 ) -> str:
     raw_query = (query_value or "").strip()
     raw_claim = claim_value.strip()
-    if raw_query:
-        if raw_claim and raw_query != raw_claim:
-            raise HTTPException(
-                status_code=403,
-                detail=f"{field} query must match token claim",
-            )
-        return raw_query
+    if not raw_claim:
+        raise HTTPException(status_code=403, detail=f"{field} claim is required")
+    if raw_query and raw_query != raw_claim:
+        raise HTTPException(
+            status_code=403,
+            detail=f"{field} query must match token claim",
+        )
     return raw_claim
 
 

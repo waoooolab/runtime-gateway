@@ -50,11 +50,11 @@ def _resolve_query_scope(
 ) -> str:
     query = _parse_optional_str(query_value)
     claim = _parse_optional_str(claim_value)
-    if query is not None:
-        if claim is not None and query != claim:
-            raise ValueError(f"{field} query must match token claim")
-        return query
-    return claim or ""
+    if claim is None:
+        raise ValueError(f"{field} claim is required")
+    if query is not None and query != claim:
+        raise ValueError(f"{field} query must match token claim")
+    return claim
 
 
 def _websocket_filters(
