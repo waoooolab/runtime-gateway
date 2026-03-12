@@ -643,6 +643,32 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertIs(health_payload["is_stalled"], False)
         self.assertIs(health_payload["is_tick_stale"], False)
 
+    def test_gateway_to_execution_worker_drain_signal_flow(self) -> None:
+        write_token = self._gateway_token(["runs:write"])
+        _ = self._submit_run(write_token, "verify worker drain signal e2e flow #1")
+        _ = self._submit_run(write_token, "verify worker drain signal e2e flow #2")
+
+        drain = self.gateway_client.post(
+            "/v1/orchestration/worker:drain?max_items=1&fair=true&auto_start=true",
+            headers={"Authorization": f"Bearer {write_token}"},
+        )
+        self.assertEqual(drain.status_code, 200)
+        payload = drain.json()
+        self.assertEqual(int(payload["max_items"]), 1)
+        self.assertEqual(int(payload["processed"]), 1)
+        self.assertGreaterEqual(int(payload["remaining"]), 1)
+        self.assertIs(payload["should_continue"], True)
+        self.assertIn("outcome_counts", payload)
+        self.assertEqual(int(payload["outcome_counts"]["progressed"]), 1)
+        self.assertEqual(int(payload["outcome_counts"]["missing_run"]), 0)
+        self.assertEqual(int(payload["outcome_counts"]["skipped"]), 0)
+        self.assertAlmostEqual(float(payload["anomaly_ratio"]), 0.0, places=6)
+        self.assertAlmostEqual(float(payload["progressed_ratio"]), 1.0, places=6)
+        self.assertIs(payload["stalled_signal"], False)
+        self.assertIn("scheduling_signal", payload)
+        self.assertIs(payload["scheduling_signal"]["stalled_signal"], False)
+        self.assertAlmostEqual(float(payload["scheduling_signal"]["anomaly_ratio"]), 0.0, places=6)
+
     def test_gateway_and_execution_profile_catalog_are_aligned(self) -> None:
         gateway_response = self.gateway_client.get(
             "/v1/executors/profiles",
