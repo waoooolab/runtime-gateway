@@ -100,25 +100,34 @@ def list_recent_events(
         else None
     )
     if cursor is None:
-        items = _event_bus.recent(
-            limit=limit,
+        window = _event_bus.recent(
+            limit=limit + 1,
             tenant_id=effective_tenant or None,
             app_id=effective_app or None,
             event_types=parsed_types,
             run_id=run_id,
         )
+        has_more = len(window) > limit
+        items = window[-limit:]
     else:
-        items = _event_bus.since(
+        window = _event_bus.since(
             cursor=cursor,
             tenant_id=effective_tenant or None,
             app_id=effective_app or None,
             event_types=parsed_types,
             run_id=run_id,
-        )[:limit]
+        )[: limit + 1]
+        has_more = len(window) > limit
+        items = window[:limit]
     next_cursor = cursor if cursor is not None else 0
     if items:
         next_cursor = int(items[-1]["bus_seq"])
-    return {"items": items, "next_cursor": next_cursor, "stats": _event_bus.stats()}
+    return {
+        "items": items,
+        "next_cursor": next_cursor,
+        "has_more": has_more,
+        "stats": _event_bus.stats(),
+    }
 
 
 @app.post("/v1/events/publish")

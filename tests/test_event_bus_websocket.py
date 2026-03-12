@@ -113,9 +113,11 @@ class EventBusWebsocketTests(unittest.TestCase):
 
         recent = self.client.get("/v1/events/recent", headers={"Authorization": f"Bearer {token}"})
         self.assertEqual(recent.status_code, 200)
-        items = recent.json()["items"]
+        payload = recent.json()
+        items = payload["items"]
         self.assertGreaterEqual(len(items), 1)
         self.assertEqual(items[-1]["event"]["event_type"], "runtime.route.decided")
+        self.assertFalse(payload["has_more"])
 
     def test_recent_events_requires_bearer_token(self) -> None:
         response = self.client.get("/v1/events/recent")
@@ -216,6 +218,35 @@ class EventBusWebsocketTests(unittest.TestCase):
         self.assertEqual(items[0]["event"]["payload"]["run_id"], "run-789")
         self.assertEqual(items[0]["event"]["event_type"], "runtime.run.completed")
 
+    def test_recent_events_sets_has_more_for_recent_window(self) -> None:
+        token = self._token(scope=["runs:write"])
+        self.client.post(
+            "/v1/events/publish",
+            json=_event_envelope("runtime.run.started", run_id="run-limit-1"),
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.client.post(
+            "/v1/events/publish",
+            json=_event_envelope("runtime.run.status", run_id="run-limit-1"),
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.client.post(
+            "/v1/events/publish",
+            json=_event_envelope("runtime.run.completed", run_id="run-limit-1"),
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        response = self.client.get(
+            "/v1/events/recent?limit=2&run_id=run-limit-1",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(len(payload["items"]), 2)
+        self.assertTrue(payload["has_more"])
+        self.assertEqual(payload["items"][0]["event"]["event_type"], "runtime.run.status")
+        self.assertEqual(payload["items"][1]["event"]["event_type"], "runtime.run.completed")
+
     def test_recent_events_support_cursor_incremental_pull(self) -> None:
         token = self._token(scope=["runs:write"])
         self.client.post(
@@ -243,6 +274,7 @@ class EventBusWebsocketTests(unittest.TestCase):
         self.assertEqual(len(first_payload["items"]), 2)
         self.assertEqual(first_payload["items"][0]["event"]["event_type"], "runtime.run.started")
         self.assertEqual(first_payload["items"][1]["event"]["event_type"], "runtime.run.status")
+        self.assertTrue(first_payload["has_more"])
         cursor = first_payload["next_cursor"]
         self.assertGreaterEqual(int(cursor), 1)
 
@@ -255,6 +287,7 @@ class EventBusWebsocketTests(unittest.TestCase):
         self.assertEqual(len(second_payload["items"]), 1)
         self.assertEqual(second_payload["items"][0]["event"]["event_type"], "runtime.run.completed")
         self.assertGreaterEqual(int(second_payload["next_cursor"]), int(cursor))
+        self.assertFalse(second_payload["has_more"])
 
     def test_websocket_receives_published_event(self) -> None:
         ws_token = self._token(scope=["runs:read"])
