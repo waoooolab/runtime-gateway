@@ -246,6 +246,12 @@ def test_worker_tick_downstream_connection_error(
 
     assert response.status_code == 502
     assert "connection error" in response.text
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "orchestration.worker_tick"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["status_code"] is None
+    assert "connection error" in audit["metadata"]["reason"]
+    assert "downstream_detail" not in audit["metadata"]
 
 
 def test_worker_tick_downstream_4xx_error_is_structured(
@@ -294,6 +300,34 @@ def test_worker_health_downstream_connection_error(
 
     assert response.status_code == 502
     assert "connection error" in response.text
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "orchestration.worker_health"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["status_code"] is None
+    assert "connection error" in audit["metadata"]["reason"]
+    assert "downstream_detail" not in audit["metadata"]
+
+
+def test_worker_drain_downstream_connection_error(
+    mock_execution_client: Mock, mock_token_exchange: Mock, auth_headers: dict[str, str]
+) -> None:
+    _ = mock_token_exchange
+    mock_execution_client.worker_drain.side_effect = RuntimeExecutionClientError(
+        "connection error calling worker drain endpoint",
+        status_code=None,
+    )
+
+    client = TestClient(app)
+    response = client.post("/v1/orchestration/worker:drain", headers=auth_headers)
+
+    assert response.status_code == 502
+    assert "connection error" in response.text
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "orchestration.worker_drain"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["status_code"] is None
+    assert "connection error" in audit["metadata"]["reason"]
+    assert "downstream_detail" not in audit["metadata"]
 
 
 def test_worker_health_downstream_4xx_error_is_structured(
