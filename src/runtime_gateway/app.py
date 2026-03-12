@@ -65,6 +65,14 @@ def _claim_or_forbid(*, field: str, claims: dict[str, Any]) -> str:
     return value
 
 
+def _recommended_poll_after_ms_for_recent_events(*, has_more: bool, item_count: int) -> int:
+    if has_more:
+        return 250
+    if item_count > 0:
+        return 1500
+    return 5000
+
+
 @app.get("/healthz")
 def healthz() -> dict:
     return {"status": "ok", "service": "runtime-gateway"}
@@ -126,10 +134,15 @@ def list_recent_events(
     next_cursor = cursor if cursor is not None else 0
     if items:
         next_cursor = int(items[-1]["bus_seq"])
+    recommended_poll_after_ms = _recommended_poll_after_ms_for_recent_events(
+        has_more=has_more,
+        item_count=len(items),
+    )
     response_payload = {
         "items": items,
         "next_cursor": next_cursor,
         "has_more": has_more,
+        "recommended_poll_after_ms": recommended_poll_after_ms,
         "stats": _event_bus.stats(),
     }
     try:

@@ -118,6 +118,7 @@ class EventBusWebsocketTests(unittest.TestCase):
         self.assertGreaterEqual(len(items), 1)
         self.assertEqual(items[-1]["event"]["event_type"], "runtime.route.decided")
         self.assertFalse(payload["has_more"])
+        self.assertEqual(payload["recommended_poll_after_ms"], 1500)
 
     def test_recent_events_requires_bearer_token(self) -> None:
         response = self.client.get("/v1/events/recent")
@@ -244,6 +245,7 @@ class EventBusWebsocketTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(len(payload["items"]), 2)
         self.assertTrue(payload["has_more"])
+        self.assertEqual(payload["recommended_poll_after_ms"], 250)
         self.assertEqual(payload["items"][0]["event"]["event_type"], "runtime.run.status")
         self.assertEqual(payload["items"][1]["event"]["event_type"], "runtime.run.completed")
 
@@ -275,6 +277,7 @@ class EventBusWebsocketTests(unittest.TestCase):
         self.assertEqual(first_payload["items"][0]["event"]["event_type"], "runtime.run.started")
         self.assertEqual(first_payload["items"][1]["event"]["event_type"], "runtime.run.status")
         self.assertTrue(first_payload["has_more"])
+        self.assertEqual(first_payload["recommended_poll_after_ms"], 250)
         cursor = first_payload["next_cursor"]
         self.assertGreaterEqual(int(cursor), 1)
 
@@ -288,6 +291,19 @@ class EventBusWebsocketTests(unittest.TestCase):
         self.assertEqual(second_payload["items"][0]["event"]["event_type"], "runtime.run.completed")
         self.assertGreaterEqual(int(second_payload["next_cursor"]), int(cursor))
         self.assertFalse(second_payload["has_more"])
+        self.assertEqual(second_payload["recommended_poll_after_ms"], 1500)
+
+    def test_recent_events_recommend_slow_poll_when_window_empty(self) -> None:
+        token = self._token(scope=["runs:read"])
+        response = self.client.get(
+            "/v1/events/recent?run_id=run-empty",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["items"], [])
+        self.assertFalse(payload["has_more"])
+        self.assertEqual(payload["recommended_poll_after_ms"], 5000)
 
     def test_websocket_receives_published_event(self) -> None:
         ws_token = self._token(scope=["runs:read"])
