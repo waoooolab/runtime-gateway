@@ -142,6 +142,47 @@ def test_get_run_lease_rejects_invalid_contract_payload(
     assert audit["metadata"]["validation_schema"] == "runtime/runtime-run-lease.v1.json"
 
 
+def test_get_run_lease_allows_not_bound_payload(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    read_auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.get_run_lease.return_value = {
+        "run_id": "run-not-bound",
+        "lease": None,
+        "device_hub": {"status": "not_bound"},
+    }
+    client = TestClient(app)
+    response = client.get(
+        "/v1/runs/run-not-bound/lease",
+        headers=read_auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["device_hub"]["status"] == "not_bound"
+    mock_token_exchange.assert_called_once()
+
+
+def test_get_run_lease_allows_error_payload_with_error_field(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    read_auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.get_run_lease.return_value = {
+        "run_id": "run-lease-err",
+        "lease": {"lease_id": "lease-err", "task_id": "run-lease-err:root", "state": "active"},
+        "device_hub": {"status": "error", "error": "lookup timeout"},
+    }
+    client = TestClient(app)
+    response = client.get(
+        "/v1/runs/run-lease-err/lease",
+        headers=read_auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["device_hub"]["status"] == "error"
+    assert response.json()["device_hub"]["error"] == "lookup timeout"
+    mock_token_exchange.assert_called_once()
+
+
 def test_get_run_lease_missing_auth() -> None:
     client = TestClient(app)
     response = client.get("/v1/runs/run-1/lease")
