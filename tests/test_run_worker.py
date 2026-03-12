@@ -166,13 +166,28 @@ def test_worker_drain_downstream_4xx_error(
     mock_execution_client.worker_drain.side_effect = RuntimeExecutionClientError(
         "HTTP 422 calling worker drain endpoint",
         status_code=422,
+        response_body={
+            "detail": "max_items must be integer > 0",
+            "processed": 0,
+            "remaining": 3,
+            "stalled_signal": True,
+            "anomaly_ratio": 1.0,
+        },
     )
 
     client = TestClient(app)
     response = client.post("/v1/orchestration/worker:drain?max_items=0", headers=auth_headers)
 
     assert response.status_code == 422
-    assert "422" in response.text
+    detail = response.json()["detail"]
+    assert isinstance(detail, dict)
+    assert detail["status_code"] == 422
+    assert detail["downstream_detail"] == "max_items must be integer > 0"
+    assert detail["processed"] == 0
+    assert detail["remaining"] == 3
+    assert detail["stalled_signal"] is True
+    assert detail["anomaly_ratio"] == 1.0
+    assert "HTTP 422" in detail["message"]
 
 
 def test_worker_tick_downstream_connection_error(
@@ -205,6 +220,33 @@ def test_worker_health_downstream_connection_error(
 
     assert response.status_code == 502
     assert "connection error" in response.text
+
+
+def test_worker_health_downstream_4xx_error_is_structured(
+    mock_execution_client: Mock, mock_token_exchange: Mock, read_auth_headers: dict[str, str]
+) -> None:
+    _ = mock_token_exchange
+    mock_execution_client.worker_health.side_effect = RuntimeExecutionClientError(
+        "HTTP 409 calling worker health endpoint",
+        status_code=409,
+        response_body={
+            "detail": "worker stalled",
+            "health_state": "stalled",
+            "is_stalled": True,
+            "queue_depth": 5,
+        },
+    )
+
+    client = TestClient(app)
+    response = client.get("/v1/orchestration/worker:health", headers=read_auth_headers)
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert isinstance(detail, dict)
+    assert detail["status_code"] == 409
+    assert detail["downstream_detail"] == "worker stalled"
+    assert detail["health_state"] == "stalled"
+    assert detail["is_stalled"] is True
+    assert detail["queue_depth"] == 5
 
 
 def test_worker_endpoints_require_bearer_token() -> None:
