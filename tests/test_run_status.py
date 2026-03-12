@@ -156,6 +156,28 @@ def test_get_run_status_rejects_invalid_event_envelope(
     assert audit["metadata"]["run_id"] == "run-status-invalid"
 
 
+def test_get_run_status_rejects_mismatched_run_id(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    read_auth_headers: dict[str, str],
+) -> None:
+    mismatched = _run_status_event(run_id="run-status-other", status="queued")
+    mock_execution_client.get_run_status.return_value = mismatched
+    client = TestClient(app)
+    response = client.get(
+        "/v1/runs/run-status-expected",
+        headers=read_auth_headers,
+    )
+    assert response.status_code == 502
+    assert "run_id mismatch" in response.text
+    mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "runs.read"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["run_id"] == "run-status-expected"
+    assert audit["metadata"]["downstream_run_id"] == "run-status-other"
+
+
 def test_get_run_status_missing_auth() -> None:
     client = TestClient(app)
     response = client.get("/v1/runs/run-1")

@@ -24,6 +24,42 @@ def _extract_downstream_status(event: dict[str, Any]) -> str | None:
     return None
 
 
+def _extract_downstream_run_id(event: dict[str, Any]) -> str | None:
+    payload = event.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    run_id = payload.get("run_id")
+    if not isinstance(run_id, str):
+        return None
+    normalized = run_id.strip()
+    return normalized or None
+
+
+def _ensure_downstream_run_id_matches(
+    *,
+    run_id: str,
+    result: dict[str, Any],
+    action: str,
+    actor_id: str,
+    trace_id: str,
+) -> None:
+    downstream_run_id = _extract_downstream_run_id(result)
+    if downstream_run_id == run_id:
+        return None
+    emit_audit_event(
+        action=action,
+        decision="deny",
+        actor_id=actor_id,
+        trace_id=trace_id,
+        metadata={
+            "reason": "run status response mismatches requested run_id",
+            "run_id": run_id,
+            "downstream_run_id": downstream_run_id,
+        },
+    )
+    raise HTTPException(status_code=502, detail="invalid execution event envelope: run_id mismatch")
+
+
 def dispatch_get_run_status(
     *,
     run_id: str,
@@ -83,6 +119,14 @@ def dispatch_get_run_status(
             metadata={"reason": f"invalid execution event envelope: {exc}", "run_id": run_id},
         )
         raise HTTPException(status_code=502, detail=f"invalid execution event envelope: {exc}") from exc
+
+    _ensure_downstream_run_id_matches(
+        run_id=run_id,
+        result=result,
+        action=action,
+        actor_id=actor_id,
+        trace_id=trace_id,
+    )
 
     emit_audit_event(
         action=action,
