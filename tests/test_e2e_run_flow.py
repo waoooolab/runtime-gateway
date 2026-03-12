@@ -360,6 +360,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(gateway_event["event_type"], "runtime.run.status")
         self.assertEqual(gateway_event["payload"]["run_id"], run_id)
         self.assertEqual(gateway_event["payload"]["status"], "queued")
+        self.assertEqual(gateway_event["recommended_poll_after_ms"], 1500)
 
         recent_response = self.gateway_client.get(
             "/v1/events/recent?limit=10",
@@ -801,6 +802,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(status_canceled.status_code, 200)
         self.assertEqual(status_canceled.json()["payload"]["run_id"], run_id)
         self.assertEqual(status_canceled.json()["payload"]["status"], "canceled")
+        self.assertEqual(status_canceled.json()["recommended_poll_after_ms"], 10000)
 
         lease_expired = self.gateway_client.get(
             f"/v1/runs/{run_id}/lease",
@@ -810,6 +812,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(lease_expired.json()["run_id"], run_id)
         self.assertEqual(lease_expired.json()["lease"]["state"], "expired")
         self.assertEqual(lease_expired.json()["device_hub"]["status"], "ok")
+        self.assertEqual(lease_expired.json()["recommended_poll_after_ms"], 10000)
 
         self.assertEqual(execution_app_module._runtime.runs[run_id].device_lease_state, "expired")
         assert lease_id is not None
@@ -925,6 +928,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(status_rejected.status_code, 200)
         self.assertEqual(status_rejected.json()["payload"]["run_id"], run_id)
         self.assertEqual(status_rejected.json()["payload"]["status"], "canceled")
+        self.assertEqual(status_rejected.json()["recommended_poll_after_ms"], 10000)
 
         lease_expired = self.gateway_client.get(
             f"/v1/runs/{run_id}/lease",
@@ -934,6 +938,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(lease_expired.json()["run_id"], run_id)
         self.assertEqual(lease_expired.json()["lease"]["state"], "expired")
         self.assertEqual(lease_expired.json()["device_hub"]["status"], "ok")
+        self.assertEqual(lease_expired.json()["recommended_poll_after_ms"], 10000)
 
         self.assertEqual(execution_app_module._runtime.runs[run_id].device_lease_state, "expired")
         assert lease_id is not None
@@ -1050,6 +1055,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(status_timed_out.status_code, 200)
         self.assertEqual(status_timed_out.json()["payload"]["run_id"], run_id)
         self.assertEqual(status_timed_out.json()["payload"]["status"], "timed_out")
+        self.assertEqual(status_timed_out.json()["recommended_poll_after_ms"], 10000)
 
         lease_expired = self.gateway_client.get(
             f"/v1/runs/{run_id}/lease",
@@ -1059,6 +1065,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(lease_expired.json()["run_id"], run_id)
         self.assertEqual(lease_expired.json()["lease"]["state"], "expired")
         self.assertEqual(lease_expired.json()["device_hub"]["status"], "ok")
+        self.assertEqual(lease_expired.json()["recommended_poll_after_ms"], 10000)
 
         self.assertEqual(execution_app_module._runtime.runs[run_id].device_lease_state, "expired")
         assert lease_id is not None
@@ -1169,6 +1176,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(lease_active.json()["run_id"], run_id)
         self.assertEqual(lease_active.json()["lease"]["state"], "active")
         self.assertEqual(lease_active.json()["device_hub"]["status"], "ok")
+        self.assertEqual(lease_active.json()["recommended_poll_after_ms"], 2000)
 
         tick = self.gateway_client.post(
             "/v1/orchestration/worker:tick?fair=true&auto_start=true",
@@ -1177,6 +1185,15 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(tick.status_code, 200)
         self.assertEqual(tick.json()["outcome"], "progressed")
         self.assertEqual(tick.json()["after_status"], "running")
+
+        status_running = self.gateway_client.get(
+            f"/v1/runs/{run_id}",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(status_running.status_code, 200)
+        self.assertEqual(status_running.json()["payload"]["run_id"], run_id)
+        self.assertEqual(status_running.json()["payload"]["status"], "running")
+        self.assertEqual(status_running.json()["recommended_poll_after_ms"], 1000)
 
         complete_response = self.gateway_client.post(
             f"/v1/runs/{run_id}:complete",
@@ -1193,6 +1210,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(status_succeeded.status_code, 200)
         self.assertEqual(status_succeeded.json()["payload"]["run_id"], run_id)
         self.assertEqual(status_succeeded.json()["payload"]["status"], "succeeded")
+        self.assertEqual(status_succeeded.json()["recommended_poll_after_ms"], 10000)
 
         lease_released = self.gateway_client.get(
             f"/v1/runs/{run_id}/lease",
@@ -1202,6 +1220,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(lease_released.json()["run_id"], run_id)
         self.assertEqual(lease_released.json()["lease"]["state"], "released")
         self.assertEqual(lease_released.json()["device_hub"]["status"], "ok")
+        self.assertEqual(lease_released.json()["recommended_poll_after_ms"], 10000)
 
         self.assertEqual(execution_app_module._runtime.runs[run_id].device_lease_state, "released")
         assert lease_id is not None
@@ -1352,6 +1371,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(status_failed.status_code, 200)
         self.assertEqual(status_failed.json()["payload"]["run_id"], run_id)
         self.assertEqual(status_failed.json()["payload"]["status"], "failed")
+        self.assertEqual(status_failed.json()["recommended_poll_after_ms"], 10000)
         self.assertEqual(
             status_failed.json()["payload"]["orchestration"]["failure_reason_code"],
             "tool_contract_violation",
@@ -1365,6 +1385,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(lease_expired.json()["run_id"], run_id)
         self.assertEqual(lease_expired.json()["lease"]["state"], "expired")
         self.assertEqual(lease_expired.json()["device_hub"]["status"], "ok")
+        self.assertEqual(lease_expired.json()["recommended_poll_after_ms"], 10000)
 
         self.assertEqual(execution_app_module._runtime.runs[run_id].device_lease_state, "expired")
         assert lease_id is not None
