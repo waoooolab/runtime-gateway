@@ -130,6 +130,10 @@ def test_worker_drain_happy_path(
         "processed": 2,
         "remaining": 1,
         "should_continue": True,
+        "outcome_counts": {"progressed": 2, "missing_run": 0, "skipped": 0},
+        "anomaly_ratio": 0.0,
+        "progressed_ratio": 1.0,
+        "stalled_signal": False,
     }
 
     client = TestClient(app)
@@ -140,6 +144,9 @@ def test_worker_drain_happy_path(
     assert payload["processed"] == 2
     assert payload["remaining"] == 1
     assert payload["should_continue"] is True
+    assert payload["outcome_counts"]["progressed"] == 2
+    assert payload["anomaly_ratio"] == 0.0
+    assert payload["stalled_signal"] is False
     mock_execution_client.worker_drain.assert_called_once_with(
         auth_token="delegated-token",
         max_items=2,
