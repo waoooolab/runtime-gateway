@@ -292,6 +292,17 @@ class RuntimeExecutionClient:
             auth_token=auth_token,
         )
 
+    def get_run_status(
+        self,
+        *,
+        run_id: str,
+        auth_token: str,
+    ) -> dict[str, Any]:
+        return self._get_json(
+            path=f"v1/runs/{run_id}",
+            auth_token=auth_token,
+        )
+
     def get_run_lease(
         self,
         *,

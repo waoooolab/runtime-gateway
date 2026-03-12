@@ -1,0 +1,98 @@
+"""Run status lookup dispatch orchestration for runtime-gateway."""
+
+from __future__ import annotations
+
+from typing import Any, Mapping
+
+from fastapi import HTTPException
+
+from .audit.emitter import emit_audit_event
+from .auth.exchange import ExchangeError, exchange_subject_token
+from .events.validation import validate_event_envelope
+from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
+
+
+def _extract_downstream_status(event: dict[str, Any]) -> str | None:
+    payload = event.get("payload")
+    if isinstance(payload, dict):
+        status = payload.get("status")
+        if isinstance(status, str) and status.strip():
+            return status.strip()
+    status = event.get("status")
+    if isinstance(status, str) and status.strip():
+        return status.strip()
+    return None
+
+
+def dispatch_get_run_status(
+    *,
+    run_id: str,
+    claims: Mapping[str, Any],
+    subject_token: str,
+    execution_client: RuntimeExecutionClient,
+) -> dict[str, Any]:
+    action = "runs.read"
+    trace_id = str(claims.get("trace_id", ""))
+    actor_id = str(claims.get("sub", "unknown"))
+    try:
+        delegated = exchange_subject_token(
+            subject_token=subject_token,
+            requested_token_use="service",
+            audience="runtime-execution",
+            scope=["runs:read"],
+            requested_ttl_seconds=300,
+            trace_id=trace_id,
+            run_id=run_id,
+        )
+    except ExchangeError as exc:
+        emit_audit_event(
+            action=action,
+            decision="deny",
+            actor_id=actor_id,
+            trace_id=trace_id,
+            metadata={"reason": exc.detail, "run_id": run_id},
+        )
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    delegated_token = str(delegated["access_token"])
+    try:
+        result = execution_client.get_run_status(
+            run_id=run_id,
+            auth_token=delegated_token,
+        )
+        validate_event_envelope(result)
+    except RuntimeExecutionClientError as exc:
+        emit_audit_event(
+            action=action,
+            decision="deny",
+            actor_id=actor_id,
+            trace_id=trace_id,
+            metadata={
+                "reason": str(exc),
+                "status_code": exc.status_code,
+                "run_id": run_id,
+            },
+        )
+        raise HTTPException(status_code=exc.status_code or 502, detail=str(exc)) from exc
+    except ValueError as exc:
+        emit_audit_event(
+            action=action,
+            decision="deny",
+            actor_id=actor_id,
+            trace_id=trace_id,
+            metadata={"reason": f"invalid execution event envelope: {exc}", "run_id": run_id},
+        )
+        raise HTTPException(status_code=502, detail=f"invalid execution event envelope: {exc}") from exc
+
+    emit_audit_event(
+        action=action,
+        decision="allow",
+        actor_id=actor_id,
+        trace_id=trace_id,
+        metadata={
+            "run_id": run_id,
+            "downstream_event_type": result.get("event_type"),
+            "downstream_status": _extract_downstream_status(result),
+        },
+    )
+    return result

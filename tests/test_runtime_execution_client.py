@@ -168,6 +168,42 @@ class RuntimeExecutionClientTests(unittest.TestCase):
         self.assertIn("/v1/orchestration/worker:health", captured["url"])
         self.assertEqual(captured["method"], "GET")
 
+    def test_get_run_status_uses_get_method(self) -> None:
+        captured: dict[str, str] = {}
+
+        class _Response:
+            def getcode(self) -> int:
+                return 200
+
+            def read(self) -> bytes:
+                return b'{"event_id":"evt-run-status-1","event_type":"runtime.run.status","tenant_id":"t1","app_id":"covernow","session_key":"tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm","trace_id":"trace-run-status-1","correlation_id":"run-status-1","ts":"2026-03-12T06:00:00+00:00","payload":{"run_id":"run-status-1","status":"queued","retry_attempts":0}}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+                return None
+
+        def transport(request, timeout=10.0):
+            _ = timeout
+            captured["url"] = request.full_url
+            captured["method"] = request.get_method()
+            return _Response()
+
+        client = RuntimeExecutionClient(
+            base_url="http://runtime-execution.test",
+            _transport=transport,
+        )
+        payload = client.get_run_status(
+            run_id="run-status-1",
+            auth_token="token-1",
+        )
+
+        self.assertEqual(payload["event_type"], "runtime.run.status")
+        self.assertIn("/v1/runs/run-status-1", captured["url"])
+        self.assertEqual(captured["method"], "GET")
+
     def test_get_run_lease_uses_get_method(self) -> None:
         captured: dict[str, str] = {}
 

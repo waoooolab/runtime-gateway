@@ -12,6 +12,7 @@ from .run_approval import dispatch_approve_run, dispatch_reject_run
 from .run_control import dispatch_cancel_run, dispatch_complete_run, dispatch_timeout_run
 from .run_dispatch import dispatch_create_run
 from .run_lease import dispatch_get_run_lease
+from .run_status import dispatch_get_run_status
 from .run_worker import dispatch_worker_drain, dispatch_worker_health, dispatch_worker_tick
 from .security import AuthContext, require_runs_read_context, require_runs_write_context
 
@@ -149,6 +150,18 @@ def _register_run_query_routes(
     app: FastAPI,
     get_execution_client: Callable[[], RuntimeExecutionClient],
 ) -> None:
+    @app.get("/v1/runs/{run_id}")
+    def get_run_status(
+        run_id: str,
+        auth_context: AuthContext = Depends(require_runs_read_context),
+    ) -> dict[str, Any]:
+        return dispatch_get_run_status(
+            run_id=run_id,
+            claims=auth_context.claims,
+            subject_token=auth_context.subject_token,
+            execution_client=get_execution_client(),
+        )
+
     @app.get("/v1/runs/{run_id}/lease")
     def get_run_lease(
         run_id: str,
