@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from runtime_gateway.app import app
+from runtime_gateway.audit.emitter import clear_audit_events, get_audit_events
 from runtime_gateway.auth.tokens import issue_token
 from runtime_gateway.integration import RuntimeExecutionClient, RuntimeExecutionClientError
 
@@ -30,6 +31,11 @@ def mock_token_exchange(monkeypatch: pytest.MonkeyPatch) -> Mock:
     mock_exchange = Mock(return_value={"access_token": "delegated-token"})
     monkeypatch.setattr("runtime_gateway.run_worker.exchange_subject_token", mock_exchange)
     return mock_exchange
+
+
+@pytest.fixture(autouse=True)
+def clear_audit_state() -> None:
+    clear_audit_events()
 
 
 def _make_token(audience: str, scope: list[str]) -> str:
@@ -235,6 +241,13 @@ def test_worker_tick_downstream_4xx_error_is_structured(
     assert detail["downstream_detail"] == "worker is temporarily paused"
     assert detail["queue_depth"] == 3
     assert detail["stalled_signal"] is True
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "orchestration.worker_tick"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["status_code"] == 409
+    assert audit["metadata"]["downstream_detail"] == "worker is temporarily paused"
+    assert audit["metadata"]["queue_depth"] == 3
+    assert audit["metadata"]["stalled_signal"] is True
 
 
 def test_worker_health_downstream_connection_error(

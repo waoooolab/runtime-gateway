@@ -63,11 +63,43 @@ def _build_worker_error_detail(
         "queue_depth",
         "processed",
         "remaining",
+        "recommended_poll_after_ms",
     ):
         value = response_body.get(key)
         if value is not None:
             detail[key] = value
     return detail
+
+
+def _build_worker_error_audit_metadata(
+    *,
+    reason: str,
+    status_code: int | None,
+    response_body: dict[str, Any] | None,
+) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "reason": reason,
+        "status_code": status_code,
+    }
+    if not isinstance(response_body, dict):
+        return metadata
+    downstream_detail = response_body.get("detail")
+    if isinstance(downstream_detail, str) and downstream_detail.strip():
+        metadata["downstream_detail"] = downstream_detail
+    for key in (
+        "health_state",
+        "is_stalled",
+        "stalled_signal",
+        "anomaly_ratio",
+        "queue_depth",
+        "processed",
+        "remaining",
+        "recommended_poll_after_ms",
+    ):
+        value = response_body.get(key)
+        if value is not None:
+            metadata[key] = value
+    return metadata
 
 
 def dispatch_worker_tick(
@@ -106,7 +138,11 @@ def dispatch_worker_tick(
             decision="deny",
             actor_id=actor_id,
             trace_id=trace_id,
-            metadata={"reason": str(exc), "status_code": exc.status_code},
+            metadata=_build_worker_error_audit_metadata(
+                reason=str(exc),
+                status_code=exc.status_code,
+                response_body=exc.response_body if isinstance(exc.response_body, dict) else None,
+            ),
         )
         raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
     emit_audit_event(
@@ -157,7 +193,11 @@ def dispatch_worker_drain(
             decision="deny",
             actor_id=actor_id,
             trace_id=trace_id,
-            metadata={"reason": str(exc), "status_code": exc.status_code},
+            metadata=_build_worker_error_audit_metadata(
+                reason=str(exc),
+                status_code=exc.status_code,
+                response_body=exc.response_body if isinstance(exc.response_body, dict) else None,
+            ),
         )
         raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
     emit_audit_event(
@@ -200,7 +240,11 @@ def dispatch_worker_health(
             decision="deny",
             actor_id=actor_id,
             trace_id=trace_id,
-            metadata={"reason": str(exc), "status_code": exc.status_code},
+            metadata=_build_worker_error_audit_metadata(
+                reason=str(exc),
+                status_code=exc.status_code,
+                response_body=exc.response_body if isinstance(exc.response_body, dict) else None,
+            ),
         )
         raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
     emit_audit_event(
