@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect, status
@@ -50,6 +51,21 @@ def _parse_source(raw: str | None) -> str:
     return value
 
 
+def _parse_since_ts(raw: str | None) -> datetime | None:
+    if raw is None:
+        return None
+    value = raw.strip()
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("since_ts must be valid ISO-8601 date-time") from exc
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
 def _resolve_query_scope(
     *,
     field: str,
@@ -67,7 +83,7 @@ def _resolve_query_scope(
 
 def _websocket_filters(
     websocket: WebSocket, claims: dict[str, Any]
-) -> tuple[str, str, set[str] | None, str | None, int, str]:
+) -> tuple[str, str, set[str] | None, str | None, int, str, datetime | None]:
     tenant_id = _resolve_query_scope(
         field="tenant_id",
         query_value=websocket.query_params.get("tenant_id"),
@@ -82,7 +98,8 @@ def _websocket_filters(
     run_id = _parse_optional_str(websocket.query_params.get("run_id"))
     cursor = _parse_cursor(websocket.query_params.get("cursor", "0"))
     source = _parse_source(websocket.query_params.get("source"))
-    return tenant_id, app_id, event_types, run_id, cursor, source
+    since_ts = _parse_since_ts(websocket.query_params.get("since_ts"))
+    return tenant_id, app_id, event_types, run_id, cursor, source, since_ts
 
 
 async def _send_ready(
@@ -93,6 +110,7 @@ async def _send_ready(
     app_id: str,
     run_id: str | None,
     source: str,
+    since_ts: datetime | None,
 ) -> None:
     payload: dict[str, Any] = {
         "kind": "ws.ready",
@@ -104,6 +122,8 @@ async def _send_ready(
     }
     if run_id is not None:
         payload["run_id"] = run_id
+    if since_ts is not None:
+        payload["since_ts"] = since_ts.isoformat()
     await websocket.send_json(
         payload
     )
@@ -117,6 +137,7 @@ async def _push_records(
     app_id: str,
     event_types: set[str] | None,
     run_id: str | None,
+    since_ts: datetime | None,
 ) -> int:
     for item in event_bus.since(
         cursor=cursor,
@@ -124,6 +145,7 @@ async def _push_records(
         app_id=app_id or None,
         event_types=event_types,
         run_id=run_id,
+        since_ts=since_ts,
     ):
         cursor = max(cursor, int(item["bus_seq"]))
         await websocket.send_json(item)
@@ -150,6 +172,7 @@ async def _replay_durable_records(
     app_id: str,
     event_types: set[str] | None,
     run_id: str | None,
+    since_ts: datetime | None,
 ) -> int:
     next_cursor = cursor
     while True:
@@ -159,7 +182,7 @@ async def _replay_durable_records(
             app_id=app_id,
             event_types=event_types,
             run_id=run_id,
-            since_ts=None,
+            since_ts=since_ts,
             cursor=next_cursor,
         )
         items = page.get("items", [])
@@ -193,7 +216,9 @@ async def handle_websocket_events(websocket: WebSocket, event_bus: InMemoryEvent
         return
 
     try:
-        tenant_id, app_id, event_types, run_id, cursor, source = _websocket_filters(websocket, claims)
+        tenant_id, app_id, event_types, run_id, cursor, source, since_ts = _websocket_filters(
+            websocket, claims
+        )
     except ValueError as exc:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=str(exc))
         return
@@ -201,7 +226,7 @@ async def handle_websocket_events(websocket: WebSocket, event_bus: InMemoryEvent
     await websocket.accept()
     event_bus.open_connection()
     try:
-        await _send_ready(websocket, event_bus, cursor, tenant_id, app_id, run_id, source)
+        await _send_ready(websocket, event_bus, cursor, tenant_id, app_id, run_id, source, since_ts)
         if source == "durable":
             cursor = await _replay_durable_records(
                 websocket=websocket,
@@ -210,6 +235,7 @@ async def handle_websocket_events(websocket: WebSocket, event_bus: InMemoryEvent
                 app_id=app_id,
                 event_types=event_types,
                 run_id=run_id,
+                since_ts=since_ts,
             )
             stats = event_bus.stats()
             next_seq = int(stats.get("next_seq", 1))
@@ -223,6 +249,7 @@ async def handle_websocket_events(websocket: WebSocket, event_bus: InMemoryEvent
                 app_id,
                 event_types,
                 run_id,
+                since_ts,
             )
             if not await _wait_keepalive(websocket, cursor):
                 break
