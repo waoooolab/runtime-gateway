@@ -1148,6 +1148,22 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(renew_payload["lease_renew_signal"]["attempted"], 1)
         self.assertEqual(renew_payload["lease_renew_signal"]["renewed"], 1)
 
+        health = self.gateway_client.get(
+            "/v1/orchestration/worker:health",
+            headers={"Authorization": f"Bearer {self._gateway_token(['runs:read'])}"},
+        )
+        self.assertEqual(health.status_code, 200)
+        health_payload = health.json()
+        self.assertIn("lease_renew_signal", health_payload)
+        renew_health = health_payload["lease_renew_signal"]
+        self.assertEqual(int(renew_health["attempted"]), 1)
+        self.assertEqual(int(renew_health["renewed"]), 1)
+        self.assertEqual(int(renew_health["errors"]), 0)
+        self.assertGreaterEqual(int(renew_health["total_attempted"]), 1)
+        self.assertGreaterEqual(int(renew_health["total_renewed"]), 1)
+        self.assertEqual(int(renew_health["total_errors"]), 0)
+        self.assertIsInstance(renew_health["last_observed_at"], str)
+
         lease_after = device_hub_app_module._hub.leases[lease_id].lease_expires_at
         before_dt = datetime.fromisoformat(lease_before)
         after_dt = datetime.fromisoformat(lease_after)
