@@ -570,6 +570,13 @@ class EndToEndRunFlowTests(unittest.TestCase):
             headers={"Authorization": f"Bearer {token}"},
         )
         self.assertEqual(response.status_code, 409)
+        detail = response.json().get("detail")
+        self.assertIsInstance(detail, dict)
+        assert isinstance(detail, dict)
+        self.assertEqual(detail.get("downstream_event_type"), "runtime.route.failed")
+        self.assertEqual(detail.get("failure_classification"), "policy")
+        self.assertEqual(detail.get("run_status"), "waiting_approval")
+        self.assertEqual(detail.get("retryable"), False)
 
         self.assertEqual(len(execution_app_module._runtime.runs), 1)
         run_id = next(iter(execution_app_module._runtime.runs.keys()))
