@@ -90,6 +90,7 @@ def _build_worker_error_detail(
         "outcome_counts",
         "anomaly_counts",
         "scheduling_signal",
+        "lease_renew_signal",
     ):
         value = response_body.get(key)
         if isinstance(value, dict):
@@ -161,6 +162,7 @@ def _build_worker_error_audit_metadata(
         "outcome_counts",
         "anomaly_counts",
         "scheduling_signal",
+        "lease_renew_signal",
     ):
         value = response_body.get(key)
         if isinstance(value, dict):

@@ -285,6 +285,13 @@ def test_worker_drain_downstream_4xx_error(
             "progressed_ratio": 0.0,
             "outcome_counts": {"progressed": 0, "missing_run": 2, "skipped": 1},
             "anomaly_counts": {"missing_run": 2, "skipped": 1, "total": 3},
+            "lease_renew_signal": {
+                "attempted": 1,
+                "renewed": 0,
+                "errors": 1,
+                "expired_conflicts": 0,
+                "released_conflicts": 0,
+            },
             "scheduling_signal": {
                 "queue_depth_before": 3,
                 "queue_depth_after": 3,
@@ -315,6 +322,13 @@ def test_worker_drain_downstream_4xx_error(
     assert detail["progressed_ratio"] == 0.0
     assert detail["outcome_counts"] == {"progressed": 0, "missing_run": 2, "skipped": 1}
     assert detail["anomaly_counts"] == {"missing_run": 2, "skipped": 1, "total": 3}
+    assert detail["lease_renew_signal"] == {
+        "attempted": 1,
+        "renewed": 0,
+        "errors": 1,
+        "expired_conflicts": 0,
+        "released_conflicts": 0,
+    }
     assert detail["scheduling_signal"]["stalled_signal"] is True
     assert detail["scheduling_signal"]["recommended_poll_after_ms"] == 1000
     assert detail["recommended_poll_after_ms"] == 1000
@@ -335,6 +349,13 @@ def test_worker_drain_downstream_4xx_error(
     assert audit["metadata"]["progressed_ratio"] == 0.0
     assert audit["metadata"]["outcome_counts"] == {"progressed": 0, "missing_run": 2, "skipped": 1}
     assert audit["metadata"]["anomaly_counts"] == {"missing_run": 2, "skipped": 1, "total": 3}
+    assert audit["metadata"]["lease_renew_signal"] == {
+        "attempted": 1,
+        "renewed": 0,
+        "errors": 1,
+        "expired_conflicts": 0,
+        "released_conflicts": 0,
+    }
     assert audit["metadata"]["scheduling_signal"]["stalled_signal"] is True
     assert audit["metadata"]["scheduling_signal"]["recommended_poll_after_ms"] == 1000
     assert audit["metadata"]["recommended_poll_after_ms"] == 1000
