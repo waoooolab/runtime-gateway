@@ -117,11 +117,13 @@ def _build_downstream_error_detail(
     downstream_event: dict[str, Any],
     downstream_event_type: str,
     bus_seq: int | None,
+    retryable: bool,
 ) -> dict[str, Any]:
     detail: dict[str, Any] = {
         "message": message,
         "status_code": status_code,
         "downstream_event_type": downstream_event_type,
+        "retryable": retryable,
     }
     event_id = downstream_event.get("event_id")
     if isinstance(event_id, str) and event_id.strip():
@@ -236,6 +238,7 @@ def _submit_command(
                     downstream_event=exc.response_body,
                     downstream_event_type=downstream_event_type,
                     bus_seq=bus_seq,
+                    retryable=exc.retryable,
                 )
             except ValueError:
                 downstream_event_type = None
@@ -246,6 +249,7 @@ def _submit_command(
             "status_code": exc.status_code,
             "downstream_event_type": downstream_event_type,
             "bus_seq": bus_seq,
+            "retryable": exc.retryable,
         }
         audit_metadata.update(route_failure_metadata)
         emit_audit_event(

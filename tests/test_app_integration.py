@@ -429,6 +429,7 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(detail.get("failure_classification"), "capacity")
         self.assertEqual(detail.get("failure_message"), "no eligible device")
         self.assertEqual(detail.get("recommended_poll_after_ms"), 1200)
+        self.assertEqual(detail.get("retryable"), True)
         self.assertIn("HTTP 409", str(detail.get("message", "")))
 
         recent = self.client.get(
@@ -446,6 +447,7 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(audit_latest["metadata"]["failure_code"], "no_eligible_device")
         self.assertEqual(audit_latest["metadata"]["failure_classification"], "capacity")
         self.assertEqual(audit_latest["metadata"]["recommended_poll_after_ms"], 1200)
+        self.assertEqual(audit_latest["metadata"]["retryable"], True)
 
     def test_runs_propagates_retryable_capacity_failure_status_and_audit_metadata(self) -> None:
         gateway_app_module._execution_client = _FakeExecutionClientRetryableCapacity()
@@ -464,6 +466,7 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(detail.get("failure_code"), "placement_throttled")
         self.assertEqual(detail.get("failure_classification"), "capacity")
         self.assertEqual(detail.get("recommended_poll_after_ms"), 1500)
+        self.assertEqual(detail.get("retryable"), True)
 
         recent = self.client.get(
             "/v1/events/recent",
@@ -481,6 +484,7 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(audit_latest["metadata"]["failure_code"], "placement_throttled")
         self.assertEqual(audit_latest["metadata"]["failure_classification"], "capacity")
         self.assertEqual(audit_latest["metadata"]["recommended_poll_after_ms"], 1500)
+        self.assertEqual(audit_latest["metadata"]["retryable"], True)
 
 
 if __name__ == "__main__":
