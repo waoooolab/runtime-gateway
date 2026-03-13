@@ -11,7 +11,7 @@ from fastapi import WebSocket, WebSocketDisconnect, status
 from .auth.tokens import TokenError, verify_token
 from .events.bus import InMemoryEventBus
 from .events.durable import read_event_page
-from .security import EVENT_SCOPE_READ, scope_contains
+from .security import EVENT_SCOPE_READ, scope_contains, validate_required_claims
 
 
 def _websocket_token(websocket: WebSocket) -> str | None:
@@ -207,8 +207,9 @@ async def handle_websocket_events(websocket: WebSocket, event_bus: InMemoryEvent
 
     try:
         claims = verify_token(token, audience="runtime-gateway")
-    except TokenError:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="invalid bearer token")
+        validate_required_claims(claims)
+    except TokenError as exc:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=str(exc))
         return
 
     if not scope_contains(claims, EVENT_SCOPE_READ):

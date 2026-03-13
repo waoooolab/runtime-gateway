@@ -55,7 +55,7 @@ def _extract_bearer_token(authorization: str | None, *, action: str) -> str:
 def _verify_gateway_token(token: str, *, action: str) -> dict[str, Any]:
     try:
         claims = verify_token(token, audience="runtime-gateway")
-        _validate_required_claims(claims)
+        validate_required_claims(claims)
         return claims
     except TokenError as exc:
         emit_audit_event(
@@ -67,7 +67,7 @@ def _verify_gateway_token(token: str, *, action: str) -> dict[str, Any]:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
-def _validate_required_claims(claims: dict[str, Any]) -> None:
+def validate_required_claims(claims: dict[str, Any]) -> None:
     for field in ("tenant_id", "app_id", "trace_id"):
         value = claims.get(field)
         if not isinstance(value, str) or not value.strip():

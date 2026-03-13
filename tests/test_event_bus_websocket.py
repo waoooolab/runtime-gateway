@@ -60,15 +60,17 @@ class EventBusWebsocketTests(unittest.TestCase):
         scope: list[str],
         tenant_id: str | None = "t1",
         app_id: str | None = "covernow",
+        token_use: str | None = "service",
     ) -> str:
         payload = {
             "iss": "runtime-gateway",
             "sub": "svc:test",
             "aud": audience,
             "scope": scope,
-            "token_use": "service",
             "trace_id": "trace-events-1",
         }
+        if token_use is not None:
+            payload["token_use"] = token_use
         if tenant_id is not None:
             payload["tenant_id"] = tenant_id
         if app_id is not None:
@@ -546,6 +548,14 @@ class EventBusWebsocketTests(unittest.TestCase):
         with self.assertRaises(WebSocketDisconnect):
             with self.client.websocket_connect(
                 f"/v1/ws/events?access_token={ws_token}&app_id=covernow"
+            ):
+                pass
+
+    def test_websocket_rejects_missing_token_use_claim(self) -> None:
+        ws_token = self._token(scope=["runs:read"], token_use=None)
+        with self.assertRaises(WebSocketDisconnect):
+            with self.client.websocket_connect(
+                f"/v1/ws/events?access_token={ws_token}&tenant_id=t1&app_id=covernow"
             ):
                 pass
 
