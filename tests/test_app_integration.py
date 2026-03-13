@@ -96,6 +96,52 @@ class _FakeExecutionClientRejected:
         )
 
 
+@dataclass
+class _FakeExecutionClientRetryableCapacity:
+    def submit_command(self, *, envelope: dict, auth_token: str) -> dict:
+        _ = auth_token
+        event = {
+            "event_id": "evt-route-failed-2",
+            "event_type": "runtime.route.failed",
+            "tenant_id": str(envelope["tenant_id"]),
+            "app_id": str(envelope["app_id"]),
+            "session_key": str(envelope["session_key"]),
+            "trace_id": str(envelope["trace_id"]),
+            "correlation_id": str(envelope["command_id"]),
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "payload": {
+                "run_id": "run-test-retryable",
+                "task_id": "run-test-retryable:root",
+                "execution_profile": {
+                    "execution_mode": "compute",
+                    "inference_target": "none",
+                    "resource_class": "gpu",
+                    "placement_constraints": {"tenant_id": "t1"},
+                },
+                "decision": {
+                    "outcome": "rejected",
+                    "route_target": "none",
+                    "policy_version": "execution-profile.v1",
+                    "reason": "device-hub overloaded",
+                },
+                "failure": {
+                    "code": "placement_throttled",
+                    "message": "device-hub overloaded",
+                    "classification": "capacity",
+                    "details": ["retry with backoff"],
+                },
+                "scheduling_signal": {
+                    "recommended_poll_after_ms": 1500,
+                },
+            },
+        }
+        raise RuntimeExecutionClientError(
+            "HTTP 503 calling runtime-execution",
+            status_code=503,
+            response_body=event,
+        )
+
+
 @unittest.skipUnless(FASTAPI_STACK_AVAILABLE, "fastapi stack not installed")
 class AppIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -400,6 +446,41 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(audit_latest["metadata"]["failure_code"], "no_eligible_device")
         self.assertEqual(audit_latest["metadata"]["failure_classification"], "capacity")
         self.assertEqual(audit_latest["metadata"]["recommended_poll_after_ms"], 1200)
+
+    def test_runs_propagates_retryable_capacity_failure_status_and_audit_metadata(self) -> None:
+        gateway_app_module._execution_client = _FakeExecutionClientRetryableCapacity()
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        response = self.client.post(
+            "/v1/runs",
+            json=self.payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 503)
+        detail = response.json().get("detail")
+        self.assertIsInstance(detail, dict)
+        assert isinstance(detail, dict)
+        self.assertEqual(detail.get("status_code"), 503)
+        self.assertEqual(detail.get("downstream_event_type"), "runtime.route.failed")
+        self.assertEqual(detail.get("failure_code"), "placement_throttled")
+        self.assertEqual(detail.get("failure_classification"), "capacity")
+        self.assertEqual(detail.get("recommended_poll_after_ms"), 1500)
+
+        recent = self.client.get(
+            "/v1/events/recent",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(recent.status_code, 200)
+        items = recent.json()["items"]
+        self.assertGreaterEqual(len(items), 1)
+        self.assertEqual(items[-1]["event"]["event_type"], "runtime.route.failed")
+
+        audit_latest = get_audit_events(limit=1)[0]
+        self.assertEqual(audit_latest["action"], "runs.dispatch")
+        self.assertEqual(audit_latest["decision"], "deny")
+        self.assertEqual(audit_latest["metadata"]["status_code"], 503)
+        self.assertEqual(audit_latest["metadata"]["failure_code"], "placement_throttled")
+        self.assertEqual(audit_latest["metadata"]["failure_classification"], "capacity")
+        self.assertEqual(audit_latest["metadata"]["recommended_poll_after_ms"], 1500)
 
 
 if __name__ == "__main__":
