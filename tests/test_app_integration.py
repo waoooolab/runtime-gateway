@@ -513,6 +513,34 @@ class AppIntegrationTests(unittest.TestCase):
         )
         self.assertIsNone(self.fake_execution_client.last_submit)
 
+    def test_runs_rejects_retry_policy_unknown_fields(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        payload = dict(self.payload)
+        payload["retry_policy"] = {
+            "max_attempts": 3,
+            "backoff_ms": 250,
+            "strategy": "fixed",
+            "jitter_ms": 50,
+        }
+        response = self.client.post(
+            "/v1/runs",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 422)
+        detail = response.json().get("detail")
+        self.assertIsInstance(detail, list)
+        assert isinstance(detail, list)
+        self.assertTrue(
+            any(
+                isinstance(item, dict)
+                and list(item.get("loc", []))[-1:] == ["jitter_ms"]
+                and item.get("type") == "extra_forbidden"
+                for item in detail
+            )
+        )
+        self.assertIsNone(self.fake_execution_client.last_submit)
+
     def test_runs_allow_audit_includes_effective_retry_policy(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["runs:write"])
         response = self.client.post(

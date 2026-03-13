@@ -1,15 +1,19 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RetryPolicyInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     max_attempts: int = Field(ge=1, le=20)
     backoff_ms: int = Field(ge=0)
     strategy: str = Field(pattern="^(fixed|exponential)$")
 
 
 class CreateRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     tenant_id: str
     app_id: str
     session_key: str
