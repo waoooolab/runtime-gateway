@@ -2268,6 +2268,145 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(scheduler_health.status_code, 200)
         self.assertEqual(int(scheduler_health.json()["scheduler_depth"]), 0)
 
+    def test_gateway_compute_policy_rejection_returns_failed_status_e2e(self) -> None:
+        if not DEVICE_HUB_AVAILABLE:
+            self.skipTest("device-hub stack not available")
+
+        device_hub_app_module._hub = DeviceHubService()
+        device_hub_client = TestClient(device_hub_app_module.app)
+        execution_app_module._runtime = RuntimeExecutionService(
+            device_hub_client=_DeviceHubBoundaryClient(
+                client=device_hub_client,
+                token_factory=self._device_hub_token,
+            )
+        )
+        self.execution_client = TestClient(execution_app_module.app)
+
+        register = device_hub_client.post(
+            "/v1/devices/register",
+            json=build_command_envelope(
+                command_type="device.register",
+                payload={
+                    "device_id": "gpu-node-gateway-policy-reject-e2e",
+                    "capabilities": ["compute.comfyui.local"],
+                },
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-policy-reject-device-register",
+                run_id="run-gateway-policy-reject-device-bootstrap",
+                task_id="task-gateway-policy-reject-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(register.status_code, 200)
+        pair_request = device_hub_client.post(
+            "/v1/devices/pairing/request",
+            json=build_command_envelope(
+                command_type="device.pairing.request",
+                payload={"device_id": "gpu-node-gateway-policy-reject-e2e"},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-policy-reject-device-pair",
+                run_id="run-gateway-policy-reject-device-bootstrap",
+                task_id="task-gateway-policy-reject-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(pair_request.status_code, 200)
+        pair_code = pair_request.json()["payload"]["code"]
+        approve = device_hub_client.post(
+            "/v1/devices/pairing/approve",
+            json=build_command_envelope(
+                command_type="device.pairing.approve",
+                payload={"code": pair_code},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-policy-reject-device-approve",
+                run_id="run-gateway-policy-reject-device-bootstrap",
+                task_id="task-gateway-policy-reject-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(approve.status_code, 200)
+        heartbeat = device_hub_client.post(
+            "/v1/devices/heartbeat",
+            json=build_command_envelope(
+                command_type="device.heartbeat",
+                payload={"device_id": "gpu-node-gateway-policy-reject-e2e"},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-policy-reject-device-heartbeat",
+                run_id="run-gateway-policy-reject-device-bootstrap",
+                task_id="task-gateway-policy-reject-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(heartbeat.status_code, 200)
+
+        token = self._gateway_token(["runs:write"])
+        read_token = self._gateway_token(["runs:read"])
+        response = self.gateway_client.post(
+            "/v1/runs",
+            json={
+                "tenant_id": "t1",
+                "app_id": "covernow",
+                "session_key": "tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                "payload": {
+                    "goal": "gateway compute policy reject run",
+                    "dispatch_policy": {
+                        "queue": {
+                            "dispatch_min_score": -999,
+                            "max_queue_depth_for_dispatch": 0,
+                        }
+                    },
+                    "execution_profile": {
+                        "execution_mode": "compute",
+                        "inference_target": "none",
+                        "resource_class": "gpu",
+                        "placement_constraints": {
+                            "tenant_id": "t1",
+                            "required_capabilities": [
+                                "compute.comfyui.local",
+                                "model.flux.1",
+                            ],
+                        },
+                    },
+                },
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 409)
+        detail = response.json().get("detail")
+        self.assertIsInstance(detail, dict)
+        assert isinstance(detail, dict)
+        run_id = str(detail.get("run_id"))
+        self.assertEqual(detail.get("downstream_event_type"), "runtime.route.failed")
+        self.assertEqual(detail.get("failure_code"), "required_capabilities_unavailable")
+        self.assertEqual(detail.get("failure_classification"), "policy")
+        self.assertEqual(detail.get("placement_reason_code"), "required_capabilities_unavailable")
+        self.assertEqual(detail.get("run_status"), "failed")
+        self.assertNotIn("recommended_poll_after_ms", detail)
+        self.assertEqual(
+            detail.get("retry_policy"),
+            {"max_attempts": 3, "backoff_ms": 250, "strategy": "fixed"},
+        )
+
+        status = self.gateway_client.get(
+            f"/v1/runs/{run_id}",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(status.status_code, 200)
+        status_payload = status.json()["payload"]
+        self.assertEqual(status_payload["status"], "failed")
+        self.assertEqual(status_payload["retry_attempts"], 0)
+        self.assertEqual(
+            status_payload["orchestration"]["failure_reason_code"],
+            "required_capabilities_unavailable",
+        )
+
+        scheduler_health = self.gateway_client.get(
+            "/v1/orchestration/scheduler:health",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(scheduler_health.status_code, 200)
+        self.assertEqual(int(scheduler_health.json()["scheduler_depth"]), 0)
+
     def test_gateway_cancel_expires_device_hub_lease_e2e(self) -> None:
         if not DEVICE_HUB_AVAILABLE:
             self.skipTest("device-hub stack not available")
