@@ -190,6 +190,10 @@ def _extract_route_failure_metadata(downstream_event: Mapping[str, Any]) -> dict
         return {}
 
     metadata: dict[str, Any] = {}
+    run_status = payload.get("status")
+    if isinstance(run_status, str) and run_status.strip():
+        metadata["run_status"] = run_status
+
     failure = payload.get("failure")
     if isinstance(failure, dict):
         failure_code = failure.get("code")

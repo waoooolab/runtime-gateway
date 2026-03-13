@@ -98,6 +98,7 @@ class _FakeExecutionClientRejected:
             "payload": {
                 "run_id": "run-test-failed",
                 "task_id": "run-test-failed:root",
+                "status": "queued",
                 "execution_profile": {
                     "execution_mode": "compute",
                     "inference_target": "none",
@@ -151,6 +152,7 @@ class _FakeExecutionClientRetryableCapacity:
             "payload": {
                 "run_id": "run-test-retryable",
                 "task_id": "run-test-retryable:root",
+                "status": "queued",
                 "execution_profile": {
                     "execution_mode": "compute",
                     "inference_target": "none",
@@ -642,6 +644,7 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(detail.get("downstream_event_type"), "runtime.route.failed")
         self.assertEqual(detail.get("run_id"), "run-test-failed")
         self.assertEqual(detail.get("task_id"), "run-test-failed:root")
+        self.assertEqual(detail.get("run_status"), "queued")
         failure = detail.get("failure")
         self.assertIsInstance(failure, dict)
         assert isinstance(failure, dict)
@@ -678,6 +681,7 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(audit_latest["decision"], "deny")
         self.assertEqual(audit_latest["metadata"]["failure_code"], "no_eligible_device")
         self.assertEqual(audit_latest["metadata"]["failure_classification"], "capacity")
+        self.assertEqual(audit_latest["metadata"]["run_status"], "queued")
         self.assertEqual(audit_latest["metadata"]["recommended_poll_after_ms"], 1200)
         self.assertEqual(audit_latest["metadata"]["placement_reason_code"], "capacity_exhausted")
         self.assertEqual(audit_latest["metadata"]["placement_event_type"], "device.route.rejected")
@@ -703,6 +707,7 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(detail.get("downstream_event_type"), "runtime.route.failed")
         self.assertEqual(detail.get("failure_code"), "placement_throttled")
         self.assertEqual(detail.get("failure_classification"), "capacity")
+        self.assertEqual(detail.get("run_status"), "queued")
         self.assertEqual(detail.get("recommended_poll_after_ms"), 1500)
         self.assertEqual(detail.get("placement_reason_code"), "placement_throttled")
         self.assertEqual(detail.get("placement_event_type"), "device.route.rejected")
@@ -727,6 +732,7 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(audit_latest["metadata"]["status_code"], 503)
         self.assertEqual(audit_latest["metadata"]["failure_code"], "placement_throttled")
         self.assertEqual(audit_latest["metadata"]["failure_classification"], "capacity")
+        self.assertEqual(audit_latest["metadata"]["run_status"], "queued")
         self.assertEqual(audit_latest["metadata"]["recommended_poll_after_ms"], 1500)
         self.assertEqual(audit_latest["metadata"]["placement_reason_code"], "placement_throttled")
         self.assertEqual(audit_latest["metadata"]["placement_event_type"], "device.route.rejected")

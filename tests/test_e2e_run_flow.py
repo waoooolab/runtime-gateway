@@ -1624,6 +1624,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         detail = second.json()["detail"]
         second_run_id = str(detail["run_id"])
         self.assertEqual(detail["placement_reason_code"], "capacity_exhausted")
+        self.assertEqual(detail["run_status"], "queued")
         self.assertEqual(detail["recommended_poll_after_ms"], 250)
 
         def _promote_retry_once() -> None:
@@ -1837,6 +1838,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         assert isinstance(detail, dict)
         second_run_id = str(detail.get("run_id"))
         self.assertEqual(detail.get("placement_reason_code"), "capacity_exhausted")
+        self.assertEqual(detail.get("run_status"), "failed")
         self.assertEqual(
             detail.get("retry_policy"),
             {"max_attempts": 1, "backoff_ms": 25, "strategy": "fixed"},
@@ -1991,6 +1993,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         assert isinstance(detail, dict)
         second_run_id = str(detail.get("run_id"))
         self.assertEqual(detail.get("placement_reason_code"), "capacity_exhausted")
+        self.assertEqual(detail.get("run_status"), "queued")
         self.assertEqual(
             detail.get("retry_policy"),
             {"max_attempts": 2, "backoff_ms": 25, "strategy": "fixed"},
@@ -2175,6 +2178,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         assert isinstance(detail, dict)
         second_run_id = str(detail.get("run_id"))
         self.assertEqual(detail.get("placement_reason_code"), "capacity_exhausted")
+        self.assertEqual(detail.get("run_status"), "queued")
         self.assertEqual(
             detail.get("retry_policy"),
             {"max_attempts": 3, "backoff_ms": 25, "strategy": "exponential"},
