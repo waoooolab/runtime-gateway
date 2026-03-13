@@ -24,12 +24,17 @@ def append_event_record(*, bus_seq: int, event: dict[str, Any]) -> None:
     if path is None:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    line = json.dumps(
-        {"bus_seq": int(bus_seq), "event": dict(event)},
-        ensure_ascii=True,
-        separators=(",", ":"),
-    )
     with _FILE_LOCK:
+        durable_seq = _next_record_seq(path)
+        line = json.dumps(
+            {
+                "bus_seq": durable_seq,
+                "memory_bus_seq": int(bus_seq),
+                "event": dict(event),
+            },
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
         with path.open("a", encoding="utf-8") as handle:
             handle.write(line)
             handle.write("\n")
@@ -53,7 +58,8 @@ def read_event_page(
             "stats": {"connections": 0, "buffered_events": 0, "next_seq": 1},
         }
 
-    records = _read_records_from_file()
+    path = _event_log_path()
+    records = _read_records_from_file(path)
     filtered = [
         record
         for record in records
@@ -91,8 +97,9 @@ def read_event_page(
     }
 
 
-def _read_records_from_file() -> list[dict[str, Any]]:
-    path = _event_log_path()
+def _read_records_from_file(path: Path | None = None) -> list[dict[str, Any]]:
+    if path is None:
+        path = _event_log_path()
     if path is None or not path.exists():
         return []
     lines = path.read_text(encoding="utf-8").splitlines()
@@ -114,6 +121,12 @@ def _read_records_from_file() -> list[dict[str, Any]]:
             seq = line_seq
         records.append({"bus_seq": int(seq), "event": event})
     return records
+
+
+def _next_record_seq(path: Path) -> int:
+    records = _read_records_from_file(path)
+    max_seq = max((int(record["bus_seq"]) for record in records), default=0)
+    return max_seq + 1 if max_seq >= 1 else 1
 
 
 def _matches(
@@ -154,4 +167,3 @@ def _parse_event_ts(raw_ts: Any) -> datetime | None:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed
-

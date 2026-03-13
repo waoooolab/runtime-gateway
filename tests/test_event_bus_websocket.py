@@ -447,6 +447,51 @@ class EventBusWebsocketTests(unittest.TestCase):
             self.assertFalse(second_payload["has_more"])
             self.assertEqual(second_payload["recommended_poll_after_ms"], 1500)
 
+    def test_recent_events_durable_cursor_survives_in_memory_bus_reset(self) -> None:
+        token = self._token(scope=["runs:write"])
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["RUNTIME_GATEWAY_EVENT_LOG_PATH"] = os.path.join(
+                tmp, "events", "runtime-events.ndjson"
+            )
+            self.client.post(
+                "/v1/events/publish",
+                json=_event_envelope("runtime.run.started", run_id="run-durable-reset"),
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            self.client.post(
+                "/v1/events/publish",
+                json=_event_envelope("runtime.run.status", run_id="run-durable-reset"),
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+            first = self.client.get(
+                "/v1/events/recent?source=durable&cursor=0&limit=2&run_id=run-durable-reset",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            self.assertEqual(first.status_code, 200)
+            first_payload = first.json()
+            self.assertEqual(len(first_payload["items"]), 2)
+            cursor = int(first_payload["next_cursor"])
+            self.assertGreaterEqual(cursor, 2)
+
+            gateway_app_module._event_bus.clear()
+            self.client.post(
+                "/v1/events/publish",
+                json=_event_envelope("runtime.run.completed", run_id="run-durable-reset"),
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+            second = self.client.get(
+                f"/v1/events/recent?source=durable&cursor={cursor}&limit=2&run_id=run-durable-reset",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            self.assertEqual(second.status_code, 200)
+            second_payload = second.json()
+            self.assertEqual(len(second_payload["items"]), 1)
+            self.assertEqual(
+                second_payload["items"][0]["event"]["event_type"], "runtime.run.completed"
+            )
+
     def test_recent_events_rejects_invalid_source(self) -> None:
         token = self._token(scope=["runs:read"])
         response = self.client.get(
