@@ -234,6 +234,52 @@ class _FakeExecutionClientPolicyRejected:
         )
 
 
+@dataclass
+class _FakeExecutionClientCapacityTerminal:
+    def submit_command(self, *, envelope: dict, auth_token: str) -> dict:
+        _ = auth_token
+        event = {
+            "event_id": "evt-route-failed-capacity-terminal-1",
+            "event_type": "runtime.route.failed",
+            "tenant_id": str(envelope["tenant_id"]),
+            "app_id": str(envelope["app_id"]),
+            "session_key": str(envelope["session_key"]),
+            "trace_id": str(envelope["trace_id"]),
+            "correlation_id": str(envelope["command_id"]),
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "payload": {
+                "run_id": "run-test-capacity-terminal",
+                "task_id": "run-test-capacity-terminal:root",
+                "status": "failed",
+                "execution_profile": {
+                    "execution_mode": "compute",
+                    "inference_target": "none",
+                    "resource_class": "gpu",
+                    "placement_constraints": {"tenant_id": "t1"},
+                },
+                "decision": {
+                    "outcome": "rejected",
+                    "route_target": "none",
+                    "policy_version": "execution-profile.v1",
+                    "reason": "capacity exhausted and retry budget exhausted",
+                    "reason_code": "capacity_exhausted",
+                    "placement_event_type": "device.route.rejected",
+                },
+                "failure": {
+                    "code": "capacity_exhausted",
+                    "message": "capacity exhausted and retry budget exhausted",
+                    "classification": "capacity",
+                    "details": ["terminal dispatch capacity failure"],
+                },
+            },
+        }
+        raise RuntimeExecutionClientError(
+            "HTTP 503 calling runtime-execution",
+            status_code=503,
+            response_body=event,
+        )
+
+
 @unittest.skipUnless(FASTAPI_STACK_AVAILABLE, "fastapi stack not installed")
 class AppIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -820,6 +866,32 @@ class AppIntegrationTests(unittest.TestCase):
             "required_capabilities_unavailable",
         )
         self.assertEqual(audit_latest["metadata"]["failure_classification"], "policy")
+
+    def test_runs_marks_retryable_false_for_terminal_capacity_failure(self) -> None:
+        gateway_app_module._execution_client = _FakeExecutionClientCapacityTerminal()
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        response = self.client.post(
+            "/v1/runs",
+            json=self.payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 503)
+        detail = response.json().get("detail")
+        self.assertIsInstance(detail, dict)
+        assert isinstance(detail, dict)
+        self.assertEqual(detail.get("run_status"), "failed")
+        self.assertEqual(detail.get("failure_code"), "capacity_exhausted")
+        self.assertEqual(detail.get("failure_classification"), "capacity")
+        self.assertEqual(detail.get("retryable"), False)
+        self.assertNotIn("recommended_poll_after_ms", detail)
+        self.assertEqual(
+            detail.get("retry_policy"),
+            {"max_attempts": 3, "backoff_ms": 250, "strategy": "fixed"},
+        )
+
+        audit_latest = get_audit_events(limit=1)[0]
+        self.assertEqual(audit_latest["metadata"]["run_status"], "failed")
+        self.assertEqual(audit_latest["metadata"]["retryable"], False)
 
 
 if __name__ == "__main__":

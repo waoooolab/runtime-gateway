@@ -1625,6 +1625,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         second_run_id = str(detail["run_id"])
         self.assertEqual(detail["placement_reason_code"], "capacity_exhausted")
         self.assertEqual(detail["run_status"], "queued")
+        self.assertEqual(detail["retryable"], True)
         self.assertEqual(detail["recommended_poll_after_ms"], 250)
 
         def _promote_retry_once() -> None:
@@ -1839,6 +1840,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         second_run_id = str(detail.get("run_id"))
         self.assertEqual(detail.get("placement_reason_code"), "capacity_exhausted")
         self.assertEqual(detail.get("run_status"), "failed")
+        self.assertEqual(detail.get("retryable"), False)
         self.assertEqual(
             detail.get("retry_policy"),
             {"max_attempts": 1, "backoff_ms": 25, "strategy": "fixed"},
@@ -1994,6 +1996,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         second_run_id = str(detail.get("run_id"))
         self.assertEqual(detail.get("placement_reason_code"), "capacity_exhausted")
         self.assertEqual(detail.get("run_status"), "queued")
+        self.assertEqual(detail.get("retryable"), True)
         self.assertEqual(
             detail.get("retry_policy"),
             {"max_attempts": 2, "backoff_ms": 25, "strategy": "fixed"},
@@ -2179,6 +2182,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         second_run_id = str(detail.get("run_id"))
         self.assertEqual(detail.get("placement_reason_code"), "capacity_exhausted")
         self.assertEqual(detail.get("run_status"), "queued")
+        self.assertEqual(detail.get("retryable"), True)
         self.assertEqual(
             detail.get("retry_policy"),
             {"max_attempts": 3, "backoff_ms": 25, "strategy": "exponential"},
@@ -2381,6 +2385,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(detail.get("failure_classification"), "policy")
         self.assertEqual(detail.get("placement_reason_code"), "required_capabilities_unavailable")
         self.assertEqual(detail.get("run_status"), "failed")
+        self.assertEqual(detail.get("retryable"), False)
         self.assertNotIn("recommended_poll_after_ms", detail)
         self.assertEqual(
             detail.get("retry_policy"),

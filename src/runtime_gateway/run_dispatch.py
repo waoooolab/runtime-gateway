@@ -184,6 +184,24 @@ def _extract_retry_policy_metadata(command: Mapping[str, Any]) -> dict[str, Any]
     }
 
 
+def _resolve_effective_retryable(
+    *,
+    fallback_retryable: bool,
+    downstream_event: Mapping[str, Any] | None,
+) -> bool:
+    if not isinstance(downstream_event, Mapping):
+        return fallback_retryable
+    payload = downstream_event.get("payload")
+    if not isinstance(payload, Mapping):
+        return fallback_retryable
+    run_status = payload.get("status")
+    if not isinstance(run_status, str):
+        return fallback_retryable
+    if run_status in {"succeeded", "failed", "canceled", "timed_out"}:
+        return False
+    return fallback_retryable
+
+
 def _extract_route_failure_metadata(downstream_event: Mapping[str, Any]) -> dict[str, Any]:
     payload = downstream_event.get("payload")
     if not isinstance(payload, dict):
@@ -297,19 +315,24 @@ def _submit_command(
         bus_seq = None
         route_failure_metadata: dict[str, Any] = {}
         detail: str | dict[str, Any] = str(exc)
+        effective_retryable = exc.retryable
         if isinstance(exc.response_body, dict):
             try:
                 validate_event_envelope(exc.response_body)
                 downstream_event_type = str(exc.response_body.get("event_type", ""))
                 bus_seq = publish_gateway_event(exc.response_body)
                 route_failure_metadata = _extract_route_failure_metadata(exc.response_body)
+                effective_retryable = _resolve_effective_retryable(
+                    fallback_retryable=exc.retryable,
+                    downstream_event=exc.response_body,
+                )
                 detail = _build_downstream_error_detail(
                     message=str(exc),
                     status_code=exc.status_code or 502,
                     downstream_event=exc.response_body,
                     downstream_event_type=downstream_event_type,
                     bus_seq=bus_seq,
-                    retryable=exc.retryable,
+                    retryable=effective_retryable,
                     retry_policy=retry_policy_metadata.get("retry_policy")
                     if isinstance(retry_policy_metadata.get("retry_policy"), dict)
                     else None,
@@ -323,7 +346,7 @@ def _submit_command(
             "status_code": exc.status_code,
             "downstream_event_type": downstream_event_type,
             "bus_seq": bus_seq,
-            "retryable": exc.retryable,
+            "retryable": effective_retryable,
         }
         audit_metadata.update(retry_policy_metadata)
         audit_metadata.update(route_failure_metadata)
