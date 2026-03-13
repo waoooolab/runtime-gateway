@@ -280,6 +280,52 @@ class _FakeExecutionClientCapacityTerminal:
         )
 
 
+@dataclass
+class _FakeExecutionClientPolicyRejectedTerminalRetryable:
+    def submit_command(self, *, envelope: dict, auth_token: str) -> dict:
+        _ = auth_token
+        event = {
+            "event_id": "evt-route-failed-policy-terminal-retryable-1",
+            "event_type": "runtime.route.failed",
+            "tenant_id": str(envelope["tenant_id"]),
+            "app_id": str(envelope["app_id"]),
+            "session_key": str(envelope["session_key"]),
+            "trace_id": str(envelope["trace_id"]),
+            "correlation_id": str(envelope["command_id"]),
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "payload": {
+                "run_id": "run-test-policy-terminal-retryable",
+                "task_id": "run-test-policy-terminal-retryable:root",
+                "status": "rejected",
+                "execution_profile": {
+                    "execution_mode": "compute",
+                    "inference_target": "none",
+                    "resource_class": "gpu",
+                    "placement_constraints": {"tenant_id": "t1"},
+                },
+                "decision": {
+                    "outcome": "rejected",
+                    "route_target": "none",
+                    "policy_version": "execution-profile.v1",
+                    "reason": "run already terminally rejected",
+                    "reason_code": "policy_terminal_rejected",
+                    "placement_event_type": "device.route.rejected",
+                },
+                "failure": {
+                    "code": "policy_terminal_rejected",
+                    "message": "run already terminally rejected",
+                    "classification": "policy",
+                    "details": ["terminal policy rejection"],
+                },
+            },
+        }
+        raise RuntimeExecutionClientError(
+            "HTTP 503 calling runtime-execution",
+            status_code=503,
+            response_body=event,
+        )
+
+
 @unittest.skipUnless(FASTAPI_STACK_AVAILABLE, "fastapi stack not installed")
 class AppIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -850,6 +896,7 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(detail.get("run_status"), "failed")
         self.assertEqual(detail.get("failure_code"), "required_capabilities_unavailable")
         self.assertEqual(detail.get("failure_classification"), "policy")
+        self.assertEqual(detail.get("retryable"), False)
         self.assertEqual(
             detail.get("retry_policy"),
             {"max_attempts": 3, "backoff_ms": 250, "strategy": "fixed"},
@@ -866,6 +913,7 @@ class AppIntegrationTests(unittest.TestCase):
             "required_capabilities_unavailable",
         )
         self.assertEqual(audit_latest["metadata"]["failure_classification"], "policy")
+        self.assertEqual(audit_latest["metadata"]["retryable"], False)
 
     def test_runs_marks_retryable_false_for_terminal_capacity_failure(self) -> None:
         gateway_app_module._execution_client = _FakeExecutionClientCapacityTerminal()
@@ -891,6 +939,30 @@ class AppIntegrationTests(unittest.TestCase):
 
         audit_latest = get_audit_events(limit=1)[0]
         self.assertEqual(audit_latest["metadata"]["run_status"], "failed")
+        self.assertEqual(audit_latest["metadata"]["retryable"], False)
+
+    def test_runs_marks_retryable_false_for_terminal_rejected_status(self) -> None:
+        gateway_app_module._execution_client = _FakeExecutionClientPolicyRejectedTerminalRetryable()
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        response = self.client.post(
+            "/v1/runs",
+            json=self.payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 503)
+        detail = response.json().get("detail")
+        self.assertIsInstance(detail, dict)
+        assert isinstance(detail, dict)
+        self.assertEqual(detail.get("run_status"), "rejected")
+        self.assertEqual(detail.get("failure_code"), "policy_terminal_rejected")
+        self.assertEqual(detail.get("failure_classification"), "policy")
+        self.assertEqual(detail.get("retryable"), False)
+        self.assertNotIn("recommended_poll_after_ms", detail)
+
+        audit_latest = get_audit_events(limit=1)[0]
+        self.assertEqual(audit_latest["metadata"]["run_status"], "rejected")
+        self.assertEqual(audit_latest["metadata"]["failure_code"], "policy_terminal_rejected")
+        self.assertEqual(audit_latest["metadata"]["failure_classification"], "policy")
         self.assertEqual(audit_latest["metadata"]["retryable"], False)
 
 

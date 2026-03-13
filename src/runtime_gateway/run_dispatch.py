@@ -21,6 +21,8 @@ from .executor_profiles import validate_executor_profile
 from .events.validation import validate_event_envelope
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
 
+_TERMINAL_RUN_STATUSES = {"succeeded", "failed", "canceled", "timed_out", "rejected"}
+
 
 def _resolve_trace_id(claims: Mapping[str, Any]) -> str:
     return str(claims.get("trace_id", "")).strip() or str(uuid.uuid4())
@@ -197,7 +199,8 @@ def _resolve_effective_retryable(
     run_status = payload.get("status")
     if not isinstance(run_status, str):
         return fallback_retryable
-    if run_status in {"succeeded", "failed", "canceled", "timed_out"}:
+    normalized = run_status.strip().lower()
+    if normalized in _TERMINAL_RUN_STATUSES:
         return False
     return fallback_retryable
 
