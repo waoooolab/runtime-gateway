@@ -1624,6 +1624,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         detail = second.json()["detail"]
         second_run_id = str(detail["run_id"])
         self.assertEqual(detail["placement_reason_code"], "capacity_exhausted")
+        self.assertEqual(detail["recommended_poll_after_ms"], 250)
 
         def _promote_retry_once() -> None:
             for _ in range(6):
@@ -1840,6 +1841,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
             detail.get("retry_policy"),
             {"max_attempts": 1, "backoff_ms": 25, "strategy": "fixed"},
         )
+        self.assertNotIn("recommended_poll_after_ms", detail)
 
         second_status = self.gateway_client.get(
             f"/v1/runs/{second_run_id}",
@@ -1993,6 +1995,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
             detail.get("retry_policy"),
             {"max_attempts": 2, "backoff_ms": 25, "strategy": "fixed"},
         )
+        self.assertEqual(detail.get("recommended_poll_after_ms"), 25)
 
         for _ in range(6):
             scheduler_tick = self.gateway_client.post(
@@ -2176,6 +2179,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
             detail.get("retry_policy"),
             {"max_attempts": 3, "backoff_ms": 25, "strategy": "exponential"},
         )
+        self.assertEqual(detail.get("recommended_poll_after_ms"), 25)
 
         scheduled_first_retry = execution_app_module._runtime.queue_fabric.lease_one(QueueType.SCHEDULER)
         self.assertIsNotNone(scheduled_first_retry)
