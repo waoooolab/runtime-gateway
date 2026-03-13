@@ -309,6 +309,7 @@ def _register_scheduler_routes(
             else None
         )
         misfire_grace_ms = payload.get("misfire_grace_ms")
+        cron_interval_ms = payload.get("cron_interval_ms")
         return dispatch_scheduler_enqueue(
             claims=auth_context.claims,
             subject_token=auth_context.subject_token,
@@ -321,6 +322,9 @@ def _register_scheduler_routes(
             misfire_grace_ms=misfire_grace_ms
             if isinstance(misfire_grace_ms, int)
             else misfire_grace_ms,
+            cron_interval_ms=cron_interval_ms
+            if isinstance(cron_interval_ms, int)
+            else cron_interval_ms,
         )
 
     @app.post("/v1/orchestration/scheduler:tick")

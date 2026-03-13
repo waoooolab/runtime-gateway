@@ -60,9 +60,11 @@ def _build_scheduler_error_detail(
         "due_at",
         "misfire_policy",
         "misfire_grace_ms",
+        "cron_interval_ms",
         "max_items",
         "processed",
         "promoted",
+        "rescheduled",
         "deferred",
         "misfired",
         "scheduler_depth",
@@ -100,9 +102,11 @@ def _build_scheduler_error_audit_metadata(
         "due_at",
         "misfire_policy",
         "misfire_grace_ms",
+        "cron_interval_ms",
         "max_items",
         "processed",
         "promoted",
+        "rescheduled",
         "deferred",
         "misfired",
         "scheduler_depth",
@@ -114,6 +118,7 @@ def _build_scheduler_error_audit_metadata(
         "should_continue",
         "recommended_poll_after_ms",
         "misfired_total",
+        "rescheduled_total",
     ):
         value = response_body.get(key)
         if value is not None:
@@ -132,6 +137,7 @@ def dispatch_scheduler_enqueue(
     reason: str | None = None,
     misfire_policy: str | None = None,
     misfire_grace_ms: int | None = None,
+    cron_interval_ms: int | None = None,
 ) -> dict[str, Any]:
     action = "orchestration.scheduler_enqueue"
     trace_id = str(claims.get("trace_id", ""))
@@ -151,6 +157,7 @@ def dispatch_scheduler_enqueue(
             reason=reason,
             misfire_policy=misfire_policy,
             misfire_grace_ms=misfire_grace_ms,
+            cron_interval_ms=cron_interval_ms,
         )
     except RuntimeExecutionClientError as exc:
         detail: str | dict[str, Any] = str(exc)

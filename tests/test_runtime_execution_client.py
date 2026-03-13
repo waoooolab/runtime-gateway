@@ -321,7 +321,7 @@ class RuntimeExecutionClientTests(unittest.TestCase):
         self.assertIn('"delay_ms":100', captured["body"])
         self.assertIn('"reason":"manual"', captured["body"])
 
-    def test_scheduler_enqueue_posts_misfire_settings_when_provided(self) -> None:
+    def test_scheduler_enqueue_posts_misfire_and_cron_settings_when_provided(self) -> None:
         captured: dict[str, str] = {}
 
         class _Response:
@@ -352,6 +352,7 @@ class RuntimeExecutionClientTests(unittest.TestCase):
             due_at="2026-03-13T00:00:00+00:00",
             misfire_policy="skip",
             misfire_grace_ms=250,
+            cron_interval_ms=1000,
         )
         self.assertEqual(payload["run_id"], "run-misfire-1")
         self.assertIn("/v1/orchestration/scheduler:enqueue", captured["url"])
@@ -360,6 +361,7 @@ class RuntimeExecutionClientTests(unittest.TestCase):
         self.assertIn('"due_at":"2026-03-13T00:00:00+00:00"', captured["body"])
         self.assertIn('"misfire_policy":"skip"', captured["body"])
         self.assertIn('"misfire_grace_ms":250', captured["body"])
+        self.assertIn('"cron_interval_ms":1000', captured["body"])
 
     def test_scheduler_tick_sends_query_parameters(self) -> None:
         captured: dict[str, str] = {}

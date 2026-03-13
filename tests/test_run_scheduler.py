@@ -110,6 +110,7 @@ def test_scheduler_enqueue_tick_health_happy_path(
         reason="manual",
         misfire_policy=None,
         misfire_grace_ms=None,
+        cron_interval_ms=None,
     )
 
     tick = client.post(
@@ -197,7 +198,7 @@ def test_scheduler_endpoints_scope_requirements() -> None:
     assert health.status_code == 403
 
 
-def test_scheduler_enqueue_forwards_misfire_settings(
+def test_scheduler_enqueue_forwards_misfire_and_cron_settings(
     mock_execution_client: Mock,
     mock_token_exchange: Mock,
     auth_headers: dict[str, str],
@@ -208,6 +209,7 @@ def test_scheduler_enqueue_forwards_misfire_settings(
         "scheduler_depth": 1,
         "misfire_policy": "skip",
         "misfire_grace_ms": 500,
+        "cron_interval_ms": 1000,
         "recommended_poll_after_ms": 250,
     }
 
@@ -219,6 +221,7 @@ def test_scheduler_enqueue_forwards_misfire_settings(
             "due_at": "2026-03-13T00:00:00+00:00",
             "misfire_policy": "skip",
             "misfire_grace_ms": 500,
+            "cron_interval_ms": 1000,
         },
         headers=auth_headers,
     )
@@ -226,6 +229,7 @@ def test_scheduler_enqueue_forwards_misfire_settings(
     payload = response.json()
     assert payload["misfire_policy"] == "skip"
     assert payload["misfire_grace_ms"] == 500
+    assert payload["cron_interval_ms"] == 1000
     mock_execution_client.scheduler_enqueue.assert_called_once_with(
         auth_token="delegated-token",
         run_id="run-misfire-1",
@@ -234,4 +238,5 @@ def test_scheduler_enqueue_forwards_misfire_settings(
         reason=None,
         misfire_policy="skip",
         misfire_grace_ms=500,
+        cron_interval_ms=1000,
     )

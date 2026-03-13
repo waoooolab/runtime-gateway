@@ -351,6 +351,7 @@ class RuntimeExecutionClient:
         reason: str | None = None,
         misfire_policy: str | None = None,
         misfire_grace_ms: int | None = None,
+        cron_interval_ms: int | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {"run_id": run_id}
         if due_at is not None:
@@ -363,6 +364,8 @@ class RuntimeExecutionClient:
             body["misfire_policy"] = misfire_policy
         if misfire_grace_ms is not None:
             body["misfire_grace_ms"] = misfire_grace_ms
+        if cron_interval_ms is not None:
+            body["cron_interval_ms"] = cron_interval_ms
         return self._post_json(
             path="v1/orchestration/scheduler:enqueue",
             auth_token=auth_token,

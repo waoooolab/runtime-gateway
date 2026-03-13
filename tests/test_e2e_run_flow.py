@@ -4,6 +4,7 @@ import io
 import importlib
 import os
 import sys
+import time
 import unittest
 import urllib.error
 from datetime import datetime, timedelta, timezone
@@ -1872,7 +1873,25 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertIsInstance(lease_id, str)
         read_token = self._gateway_token(["runs:read"])
 
+        def _promote_retry_once() -> None:
+            for _ in range(6):
+                scheduler_tick = self.gateway_client.post(
+                    "/v1/orchestration/scheduler:tick?max_items=1&fair=true",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                self.assertEqual(scheduler_tick.status_code, 200)
+                payload = scheduler_tick.json()
+                if int(payload.get("promoted", 0)) >= 1:
+                    return
+                next_due_in_ms = int(payload.get("next_due_in_ms") or 0)
+                if next_due_in_ms > 0:
+                    time.sleep(min(0.2, (next_due_in_ms + 20) / 1000.0))
+            self.fail("scheduler did not promote retry message in expected retries")
+
         for attempt in range(2):
+            if attempt > 0:
+                _promote_retry_once()
+
             tick = self.gateway_client.post(
                 "/v1/orchestration/worker:tick?fair=true&auto_start=true",
                 headers={"Authorization": f"Bearer {token}"},
@@ -1890,6 +1909,8 @@ class EndToEndRunFlowTests(unittest.TestCase):
             self.assertEqual(complete_response.json()["payload"]["status"], "queued")
             self.assertEqual(complete_response.json()["payload"]["retry_attempts"], attempt + 1)
             self.assertEqual(execution_app_module._runtime.runs[run_id].device_lease_state, "active")
+
+        _promote_retry_once()
 
         final_tick = self.gateway_client.post(
             "/v1/orchestration/worker:tick?fair=true&auto_start=true",
