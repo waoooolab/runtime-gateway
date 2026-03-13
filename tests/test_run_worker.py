@@ -114,6 +114,19 @@ def test_worker_health_happy_path(
         "is_backlogged": False,
         "is_stalled": False,
         "health_state": "healthy",
+        "lease_renew_signal": {
+            "attempted": 2,
+            "renewed": 1,
+            "errors": 1,
+            "expired_conflicts": 0,
+            "released_conflicts": 0,
+            "last_observed_at": "2026-03-12T03:01:02+00:00",
+            "total_attempted": 9,
+            "total_renewed": 7,
+            "total_errors": 2,
+            "total_expired_conflicts": 1,
+            "total_released_conflicts": 0,
+        },
         "recommended_poll_after_ms": 5000,
     }
 
@@ -127,6 +140,12 @@ def test_worker_health_happy_path(
     assert payload["drain_processed_total"] == 17
     assert payload["is_stalled"] is False
     assert payload["health_state"] == "healthy"
+    assert payload["lease_renew_signal"]["attempted"] == 2
+    assert payload["lease_renew_signal"]["renewed"] == 1
+    assert payload["lease_renew_signal"]["errors"] == 1
+    assert payload["lease_renew_signal"]["total_attempted"] == 9
+    assert payload["lease_renew_signal"]["total_renewed"] == 7
+    assert payload["lease_renew_signal"]["total_errors"] == 2
     assert payload["recommended_poll_after_ms"] == 5000
     mock_execution_client.worker_health.assert_called_once_with(
         auth_token="delegated-token",
