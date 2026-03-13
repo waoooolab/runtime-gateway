@@ -177,7 +177,42 @@ def _extract_route_failure_metadata(downstream_event: Mapping[str, Any]) -> dict
         if isinstance(recommended_poll_after_ms, int) and recommended_poll_after_ms >= 0:
             metadata["recommended_poll_after_ms"] = recommended_poll_after_ms
 
+    decision = payload.get("decision")
+    if isinstance(decision, dict):
+        placement_reason_code = decision.get("reason_code")
+        if isinstance(placement_reason_code, str) and placement_reason_code.strip():
+            metadata["placement_reason_code"] = placement_reason_code
+        placement_event_type = decision.get("placement_event_type")
+        if isinstance(placement_event_type, str) and placement_event_type.strip():
+            metadata["placement_event_type"] = placement_event_type
+        snapshot = _filter_resource_snapshot(decision.get("resource_snapshot"))
+        if isinstance(snapshot, dict) and snapshot:
+            metadata["placement_resource_snapshot"] = snapshot
+
     return metadata
+
+
+def _filter_resource_snapshot(raw_snapshot: Any) -> dict[str, Any] | None:
+    if not isinstance(raw_snapshot, dict):
+        return None
+    snapshot: dict[str, Any] = {}
+    for key in (
+        "queue_depth",
+        "eligible_devices",
+        "active_leases",
+        "available_slots",
+        "tenant_active_leases",
+        "tenant_limit",
+    ):
+        value = raw_snapshot.get(key)
+        if isinstance(value, int) and value >= 0:
+            snapshot[key] = value
+    tenant_id_raw = raw_snapshot.get("tenant_id")
+    if isinstance(tenant_id_raw, str) and tenant_id_raw.strip():
+        snapshot["tenant_id"] = tenant_id_raw
+    if not snapshot:
+        return None
+    return snapshot
 
 
 def _exchange_runtime_execution_token(

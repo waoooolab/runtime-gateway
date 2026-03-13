@@ -77,6 +77,13 @@ class _FakeExecutionClientRejected:
                     "route_target": "none",
                     "policy_version": "execution-profile.v1",
                     "reason": "no eligible device",
+                    "reason_code": "capacity_exhausted",
+                    "placement_event_type": "device.route.rejected",
+                    "resource_snapshot": {
+                        "eligible_devices": 1,
+                        "active_leases": 1,
+                        "available_slots": 0,
+                    },
                 },
                 "failure": {
                     "code": "no_eligible_device",
@@ -123,6 +130,8 @@ class _FakeExecutionClientRetryableCapacity:
                     "route_target": "none",
                     "policy_version": "execution-profile.v1",
                     "reason": "device-hub overloaded",
+                    "reason_code": "placement_throttled",
+                    "placement_event_type": "device.route.rejected",
                 },
                 "failure": {
                     "code": "placement_throttled",
@@ -429,6 +438,12 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(detail.get("failure_classification"), "capacity")
         self.assertEqual(detail.get("failure_message"), "no eligible device")
         self.assertEqual(detail.get("recommended_poll_after_ms"), 1200)
+        self.assertEqual(detail.get("placement_reason_code"), "capacity_exhausted")
+        self.assertEqual(detail.get("placement_event_type"), "device.route.rejected")
+        self.assertEqual(
+            detail.get("placement_resource_snapshot"),
+            {"eligible_devices": 1, "active_leases": 1, "available_slots": 0},
+        )
         self.assertEqual(detail.get("retryable"), True)
         self.assertIn("HTTP 409", str(detail.get("message", "")))
 
@@ -447,6 +462,12 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(audit_latest["metadata"]["failure_code"], "no_eligible_device")
         self.assertEqual(audit_latest["metadata"]["failure_classification"], "capacity")
         self.assertEqual(audit_latest["metadata"]["recommended_poll_after_ms"], 1200)
+        self.assertEqual(audit_latest["metadata"]["placement_reason_code"], "capacity_exhausted")
+        self.assertEqual(audit_latest["metadata"]["placement_event_type"], "device.route.rejected")
+        self.assertEqual(
+            audit_latest["metadata"]["placement_resource_snapshot"],
+            {"eligible_devices": 1, "active_leases": 1, "available_slots": 0},
+        )
         self.assertEqual(audit_latest["metadata"]["retryable"], True)
 
     def test_runs_propagates_retryable_capacity_failure_status_and_audit_metadata(self) -> None:
@@ -466,6 +487,8 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(detail.get("failure_code"), "placement_throttled")
         self.assertEqual(detail.get("failure_classification"), "capacity")
         self.assertEqual(detail.get("recommended_poll_after_ms"), 1500)
+        self.assertEqual(detail.get("placement_reason_code"), "placement_throttled")
+        self.assertEqual(detail.get("placement_event_type"), "device.route.rejected")
         self.assertEqual(detail.get("retryable"), True)
 
         recent = self.client.get(
@@ -484,6 +507,8 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(audit_latest["metadata"]["failure_code"], "placement_throttled")
         self.assertEqual(audit_latest["metadata"]["failure_classification"], "capacity")
         self.assertEqual(audit_latest["metadata"]["recommended_poll_after_ms"], 1500)
+        self.assertEqual(audit_latest["metadata"]["placement_reason_code"], "placement_throttled")
+        self.assertEqual(audit_latest["metadata"]["placement_event_type"], "device.route.rejected")
         self.assertEqual(audit_latest["metadata"]["retryable"], True)
 
 
