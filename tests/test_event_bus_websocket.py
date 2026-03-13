@@ -98,8 +98,8 @@ class EventBusWebsocketTests(unittest.TestCase):
             json=_event_envelope("runtime.route.decided"),
             headers={"Authorization": f"Bearer {token}"},
         )
-        self.assertEqual(response.status_code, 403)
-        self.assertIn("app_id claim is required", response.json()["detail"])
+        self.assertEqual(response.status_code, 401)
+        self.assertIn("missing app_id", response.json()["detail"])
 
     def test_publish_event_and_list_recent(self) -> None:
         token = self._token(scope=["runs:write"])
@@ -141,8 +141,8 @@ class EventBusWebsocketTests(unittest.TestCase):
             "/v1/events/recent",
             headers={"Authorization": f"Bearer {token}"},
         )
-        self.assertEqual(response.status_code, 403)
-        self.assertIn("tenant_id claim is required", response.json()["detail"])
+        self.assertEqual(response.status_code, 401)
+        self.assertIn("missing tenant_id", response.json()["detail"])
 
     def test_recent_events_can_filter_by_event_type(self) -> None:
         token = self._token(scope=["runs:write"])

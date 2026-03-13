@@ -19,6 +19,7 @@ EVENT_TYPE_PREFIX_ALLOWLIST = (
     "device.route.",
     "device.lease.",
 )
+ALLOWED_GATEWAY_TOKEN_USES = {"access", "service"}
 
 
 @dataclass(frozen=True)
@@ -53,7 +54,9 @@ def _extract_bearer_token(authorization: str | None, *, action: str) -> str:
 
 def _verify_gateway_token(token: str, *, action: str) -> dict[str, Any]:
     try:
-        return verify_token(token, audience="runtime-gateway")
+        claims = verify_token(token, audience="runtime-gateway")
+        _validate_required_claims(claims)
+        return claims
     except TokenError as exc:
         emit_audit_event(
             action=action,
@@ -62,6 +65,21 @@ def _verify_gateway_token(token: str, *, action: str) -> dict[str, Any]:
             metadata={"reason": str(exc)},
         )
         raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+
+def _validate_required_claims(claims: dict[str, Any]) -> None:
+    for field in ("tenant_id", "app_id", "trace_id"):
+        value = claims.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise TokenError(f"invalid token claims: missing {field}")
+    token_use = claims.get("token_use")
+    if not isinstance(token_use, str) or not token_use.strip():
+        raise TokenError("invalid token claims: missing token_use")
+    normalized = token_use.strip().lower()
+    if normalized not in ALLOWED_GATEWAY_TOKEN_USES:
+        raise TokenError(
+            f"invalid token claims: unsupported token_use '{token_use}'"
+        )
 
 
 def require_runs_write_context(authorization: str | None = Header(default=None)) -> AuthContext:

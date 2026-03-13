@@ -38,20 +38,24 @@ def clear_audit_state() -> None:
     clear_audit_events()
 
 
-def _make_token(audience: str, scope: list[str]) -> str:
-    return issue_token(
-        {
-            "iss": "runtime-gateway",
-            "sub": "user:u1",
-            "aud": audience,
-            "tenant_id": "t1",
-            "app_id": "covernow",
-            "scope": scope,
-            "token_use": "access",
-            "trace_id": "trace-test-status",
-        },
-        ttl_seconds=300,
-    )
+def _make_token(
+    audience: str,
+    scope: list[str],
+    *,
+    token_use: str | None = "access",
+) -> str:
+    claims: dict[str, object] = {
+        "iss": "runtime-gateway",
+        "sub": "user:u1",
+        "aud": audience,
+        "tenant_id": "t1",
+        "app_id": "covernow",
+        "scope": scope,
+        "trace_id": "trace-test-status",
+    }
+    if token_use is not None:
+        claims["token_use"] = token_use
+    return issue_token(claims, ttl_seconds=300)
 
 
 def _run_status_event(*, run_id: str, status: str) -> dict[str, object]:
@@ -215,3 +219,18 @@ def test_get_run_status_missing_auth() -> None:
     client = TestClient(app)
     response = client.get("/v1/runs/run-1")
     assert response.status_code == 401
+
+
+def test_get_run_status_rejects_missing_token_use_claim() -> None:
+    client = TestClient(app)
+    token = _make_token(
+        audience="runtime-gateway",
+        scope=["runs:read"],
+        token_use=None,
+    )
+    response = client.get(
+        "/v1/runs/run-1",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 401
+    assert "missing token_use" in response.json()["detail"]
