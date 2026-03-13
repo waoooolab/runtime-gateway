@@ -1493,6 +1493,198 @@ class EndToEndRunFlowTests(unittest.TestCase):
             {"eligible_devices": 1, "active_leases": 1, "available_slots": 0},
         )
 
+    def test_gateway_compute_capacity_retry_waits_for_free_slot_then_recovers_e2e(self) -> None:
+        if not DEVICE_HUB_AVAILABLE:
+            self.skipTest("device-hub stack not available")
+
+        device_hub_app_module._hub = DeviceHubService()
+        device_hub_client = TestClient(device_hub_app_module.app)
+        execution_app_module._runtime = RuntimeExecutionService(
+            device_hub_client=_DeviceHubBoundaryClient(
+                client=device_hub_client,
+                token_factory=self._device_hub_token,
+            )
+        )
+        self.execution_client = TestClient(execution_app_module.app)
+
+        register = device_hub_client.post(
+            "/v1/devices/register",
+            json=build_command_envelope(
+                command_type="device.register",
+                payload={"device_id": "gpu-node-gateway-capacity-retry-e2e", "capabilities": ["compute.comfyui.local"]},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-capacity-retry-device-register",
+                run_id="run-gateway-capacity-retry-device-bootstrap",
+                task_id="task-gateway-capacity-retry-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(register.status_code, 200)
+        pair_request = device_hub_client.post(
+            "/v1/devices/pairing/request",
+            json=build_command_envelope(
+                command_type="device.pairing.request",
+                payload={"device_id": "gpu-node-gateway-capacity-retry-e2e"},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-capacity-retry-device-pair",
+                run_id="run-gateway-capacity-retry-device-bootstrap",
+                task_id="task-gateway-capacity-retry-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(pair_request.status_code, 200)
+        pair_code = pair_request.json()["payload"]["code"]
+        approve = device_hub_client.post(
+            "/v1/devices/pairing/approve",
+            json=build_command_envelope(
+                command_type="device.pairing.approve",
+                payload={"code": pair_code},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-capacity-retry-device-approve",
+                run_id="run-gateway-capacity-retry-device-bootstrap",
+                task_id="task-gateway-capacity-retry-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(approve.status_code, 200)
+        heartbeat = device_hub_client.post(
+            "/v1/devices/heartbeat",
+            json=build_command_envelope(
+                command_type="device.heartbeat",
+                payload={"device_id": "gpu-node-gateway-capacity-retry-e2e"},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-capacity-retry-device-heartbeat",
+                run_id="run-gateway-capacity-retry-device-bootstrap",
+                task_id="task-gateway-capacity-retry-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(heartbeat.status_code, 200)
+
+        token = self._gateway_token(["runs:write"])
+        read_token = self._gateway_token(["runs:read"])
+        first_run_id = self._submit_run(
+            token,
+            "gateway compute capacity retry first run",
+            execution_profile={
+                "execution_mode": "compute",
+                "inference_target": "none",
+                "resource_class": "gpu",
+                "placement_constraints": {
+                    "tenant_id": "t1",
+                    "required_capabilities": ["compute.comfyui.local"],
+                },
+            },
+        )
+        self.assertEqual(execution_app_module._runtime.runs[first_run_id].device_lease_state, "active")
+        first_tick = self.gateway_client.post(
+            "/v1/orchestration/worker:tick?fair=true&auto_start=true",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(first_tick.status_code, 200)
+        self.assertEqual(first_tick.json()["outcome"], "progressed")
+        self.assertEqual(first_tick.json()["leased_run_id"], first_run_id)
+
+        second = self.gateway_client.post(
+            "/v1/runs",
+            json={
+                "tenant_id": "t1",
+                "app_id": "covernow",
+                "session_key": "tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                "payload": {
+                    "goal": "gateway compute capacity retry second run",
+                    "dispatch_policy": {
+                        "queue": {
+                            "dispatch_min_score": -999,
+                            "max_queue_depth_for_dispatch": 0,
+                        }
+                    },
+                    "execution_profile": {
+                        "execution_mode": "compute",
+                        "inference_target": "none",
+                        "resource_class": "gpu",
+                        "placement_constraints": {
+                            "tenant_id": "t1",
+                            "required_capabilities": ["compute.comfyui.local"],
+                        },
+                    },
+                },
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(second.status_code, 503)
+        detail = second.json()["detail"]
+        second_run_id = str(detail["run_id"])
+        self.assertEqual(detail["placement_reason_code"], "capacity_exhausted")
+
+        def _promote_retry_once() -> None:
+            for _ in range(6):
+                scheduler_tick = self.gateway_client.post(
+                    "/v1/orchestration/scheduler:tick?max_items=1&fair=true",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                self.assertEqual(scheduler_tick.status_code, 200)
+                payload = scheduler_tick.json()
+                if int(payload.get("promoted", 0)) >= 1:
+                    return
+                next_due_in_ms = int(payload.get("next_due_in_ms") or 0)
+                if next_due_in_ms > 0:
+                    time.sleep(min(0.2, (next_due_in_ms + 20) / 1000.0))
+            self.fail("scheduler did not promote retry message in expected retries")
+
+        _promote_retry_once()
+
+        blocked_tick = self.gateway_client.post(
+            "/v1/orchestration/worker:tick?fair=true&auto_start=true",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(blocked_tick.status_code, 200)
+        blocked_payload = blocked_tick.json()
+        self.assertEqual(blocked_payload["outcome"], "skipped")
+        self.assertEqual(blocked_payload["reason"], "dispatch_retry_deferred")
+        self.assertEqual(blocked_payload["before_status"], "queued")
+        self.assertEqual(blocked_payload["after_status"], "queued")
+
+        second_status = self.gateway_client.get(
+            f"/v1/runs/{second_run_id}",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(second_status.status_code, 200)
+        self.assertEqual(second_status.json()["payload"]["status"], "queued")
+
+        cancel_first = self.gateway_client.post(
+            f"/v1/runs/{first_run_id}:cancel",
+            json={"reason": "free_slot_for_capacity_retry", "cascade_children": True},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(cancel_first.status_code, 200)
+        self.assertEqual(cancel_first.json()["payload"]["status"], "canceled")
+
+        capacity_after_cancel = device_hub_client.get(
+            "/v1/placements/capacity",
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:read'])}"},
+        )
+        self.assertEqual(capacity_after_cancel.status_code, 200)
+        self.assertEqual(int(capacity_after_cancel.json()["active_leases"]), 0)
+
+        _promote_retry_once()
+
+        recovered_tick = self.gateway_client.post(
+            "/v1/orchestration/worker:tick?fair=true&auto_start=true",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(recovered_tick.status_code, 200)
+        recovered_payload = recovered_tick.json()
+        self.assertEqual(recovered_payload["outcome"], "progressed")
+        self.assertEqual(recovered_payload["before_status"], "queued")
+        self.assertEqual(recovered_payload["after_status"], "running")
+        self.assertEqual(recovered_payload["leased_run_id"], second_run_id)
+
+        second_run = execution_app_module._runtime.runs[second_run_id]
+        self.assertEqual(second_run.status.value, "running")
+        self.assertEqual(second_run.device_lease_state, "active")
+        self.assertIsInstance(second_run.device_lease_id, str)
+
     def test_gateway_cancel_expires_device_hub_lease_e2e(self) -> None:
         if not DEVICE_HUB_AVAILABLE:
             self.skipTest("device-hub stack not available")
