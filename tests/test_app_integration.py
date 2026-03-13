@@ -185,6 +185,55 @@ class _FakeExecutionClientRetryableCapacity:
         )
 
 
+@dataclass
+class _FakeExecutionClientPolicyRejected:
+    def submit_command(self, *, envelope: dict, auth_token: str) -> dict:
+        _ = auth_token
+        event = {
+            "event_id": "evt-route-failed-policy-1",
+            "event_type": "runtime.route.failed",
+            "tenant_id": str(envelope["tenant_id"]),
+            "app_id": str(envelope["app_id"]),
+            "session_key": str(envelope["session_key"]),
+            "trace_id": str(envelope["trace_id"]),
+            "correlation_id": str(envelope["command_id"]),
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "payload": {
+                "run_id": "run-test-policy-rejected",
+                "task_id": "run-test-policy-rejected:root",
+                "status": "failed",
+                "execution_profile": {
+                    "execution_mode": "compute",
+                    "inference_target": "none",
+                    "resource_class": "gpu",
+                    "placement_constraints": {
+                        "tenant_id": "t1",
+                        "required_capabilities": ["compute.comfyui.local", "model.flux.1"],
+                    },
+                },
+                "decision": {
+                    "outcome": "rejected",
+                    "route_target": "none",
+                    "policy_version": "execution-profile.v1",
+                    "reason": "no eligible device satisfies required capabilities",
+                    "reason_code": "required_capabilities_unavailable",
+                    "placement_event_type": "device.route.rejected",
+                },
+                "failure": {
+                    "code": "required_capabilities_unavailable",
+                    "message": "no eligible device satisfies required capabilities",
+                    "classification": "policy",
+                    "details": ["compute route dispatch failed"],
+                },
+            },
+        }
+        raise RuntimeExecutionClientError(
+            "HTTP 409 calling runtime-execution",
+            status_code=409,
+            response_body=event,
+        )
+
+
 @unittest.skipUnless(FASTAPI_STACK_AVAILABLE, "fastapi stack not installed")
 class AppIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -737,6 +786,40 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(audit_latest["metadata"]["placement_reason_code"], "placement_throttled")
         self.assertEqual(audit_latest["metadata"]["placement_event_type"], "device.route.rejected")
         self.assertEqual(audit_latest["metadata"]["retryable"], True)
+
+    def test_runs_propagates_policy_failure_status_and_run_status_metadata(self) -> None:
+        gateway_app_module._execution_client = _FakeExecutionClientPolicyRejected()
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        response = self.client.post(
+            "/v1/runs",
+            json=self.payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 409)
+        detail = response.json().get("detail")
+        self.assertIsInstance(detail, dict)
+        assert isinstance(detail, dict)
+        self.assertEqual(detail.get("run_id"), "run-test-policy-rejected")
+        self.assertEqual(detail.get("task_id"), "run-test-policy-rejected:root")
+        self.assertEqual(detail.get("run_status"), "failed")
+        self.assertEqual(detail.get("failure_code"), "required_capabilities_unavailable")
+        self.assertEqual(detail.get("failure_classification"), "policy")
+        self.assertEqual(
+            detail.get("retry_policy"),
+            {"max_attempts": 3, "backoff_ms": 250, "strategy": "fixed"},
+        )
+        self.assertNotIn("recommended_poll_after_ms", detail)
+
+        audit_latest = get_audit_events(limit=1)[0]
+        self.assertEqual(audit_latest["action"], "runs.dispatch")
+        self.assertEqual(audit_latest["decision"], "deny")
+        self.assertEqual(audit_latest["metadata"]["status_code"], 409)
+        self.assertEqual(audit_latest["metadata"]["run_status"], "failed")
+        self.assertEqual(
+            audit_latest["metadata"]["failure_code"],
+            "required_capabilities_unavailable",
+        )
+        self.assertEqual(audit_latest["metadata"]["failure_classification"], "policy")
 
 
 if __name__ == "__main__":
