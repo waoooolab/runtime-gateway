@@ -1298,6 +1298,12 @@ class EndToEndRunFlowTests(unittest.TestCase):
         assert isinstance(failure, dict)
         self.assertEqual(failure.get("code"), "tenant_quota_exhausted")
         self.assertEqual(failure.get("classification"), "capacity")
+        self.assertEqual(detail.get("placement_reason_code"), "tenant_quota_exhausted")
+        self.assertEqual(detail.get("placement_event_type"), "device.route.rejected")
+        self.assertEqual(
+            detail.get("placement_resource_snapshot"),
+            {"tenant_id": "t1", "tenant_active_leases": 1, "tenant_limit": 1},
+        )
         self.assertIn("HTTP 409", str(detail.get("message", "")))
 
         run_ids_after_second = set(execution_app_module._runtime.runs.keys())
@@ -1322,6 +1328,10 @@ class EndToEndRunFlowTests(unittest.TestCase):
         ]
         self.assertGreaterEqual(len(matching), 1)
         self.assertEqual(matching[0]["payload"]["failure"]["classification"], "capacity")
+        self.assertEqual(
+            matching[0]["payload"]["decision"]["resource_snapshot"],
+            {"tenant_id": "t1", "tenant_active_leases": 1, "tenant_limit": 1},
+        )
 
     def test_gateway_cancel_expires_device_hub_lease_e2e(self) -> None:
         if not DEVICE_HUB_AVAILABLE:
