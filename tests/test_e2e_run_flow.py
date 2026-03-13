@@ -846,6 +846,53 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertGreaterEqual(int(health_payload["ticks_total"]), 1)
         self.assertGreaterEqual(int(health_payload["enqueue_total"]), 1)
 
+    def test_gateway_scheduler_to_worker_loop_chain_e2e(self) -> None:
+        write_token = self._gateway_token(["runs:write"])
+        read_token = self._gateway_token(["runs:read"])
+        run_id = self._submit_run(write_token, "verify scheduler worker-loop chain e2e flow")
+        _ = execution_app_module._runtime.queue_fabric.lease_one(
+            QueueType.ORCHESTRATION
+        )
+
+        enqueue = self.gateway_client.post(
+            "/v1/orchestration/scheduler:enqueue",
+            headers={"Authorization": f"Bearer {write_token}"},
+            json={"run_id": run_id, "delay_ms": 0, "reason": "scheduler-worker-loop-chain"},
+        )
+        self.assertEqual(enqueue.status_code, 200)
+        self.assertEqual(int(enqueue.json()["scheduler_depth"]), 1)
+
+        loop = self.gateway_client.post(
+            "/v1/orchestration/worker:loop"
+            "?scheduler_max_items=1&scheduler_fair=true"
+            "&worker_max_items=1&worker_fair=true&auto_start=true",
+            headers={"Authorization": f"Bearer {write_token}"},
+        )
+        self.assertEqual(loop.status_code, 200)
+        payload = loop.json()
+        self.assertEqual(int(payload["scheduler_processed"]), 1)
+        self.assertEqual(int(payload["scheduler_promoted"]), 1)
+        self.assertEqual(int(payload["processed"]), 1)
+        self.assertEqual(int(payload["remaining"]), 0)
+        self.assertEqual(int(payload["queue_depth_after"]), 0)
+        self.assertEqual(int(payload["scheduler_depth_after"]), 0)
+        self.assertEqual(
+            payload["outcome_counts"],
+            {"progressed": 1, "missing_run": 0, "skipped": 0},
+        )
+        self.assertEqual(payload["lifecycle_state"], "running")
+        self.assertIs(payload["is_running"], True)
+
+        status = self.gateway_client.get(
+            f"/v1/runs/{run_id}",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(status.status_code, 200)
+        status_payload = status.json()["payload"]
+        self.assertEqual(status_payload["run_id"], run_id)
+        self.assertEqual(status_payload["status"], "running")
+        self.assertEqual(execution_app_module._runtime.runs[run_id].status.value, "running")
+
     def test_gateway_and_execution_profile_catalog_are_aligned(self) -> None:
         gateway_response = self.gateway_client.get(
             "/v1/executors/profiles",
