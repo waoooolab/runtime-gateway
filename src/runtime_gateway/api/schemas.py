@@ -3,11 +3,18 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+class RetryPolicyInput(BaseModel):
+    max_attempts: int = Field(ge=1, le=20)
+    backoff_ms: int = Field(ge=0)
+    strategy: str = Field(pattern="^(fixed|exponential)$")
+
+
 class CreateRunRequest(BaseModel):
     tenant_id: str
     app_id: str
     session_key: str
     payload: dict
+    retry_policy: RetryPolicyInput | None = None
 
 
 class CreateRunResponse(BaseModel):

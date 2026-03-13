@@ -27,6 +27,15 @@ def _resolve_trace_id(claims: Mapping[str, Any]) -> str:
 
 
 def _build_execution_command(req: CreateRunRequest, trace_id: str) -> dict[str, Any]:
+    retry_policy = (
+        req.retry_policy.model_dump()
+        if req.retry_policy is not None
+        else {
+            "max_attempts": 3,
+            "backoff_ms": 250,
+            "strategy": "fixed",
+        }
+    )
     return {
         "command_id": str(uuid.uuid4()),
         "command_type": "run.start",
@@ -35,11 +44,7 @@ def _build_execution_command(req: CreateRunRequest, trace_id: str) -> dict[str, 
         "session_key": req.session_key,
         "trace_id": trace_id,
         "idempotency_key": str(uuid.uuid4()),
-        "retry_policy": {
-            "max_attempts": 3,
-            "backoff_ms": 250,
-            "strategy": "fixed",
-        },
+        "retry_policy": retry_policy,
         "ts": datetime.now(timezone.utc).isoformat(),
         "payload": req.payload,
     }
