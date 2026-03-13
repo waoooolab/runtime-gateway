@@ -158,6 +158,29 @@ def _build_downstream_error_detail(
     return detail
 
 
+def _extract_retry_policy_metadata(command: Mapping[str, Any]) -> dict[str, Any]:
+    retry_policy = command.get("retry_policy")
+    if not isinstance(retry_policy, dict):
+        return {}
+
+    max_attempts = retry_policy.get("max_attempts")
+    backoff_ms = retry_policy.get("backoff_ms")
+    strategy = retry_policy.get("strategy")
+    if not isinstance(max_attempts, int) or max_attempts < 1:
+        return {}
+    if not isinstance(backoff_ms, int) or backoff_ms < 0:
+        return {}
+    if not isinstance(strategy, str) or not strategy.strip():
+        return {}
+    return {
+        "retry_policy": {
+            "max_attempts": max_attempts,
+            "backoff_ms": backoff_ms,
+            "strategy": strategy,
+        }
+    }
+
+
 def _extract_route_failure_metadata(downstream_event: Mapping[str, Any]) -> dict[str, Any]:
     payload = downstream_event.get("payload")
     if not isinstance(payload, dict):
@@ -259,6 +282,7 @@ def _submit_command(
     actor_id: str,
     trace_id: str,
 ) -> dict[str, Any]:
+    retry_policy_metadata = _extract_retry_policy_metadata(command)
     try:
         return execution_client.submit_command(envelope=command, auth_token=delegated_token)
     except RuntimeExecutionClientError as exc:
@@ -291,6 +315,7 @@ def _submit_command(
             "bus_seq": bus_seq,
             "retryable": exc.retryable,
         }
+        audit_metadata.update(retry_policy_metadata)
         audit_metadata.update(route_failure_metadata)
         emit_audit_event(
             action="runs.dispatch",
@@ -337,6 +362,7 @@ def _validate_execution_event(
 
 def _build_dispatch_response(
     *,
+    command: Mapping[str, Any],
     execution_event: dict[str, Any],
     publish_gateway_event: Callable[[dict[str, Any]], int | None],
     actor_id: str,
@@ -351,6 +377,7 @@ def _build_dispatch_response(
         "downstream_event_type": execution_event.get("event_type"),
         "bus_seq": bus_seq,
     }
+    audit_metadata.update(_extract_retry_policy_metadata(command))
     audit_metadata.update(route_success_metadata)
     emit_audit_event(
         action="runs.dispatch",
@@ -427,6 +454,7 @@ def dispatch_create_run(
         trace_id=trace_id,
     )
     return _build_dispatch_response(
+        command=command,
         execution_event=execution_event,
         publish_gateway_event=publish_gateway_event,
         actor_id=actor_id,
