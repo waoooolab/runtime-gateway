@@ -15,6 +15,7 @@ from .contracts import (
     validate_runtime_events_page_contract,
 )
 from .events.bus import InMemoryEventBus
+from .events.durable import append_event_record, read_event_page
 from .events.validation import validate_event_envelope
 from .executor_profiles import list_executor_profiles
 from .integration import RuntimeExecutionClient
@@ -38,7 +39,9 @@ def _publish_gateway_event(event: dict[str, Any]) -> int | None:
     event_type = str(event.get("event_type", ""))
     if not allowed_event_type(event_type):
         return None
-    return _event_bus.publish(event)
+    bus_seq = _event_bus.publish(event)
+    append_event_record(bus_seq=bus_seq, event=event)
+    return bus_seq
 
 
 def _scope_filter_or_forbid(
@@ -104,6 +107,7 @@ def list_audit_events(limit: int = 50, source: str = "memory") -> dict:
 @app.get("/v1/events/recent")
 def list_recent_events(
     limit: int = Query(default=50, ge=1, le=500),
+    source: str = Query(default="memory"),
     tenant_id: str | None = None,
     app_id: str | None = None,
     event_types: str | None = None,
@@ -128,32 +132,51 @@ def list_recent_events(
         if event_types is not None
         else None
     )
+    source_value = source.strip().lower()
+    if source_value not in {"memory", "durable"}:
+        raise HTTPException(status_code=422, detail="source must be one of: memory, durable")
     parsed_since_ts = _parse_since_ts_or_raise(since_ts)
-    if cursor is None:
-        window = _event_bus.recent(
-            limit=limit + 1,
-            tenant_id=effective_tenant or None,
-            app_id=effective_app or None,
-            event_types=parsed_types,
-            run_id=run_id,
-            since_ts=parsed_since_ts,
-        )
-        has_more = len(window) > limit
-        items = window[-limit:]
+    if source_value == "memory":
+        if cursor is None:
+            window = _event_bus.recent(
+                limit=limit + 1,
+                tenant_id=effective_tenant or None,
+                app_id=effective_app or None,
+                event_types=parsed_types,
+                run_id=run_id,
+                since_ts=parsed_since_ts,
+            )
+            has_more = len(window) > limit
+            items = window[-limit:]
+        else:
+            window = _event_bus.since(
+                cursor=cursor,
+                tenant_id=effective_tenant or None,
+                app_id=effective_app or None,
+                event_types=parsed_types,
+                run_id=run_id,
+                since_ts=parsed_since_ts,
+            )[: limit + 1]
+            has_more = len(window) > limit
+            items = window[:limit]
+        next_cursor = cursor if cursor is not None else 0
+        if items:
+            next_cursor = int(items[-1]["bus_seq"])
+        stats = _event_bus.stats()
     else:
-        window = _event_bus.since(
-            cursor=cursor,
+        durable_page = read_event_page(
+            limit=limit,
             tenant_id=effective_tenant or None,
             app_id=effective_app or None,
             event_types=parsed_types,
             run_id=run_id,
             since_ts=parsed_since_ts,
-        )[: limit + 1]
-        has_more = len(window) > limit
-        items = window[:limit]
-    next_cursor = cursor if cursor is not None else 0
-    if items:
-        next_cursor = int(items[-1]["bus_seq"])
+            cursor=cursor,
+        )
+        items = durable_page["items"]
+        has_more = bool(durable_page["has_more"])
+        next_cursor = int(durable_page["next_cursor"])
+        stats = dict(durable_page["stats"])
     recommended_poll_after_ms = _recommended_poll_after_ms_for_recent_events(
         has_more=has_more,
         item_count=len(items),
@@ -163,7 +186,8 @@ def list_recent_events(
         "next_cursor": next_cursor,
         "has_more": has_more,
         "recommended_poll_after_ms": recommended_poll_after_ms,
-        "stats": _event_bus.stats(),
+        "stats": stats,
+        "source": source_value,
     }
     try:
         validate_runtime_events_page_contract(response_payload)

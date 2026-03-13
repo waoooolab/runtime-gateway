@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,6 +49,7 @@ def _event_envelope(event_type: str = "runtime.task.updated", run_id: str | None
 class EventBusWebsocketTests(unittest.TestCase):
     def setUp(self) -> None:
         clear_audit_events()
+        os.environ.pop("RUNTIME_GATEWAY_EVENT_LOG_PATH", None)
         gateway_app_module._event_bus.clear()
         self.client = TestClient(gateway_app_module.app)
 
@@ -366,6 +368,93 @@ class EventBusWebsocketTests(unittest.TestCase):
         self.assertEqual(payload["items"], [])
         self.assertFalse(payload["has_more"])
         self.assertEqual(payload["recommended_poll_after_ms"], 5000)
+
+    def test_recent_events_can_read_durable_source(self) -> None:
+        token = self._token(scope=["runs:write"])
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["RUNTIME_GATEWAY_EVENT_LOG_PATH"] = os.path.join(
+                tmp, "events", "runtime-events.ndjson"
+            )
+            self.client.post(
+                "/v1/events/publish",
+                json=_event_envelope("runtime.run.started", run_id="run-durable-1"),
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            self.client.post(
+                "/v1/events/publish",
+                json=_event_envelope("runtime.run.completed", run_id="run-durable-1"),
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+            durable = self.client.get(
+                "/v1/events/recent?source=durable&run_id=run-durable-1",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            self.assertEqual(durable.status_code, 200)
+            payload = durable.json()
+            self.assertEqual(payload["source"], "durable")
+            self.assertEqual(len(payload["items"]), 2)
+            self.assertEqual(payload["items"][0]["event"]["event_type"], "runtime.run.started")
+            self.assertEqual(payload["items"][1]["event"]["event_type"], "runtime.run.completed")
+            self.assertEqual(payload["recommended_poll_after_ms"], 1500)
+            self.assertGreaterEqual(int(payload["stats"]["buffered_events"]), 2)
+            self.assertGreaterEqual(int(payload["stats"]["next_seq"]), 3)
+
+    def test_recent_events_durable_source_supports_cursor(self) -> None:
+        token = self._token(scope=["runs:write"])
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["RUNTIME_GATEWAY_EVENT_LOG_PATH"] = os.path.join(
+                tmp, "events", "runtime-events.ndjson"
+            )
+            self.client.post(
+                "/v1/events/publish",
+                json=_event_envelope("runtime.run.started", run_id="run-durable-cursor"),
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            self.client.post(
+                "/v1/events/publish",
+                json=_event_envelope("runtime.run.status", run_id="run-durable-cursor"),
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            self.client.post(
+                "/v1/events/publish",
+                json=_event_envelope("runtime.run.completed", run_id="run-durable-cursor"),
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+            first = self.client.get(
+                "/v1/events/recent?source=durable&cursor=0&limit=2&run_id=run-durable-cursor",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            self.assertEqual(first.status_code, 200)
+            first_payload = first.json()
+            self.assertEqual(len(first_payload["items"]), 2)
+            self.assertTrue(first_payload["has_more"])
+            self.assertEqual(first_payload["recommended_poll_after_ms"], 250)
+            cursor = int(first_payload["next_cursor"])
+            self.assertGreaterEqual(cursor, 1)
+
+            second = self.client.get(
+                f"/v1/events/recent?source=durable&cursor={cursor}&limit=2&run_id=run-durable-cursor",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            self.assertEqual(second.status_code, 200)
+            second_payload = second.json()
+            self.assertEqual(len(second_payload["items"]), 1)
+            self.assertEqual(
+                second_payload["items"][0]["event"]["event_type"], "runtime.run.completed"
+            )
+            self.assertFalse(second_payload["has_more"])
+            self.assertEqual(second_payload["recommended_poll_after_ms"], 1500)
+
+    def test_recent_events_rejects_invalid_source(self) -> None:
+        token = self._token(scope=["runs:read"])
+        response = self.client.get(
+            "/v1/events/recent?source=unknown",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("source must be one of: memory, durable", response.json()["detail"])
 
     def test_websocket_receives_published_event(self) -> None:
         ws_token = self._token(scope=["runs:read"])
