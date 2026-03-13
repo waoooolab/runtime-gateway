@@ -11,6 +11,7 @@ from runtime_gateway.contracts.validation import (
     validate_executor_profile_catalog_contract,
     validate_orchestration_hints_contract,
     validate_runtime_events_page_contract,
+    validate_runtime_worker_health_contract,
     validate_token_exchange_contract,
 )
 from runtime_gateway.events.envelope import build_event_envelope
@@ -194,6 +195,97 @@ class ContractValidationTests(unittest.TestCase):
         }
         with self.assertRaises(ContractValidationError):
             validate_runtime_events_page_contract(payload)
+
+    def test_runtime_worker_health_contract_valid(self) -> None:
+        payload = {
+            "queue_depth": 0,
+            "ticks_total": 3,
+            "idle_ticks_total": 1,
+            "progressed_ticks_total": 2,
+            "missing_run_ticks_total": 0,
+            "skipped_ticks_total": 0,
+            "drain_calls_total": 1,
+            "drain_processed_total": 2,
+            "last_tick_at": "2026-03-12T00:00:00Z",
+            "last_drain_at": "2026-03-12T00:01:00Z",
+            "last_tick_outcome": "progressed",
+            "last_tick_age_seconds": 1.5,
+            "last_heartbeat_at": "2026-03-12T00:01:00Z",
+            "last_heartbeat_age_seconds": 1.5,
+            "is_heartbeat_stale": False,
+            "is_tick_stale": False,
+            "is_backlogged": False,
+            "is_stalled": False,
+            "health_state": "healthy",
+            "lease_renew_signal": {
+                "attempted": 1,
+                "renewed": 1,
+                "errors": 0,
+                "expired_conflicts": 0,
+                "released_conflicts": 0,
+                "last_observed_at": "2026-03-12T00:01:00Z",
+                "total_attempted": 2,
+                "total_renewed": 2,
+                "total_errors": 0,
+                "total_expired_conflicts": 0,
+                "total_released_conflicts": 0,
+            },
+            "lifecycle_state": "running",
+            "is_running": True,
+            "last_transition": "start",
+            "last_transition_at": "2026-03-12T00:00:00Z",
+            "start_total": 1,
+            "stop_total": 0,
+            "restart_total": 0,
+            "recommended_poll_after_ms": 5000,
+        }
+        validate_runtime_worker_health_contract(payload)
+
+    def test_runtime_worker_health_contract_rejects_invalid_health_state(self) -> None:
+        payload = {
+            "queue_depth": 0,
+            "ticks_total": 0,
+            "idle_ticks_total": 0,
+            "progressed_ticks_total": 0,
+            "missing_run_ticks_total": 0,
+            "skipped_ticks_total": 0,
+            "drain_calls_total": 0,
+            "drain_processed_total": 0,
+            "last_tick_at": None,
+            "last_drain_at": None,
+            "last_tick_outcome": None,
+            "last_tick_age_seconds": None,
+            "last_heartbeat_at": "2026-03-12T00:00:00Z",
+            "last_heartbeat_age_seconds": 0.0,
+            "is_heartbeat_stale": False,
+            "is_tick_stale": False,
+            "is_backlogged": False,
+            "is_stalled": False,
+            "health_state": "unknown",
+            "lease_renew_signal": {
+                "attempted": 0,
+                "renewed": 0,
+                "errors": 0,
+                "expired_conflicts": 0,
+                "released_conflicts": 0,
+                "last_observed_at": None,
+                "total_attempted": 0,
+                "total_renewed": 0,
+                "total_errors": 0,
+                "total_expired_conflicts": 0,
+                "total_released_conflicts": 0,
+            },
+            "lifecycle_state": "running",
+            "is_running": True,
+            "last_transition": "start",
+            "last_transition_at": "2026-03-12T00:00:00Z",
+            "start_total": 1,
+            "stop_total": 0,
+            "restart_total": 0,
+            "recommended_poll_after_ms": 5000,
+        }
+        with self.assertRaises(ContractValidationError):
+            validate_runtime_worker_health_contract(payload)
 
 
 if __name__ == "__main__":

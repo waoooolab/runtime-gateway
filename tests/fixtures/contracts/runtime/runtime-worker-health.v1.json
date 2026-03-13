@@ -1,0 +1,256 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://waoooolab.dev/contracts/runtime/runtime-worker-health.v1.json",
+  "title": "RuntimeWorkerHealthV1",
+  "description": "Worker health projection response for runtime orchestration health endpoints.",
+  "type": "object",
+  "required": [
+    "queue_depth",
+    "ticks_total",
+    "idle_ticks_total",
+    "progressed_ticks_total",
+    "missing_run_ticks_total",
+    "skipped_ticks_total",
+    "drain_calls_total",
+    "drain_processed_total",
+    "last_tick_at",
+    "last_drain_at",
+    "last_tick_outcome",
+    "last_tick_age_seconds",
+    "last_heartbeat_at",
+    "last_heartbeat_age_seconds",
+    "is_heartbeat_stale",
+    "is_tick_stale",
+    "is_backlogged",
+    "is_stalled",
+    "health_state",
+    "lease_renew_signal",
+    "lifecycle_state",
+    "is_running",
+    "last_transition",
+    "last_transition_at",
+    "start_total",
+    "stop_total",
+    "restart_total",
+    "recommended_poll_after_ms"
+  ],
+  "properties": {
+    "queue_depth": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ticks_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "idle_ticks_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "progressed_ticks_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "missing_run_ticks_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "skipped_ticks_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "drain_calls_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "drain_processed_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "last_tick_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "last_drain_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "last_tick_outcome": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "enum": [
+            "idle",
+            "progressed",
+            "missing_run",
+            "skipped"
+          ]
+        }
+      ]
+    },
+    "last_tick_age_seconds": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "last_heartbeat_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "last_heartbeat_age_seconds": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "is_heartbeat_stale": {
+      "type": "boolean"
+    },
+    "is_tick_stale": {
+      "type": "boolean"
+    },
+    "is_backlogged": {
+      "type": "boolean"
+    },
+    "is_stalled": {
+      "type": "boolean"
+    },
+    "health_state": {
+      "type": "string",
+      "enum": [
+        "healthy",
+        "degraded",
+        "stalled",
+        "stopped"
+      ]
+    },
+    "lease_renew_signal": {
+      "type": "object",
+      "required": [
+        "attempted",
+        "renewed",
+        "errors",
+        "expired_conflicts",
+        "released_conflicts",
+        "last_observed_at",
+        "total_attempted",
+        "total_renewed",
+        "total_errors",
+        "total_expired_conflicts",
+        "total_released_conflicts"
+      ],
+      "properties": {
+        "attempted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "renewed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expired_conflicts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "released_conflicts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "last_observed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "total_attempted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total_renewed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total_errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total_expired_conflicts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total_released_conflicts": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": true
+    },
+    "lifecycle_state": {
+      "type": "string",
+      "enum": [
+        "running",
+        "stopped"
+      ]
+    },
+    "is_running": {
+      "type": "boolean"
+    },
+    "last_transition": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "start",
+        "stop",
+        "restart",
+        null
+      ]
+    },
+    "last_transition_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "start_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "stop_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "restart_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "recommended_poll_after_ms": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 60000
+    }
+  },
+  "additionalProperties": true
+}

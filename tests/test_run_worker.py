@@ -110,10 +110,20 @@ def test_worker_health_happy_path(
         "last_drain_at": "2026-03-12T03:01:00+00:00",
         "last_tick_outcome": "progressed",
         "last_tick_age_seconds": 2.5,
+        "last_heartbeat_at": "2026-03-12T03:01:00+00:00",
+        "last_heartbeat_age_seconds": 2.5,
+        "is_heartbeat_stale": False,
         "is_tick_stale": False,
         "is_backlogged": False,
         "is_stalled": False,
         "health_state": "healthy",
+        "lifecycle_state": "running",
+        "is_running": True,
+        "last_transition": "start",
+        "last_transition_at": "2026-03-12T03:00:00+00:00",
+        "start_total": 1,
+        "stop_total": 0,
+        "restart_total": 0,
         "lease_renew_signal": {
             "attempted": 2,
             "renewed": 1,
@@ -140,6 +150,7 @@ def test_worker_health_happy_path(
     assert payload["drain_processed_total"] == 17
     assert payload["is_stalled"] is False
     assert payload["health_state"] == "healthy"
+    assert payload["lifecycle_state"] == "running"
     assert payload["lease_renew_signal"]["attempted"] == 2
     assert payload["lease_renew_signal"]["renewed"] == 1
     assert payload["lease_renew_signal"]["errors"] == 1
@@ -528,6 +539,25 @@ def test_worker_health_downstream_4xx_error_is_structured(
     assert audit["metadata"]["health_state"] == "stalled"
     assert audit["metadata"]["is_stalled"] is True
     assert audit["metadata"]["queue_depth"] == 5
+
+
+def test_worker_health_rejects_invalid_downstream_contract(
+    mock_execution_client: Mock, mock_token_exchange: Mock, read_auth_headers: dict[str, str]
+) -> None:
+    _ = mock_token_exchange
+    mock_execution_client.worker_health.return_value = {
+        "queue_depth": 1,
+    }
+
+    client = TestClient(app)
+    response = client.get("/v1/orchestration/worker:health", headers=read_auth_headers)
+
+    assert response.status_code == 502
+    assert "invalid worker health response" in response.text
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "orchestration.worker_health"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["validation_schema"] == "runtime/runtime-worker-health.v1.json"
 
 
 def test_worker_endpoints_require_bearer_token() -> None:
