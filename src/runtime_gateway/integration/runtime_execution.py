@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Callable
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode, urljoin, urlparse
 
 TransportCallable = Callable[..., Any]
 
@@ -170,13 +170,30 @@ def _parse_response_body(raw: str, url: str) -> dict[str, Any]:
     return parsed
 
 
+def _env_truthy(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass
 class RuntimeExecutionClient:
     base_url: str = field(
         default_factory=lambda: os.environ.get("RUNTIME_EXECUTION_BASE_URL", "http://localhost:8003")
     )
+    require_https: bool = field(
+        default_factory=lambda: _env_truthy("WAOOOOLAB_REQUIRE_INTERNAL_TLS", default=False)
+    )
     timeout_seconds: float = 10.0
     _transport: TransportCallable = field(default=urllib.request.urlopen)
+
+    def __post_init__(self) -> None:
+        if not self.require_https:
+            return
+        scheme = urlparse(self.base_url).scheme.strip().lower()
+        if scheme != "https":
+            raise ValueError("RuntimeExecutionClient base_url must use https when WAOOOOLAB_REQUIRE_INTERNAL_TLS=true")
 
     def _request_json(
         self,

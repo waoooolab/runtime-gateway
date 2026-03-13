@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import unittest
 import urllib.error
+from unittest.mock import patch
 
 from runtime_gateway.integration.runtime_execution import (
     RuntimeExecutionClient,
@@ -11,6 +13,17 @@ from runtime_gateway.integration.runtime_execution import (
 )
 
 class RuntimeExecutionClientTests(unittest.TestCase):
+    def test_rejects_non_https_base_url_when_tls_required(self) -> None:
+        with patch.dict(os.environ, {"WAOOOOLAB_REQUIRE_INTERNAL_TLS": "true"}, clear=False):
+            with self.assertRaises(ValueError) as ctx:
+                RuntimeExecutionClient(base_url="http://runtime-execution.test")
+        self.assertIn("must use https", str(ctx.exception))
+
+    def test_allows_https_base_url_when_tls_required(self) -> None:
+        with patch.dict(os.environ, {"WAOOOOLAB_REQUIRE_INTERNAL_TLS": "true"}, clear=False):
+            client = RuntimeExecutionClient(base_url="https://runtime-execution.test")
+        self.assertEqual(client.base_url, "https://runtime-execution.test")
+
     def test_submit_command_http_error_preserves_status_and_response_body(self) -> None:
         def transport(request, timeout=10.0):
             _ = timeout
