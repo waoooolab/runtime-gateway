@@ -23,7 +23,14 @@ class RuntimeExecutionClientTests(unittest.TestCase):
                 "trace_id": "trace-1",
                 "correlation_id": "corr-1",
                 "ts": "2026-03-02T10:00:00+00:00",
-                "payload": {"run_id": "run-1"},
+                "payload": {
+                    "run_id": "run-1",
+                    "failure": {
+                        "code": "no_eligible_device",
+                        "classification": "capacity",
+                        "message": "no eligible device",
+                    },
+                },
             }
             raise urllib.error.HTTPError(
                 request.full_url,
@@ -45,6 +52,11 @@ class RuntimeExecutionClientTests(unittest.TestCase):
         self.assertIsInstance(exc.response_body, dict)
         assert exc.response_body is not None
         self.assertEqual(exc.response_body.get("event_type"), "runtime.route.failed")
+        self.assertIsNone(exc.detail)
+        self.assertIsNotNone(exc.downstream_failure)
+        assert exc.downstream_failure is not None
+        self.assertEqual(exc.downstream_failure.get("code"), "no_eligible_device")
+        self.assertTrue(exc.retryable)
 
     def test_submit_command_http_error_non_json_body_sets_empty_response_body(self) -> None:
         def transport(request, timeout=10.0):
@@ -67,6 +79,8 @@ class RuntimeExecutionClientTests(unittest.TestCase):
         exc = ctx.exception
         self.assertEqual(exc.status_code, 502)
         self.assertIsNone(exc.response_body)
+        self.assertIsNone(exc.detail)
+        self.assertTrue(exc.retryable)
 
     def test_worker_tick_sends_query_parameters(self) -> None:
         captured: dict[str, str] = {}
@@ -134,6 +148,42 @@ class RuntimeExecutionClientTests(unittest.TestCase):
         self.assertIsInstance(exc.response_body, dict)
         assert exc.response_body is not None
         self.assertIn("max_items", str(exc.response_body.get("detail", "")))
+        self.assertEqual(exc.detail, "max_items must be integer > 0")
+        self.assertFalse(exc.retryable)
+
+    def test_worker_tick_http_error_with_retryable_detail_sets_retryable_flag(self) -> None:
+        def transport(request, timeout=10.0):
+            _ = timeout
+            payload = {
+                "detail": {
+                    "error": "provider_error",
+                    "category": "retryable",
+                    "code": "provider_unavailable",
+                    "retryable": True,
+                    "message": "provider timeout",
+                }
+            }
+            raise urllib.error.HTTPError(
+                request.full_url,
+                503,
+                "service unavailable",
+                hdrs=None,
+                fp=io.BytesIO(json.dumps(payload).encode("utf-8")),
+            )
+
+        client = RuntimeExecutionClient(
+            base_url="http://runtime-execution.test",
+            _transport=transport,
+        )
+        with self.assertRaises(RuntimeExecutionClientError) as ctx:
+            client.worker_tick(auth_token="token-1")
+
+        exc = ctx.exception
+        self.assertEqual(exc.status_code, 503)
+        self.assertIsInstance(exc.detail, dict)
+        assert isinstance(exc.detail, dict)
+        self.assertEqual(exc.detail.get("code"), "provider_unavailable")
+        self.assertTrue(exc.retryable)
 
     def test_worker_loop_sends_query_parameters(self) -> None:
         captured: dict[str, str] = {}

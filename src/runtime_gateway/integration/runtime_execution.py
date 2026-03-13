@@ -22,10 +22,38 @@ class RuntimeExecutionClientError(RuntimeError):
         *,
         status_code: int | None = None,
         response_body: dict[str, Any] | None = None,
+        detail: Any = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.response_body = response_body
+        self.detail = detail
+
+    @property
+    def downstream_failure(self) -> dict[str, Any] | None:
+        if not isinstance(self.response_body, dict):
+            return None
+        payload = self.response_body.get("payload")
+        if not isinstance(payload, dict):
+            return None
+        failure = payload.get("failure")
+        if not isinstance(failure, dict):
+            return None
+        return failure
+
+    @property
+    def retryable(self) -> bool:
+        if isinstance(self.detail, dict):
+            detail_retryable = self.detail.get("retryable")
+            if isinstance(detail_retryable, bool):
+                return detail_retryable
+        failure = self.downstream_failure
+        if isinstance(failure, dict):
+            if str(failure.get("classification")) == "capacity":
+                return True
+            if str(failure.get("classification")) == "policy":
+                return False
+        return self.status_code in {408, 425, 429, 500, 502, 503, 504}
 
 
 def _try_parse_json_object(raw: str) -> dict[str, Any] | None:
@@ -38,6 +66,21 @@ def _try_parse_json_object(raw: str) -> dict[str, Any] | None:
     if isinstance(parsed, dict):
         return parsed
     return None
+
+
+def _summarize_detail(detail: Any, fallback_text: str) -> str:
+    if isinstance(detail, str) and detail.strip():
+        return detail.strip()
+    if isinstance(detail, dict):
+        category = detail.get("category")
+        code = detail.get("code")
+        message = detail.get("message")
+        parts = [str(item) for item in (category, code, message) if isinstance(item, str) and item]
+        if parts:
+            return " | ".join(parts)
+    if fallback_text:
+        return fallback_text
+    return "unknown error"
 
 
 def _build_request(
@@ -105,10 +148,13 @@ def _compose_url(
 
 def _parse_http_error(exc: urllib.error.HTTPError, url: str) -> RuntimeExecutionClientError:
     text = exc.read().decode("utf-8", errors="replace")
+    response_body = _try_parse_json_object(text)
+    detail = response_body.get("detail") if isinstance(response_body, dict) else None
     return RuntimeExecutionClientError(
-        f"HTTP {exc.code} calling {url}: {text}",
+        f"HTTP {exc.code} calling {url}: {_summarize_detail(detail, text)}",
         status_code=int(exc.code),
-        response_body=_try_parse_json_object(text),
+        response_body=response_body,
+        detail=detail,
     )
 
 
@@ -158,10 +204,13 @@ class RuntimeExecutionClient:
             raise RuntimeExecutionClientError(f"connection error calling {url}: {exc.reason}") from exc
 
         if status >= 400:
+            response_body = _try_parse_json_object(raw)
+            detail = response_body.get("detail") if isinstance(response_body, dict) else None
             raise RuntimeExecutionClientError(
-                f"HTTP {status} calling {url}",
+                f"HTTP {status} calling {url}: {_summarize_detail(detail, raw)}",
                 status_code=status,
-                response_body=_try_parse_json_object(raw),
+                response_body=response_body,
+                detail=detail,
             )
         return _parse_response_body(raw, url)
 
