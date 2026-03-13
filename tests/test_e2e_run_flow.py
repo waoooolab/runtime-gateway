@@ -1836,6 +1836,10 @@ class EndToEndRunFlowTests(unittest.TestCase):
         assert isinstance(detail, dict)
         second_run_id = str(detail.get("run_id"))
         self.assertEqual(detail.get("placement_reason_code"), "capacity_exhausted")
+        self.assertEqual(
+            detail.get("retry_policy"),
+            {"max_attempts": 1, "backoff_ms": 25, "strategy": "fixed"},
+        )
 
         second_status = self.gateway_client.get(
             f"/v1/runs/{second_run_id}",
@@ -1985,6 +1989,10 @@ class EndToEndRunFlowTests(unittest.TestCase):
         assert isinstance(detail, dict)
         second_run_id = str(detail.get("run_id"))
         self.assertEqual(detail.get("placement_reason_code"), "capacity_exhausted")
+        self.assertEqual(
+            detail.get("retry_policy"),
+            {"max_attempts": 2, "backoff_ms": 25, "strategy": "fixed"},
+        )
 
         for _ in range(6):
             scheduler_tick = self.gateway_client.post(
