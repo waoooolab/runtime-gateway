@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from runtime_gateway.auth.exchange import ExchangeError, exchange_subject_token
 from runtime_gateway.auth.tokens import TokenError, issue_token, verify_token
@@ -64,6 +65,28 @@ class TokenExchangeTests(unittest.TestCase):
         )
         with self.assertRaises(TokenError):
             verify_token(result["access_token"], audience="device-hub")
+
+    def test_issue_token_rejects_default_secret_in_strict_mode(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"WAOOOOLAB_STRICT_TOKEN_SECRET": "true"},
+            clear=True,
+        ):
+            with self.assertRaises(TokenError) as exc:
+                issue_token(
+                    {
+                        "iss": "runtime-gateway",
+                        "sub": "user:u1",
+                        "aud": "runtime-gateway",
+                        "tenant_id": "t1",
+                        "app_id": "covernow",
+                        "scope": ["runs:read"],
+                        "token_use": "access",
+                        "trace_id": "trace-root",
+                    },
+                    ttl_seconds=60,
+                )
+        self.assertIn("insecure default token secret", str(exc.exception))
 
 
 if __name__ == "__main__":
