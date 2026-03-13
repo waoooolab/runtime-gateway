@@ -123,6 +123,7 @@ def _build_downstream_error_detail(
     downstream_event_type: str,
     bus_seq: int | None,
     retryable: bool,
+    retry_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     detail: dict[str, Any] = {
         "message": message,
@@ -130,6 +131,8 @@ def _build_downstream_error_detail(
         "downstream_event_type": downstream_event_type,
         "retryable": retryable,
     }
+    if isinstance(retry_policy, dict) and retry_policy:
+        detail["retry_policy"] = dict(retry_policy)
     event_id = downstream_event.get("event_id")
     if isinstance(event_id, str) and event_id.strip():
         detail["downstream_event_id"] = event_id
@@ -303,6 +306,9 @@ def _submit_command(
                     downstream_event_type=downstream_event_type,
                     bus_seq=bus_seq,
                     retryable=exc.retryable,
+                    retry_policy=retry_policy_metadata.get("retry_policy")
+                    if isinstance(retry_policy_metadata.get("retry_policy"), dict)
+                    else None,
                 )
             except ValueError:
                 downstream_event_type = None

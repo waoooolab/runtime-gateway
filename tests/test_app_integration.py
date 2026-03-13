@@ -574,6 +574,10 @@ class AppIntegrationTests(unittest.TestCase):
             headers={"Authorization": f"Bearer {token}"},
         )
         self.assertEqual(response.status_code, 503)
+        detail = response.json().get("detail")
+        self.assertIsInstance(detail, dict)
+        assert isinstance(detail, dict)
+        self.assertEqual(detail.get("retry_policy"), payload["retry_policy"])
         audit_latest = get_audit_events(limit=1)[0]
         self.assertEqual(audit_latest["decision"], "deny")
         self.assertEqual(
@@ -631,6 +635,10 @@ class AppIntegrationTests(unittest.TestCase):
             {"eligible_devices": 1, "active_leases": 1, "available_slots": 0},
         )
         self.assertEqual(detail.get("retryable"), True)
+        self.assertEqual(
+            detail.get("retry_policy"),
+            {"max_attempts": 3, "backoff_ms": 250, "strategy": "fixed"},
+        )
         self.assertIn("HTTP 409", str(detail.get("message", "")))
 
         recent = self.client.get(
@@ -676,6 +684,10 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(detail.get("placement_reason_code"), "placement_throttled")
         self.assertEqual(detail.get("placement_event_type"), "device.route.rejected")
         self.assertEqual(detail.get("retryable"), True)
+        self.assertEqual(
+            detail.get("retry_policy"),
+            {"max_attempts": 3, "backoff_ms": 250, "strategy": "fixed"},
+        )
 
         recent = self.client.get(
             "/v1/events/recent",
