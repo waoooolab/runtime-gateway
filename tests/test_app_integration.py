@@ -448,6 +448,71 @@ class AppIntegrationTests(unittest.TestCase):
         assert self.fake_execution_client.last_submit is not None
         self.assertEqual(self.fake_execution_client.last_submit["envelope"]["trace_id"], "trace-1")
 
+    def test_runs_uses_default_retry_policy_when_not_provided(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        response = self.client.post(
+            "/v1/runs",
+            json=self.payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        assert self.fake_execution_client.last_submit is not None
+        self.assertEqual(
+            self.fake_execution_client.last_submit["envelope"]["retry_policy"],
+            {
+                "max_attempts": 3,
+                "backoff_ms": 250,
+                "strategy": "fixed",
+            },
+        )
+
+    def test_runs_propagates_custom_retry_policy_to_runtime_execution(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        payload = dict(self.payload)
+        payload["retry_policy"] = {
+            "max_attempts": 7,
+            "backoff_ms": 900,
+            "strategy": "exponential",
+        }
+        response = self.client.post(
+            "/v1/runs",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        assert self.fake_execution_client.last_submit is not None
+        self.assertEqual(
+            self.fake_execution_client.last_submit["envelope"]["retry_policy"],
+            payload["retry_policy"],
+        )
+
+    def test_runs_rejects_invalid_retry_policy_strategy(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        payload = dict(self.payload)
+        payload["retry_policy"] = {
+            "max_attempts": 3,
+            "backoff_ms": 250,
+            "strategy": "linear",
+        }
+        response = self.client.post(
+            "/v1/runs",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 422)
+        detail = response.json().get("detail")
+        self.assertIsInstance(detail, list)
+        assert isinstance(detail, list)
+        self.assertTrue(
+            any(
+                isinstance(item, dict)
+                and list(item.get("loc", []))[-1:] == ["strategy"]
+                and item.get("type") == "string_pattern_mismatch"
+                for item in detail
+            )
+        )
+        self.assertIsNone(self.fake_execution_client.last_submit)
+
     def test_runs_publish_downstream_event_to_gateway_event_bus(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["runs:write"])
         response = self.client.post(
