@@ -10,6 +10,7 @@ from runtime_gateway.contracts.validation import (
     validate_execution_context_contract,
     validate_executor_profile_catalog_contract,
     validate_orchestration_hints_contract,
+    validate_runtime_worker_drain_contract,
     validate_runtime_events_page_contract,
     validate_runtime_worker_health_contract,
     validate_runtime_worker_status_contract,
@@ -287,6 +288,89 @@ class ContractValidationTests(unittest.TestCase):
         }
         with self.assertRaises(ContractValidationError):
             validate_runtime_worker_health_contract(payload)
+
+    def test_runtime_worker_drain_contract_valid(self) -> None:
+        payload = {
+            "fair": True,
+            "auto_start": True,
+            "max_items": 4,
+            "processed": 2,
+            "queue_depth_before": 3,
+            "queue_depth_after": 1,
+            "remaining": 1,
+            "should_continue": False,
+            "outcome_counts": {"progressed": 2, "missing_run": 0, "skipped": 0},
+            "anomaly_counts": {"missing_run": 0, "skipped": 0, "total": 0},
+            "anomaly_ratio": 0.0,
+            "progressed_ratio": 1.0,
+            "stalled_signal": False,
+            "recommended_poll_after_ms": 1500,
+            "scheduling_signal": {
+                "queue_depth_before": 3,
+                "queue_depth_after": 1,
+                "processed": 2,
+                "max_items": 4,
+                "remaining": 1,
+                "should_continue": False,
+                "stalled_signal": False,
+                "anomaly_ratio": 0.0,
+                "recommended_poll_after_ms": 1500,
+            },
+            "outcomes": [
+                {
+                    "outcome": "progressed",
+                    "fair": True,
+                    "auto_start": True,
+                    "leased_run_id": "run-1",
+                    "recommended_poll_after_ms": 1500,
+                }
+            ],
+            "lease_renew_signal": {
+                "attempted": 1,
+                "renewed": 1,
+                "errors": 0,
+                "expired_conflicts": 0,
+                "released_conflicts": 0,
+                "last_observed_at": "2026-03-12T00:00:00Z",
+                "total_attempted": 4,
+                "total_renewed": 4,
+                "total_errors": 0,
+                "total_expired_conflicts": 0,
+                "total_released_conflicts": 0,
+            },
+        }
+        validate_runtime_worker_drain_contract(payload)
+
+    def test_runtime_worker_drain_contract_rejects_missing_outcomes(self) -> None:
+        payload = {
+            "fair": True,
+            "auto_start": True,
+            "max_items": 4,
+            "processed": 2,
+            "queue_depth_before": 3,
+            "queue_depth_after": 1,
+            "remaining": 1,
+            "should_continue": False,
+            "outcome_counts": {"progressed": 2, "missing_run": 0, "skipped": 0},
+            "anomaly_counts": {"missing_run": 0, "skipped": 0, "total": 0},
+            "anomaly_ratio": 0.0,
+            "progressed_ratio": 1.0,
+            "stalled_signal": False,
+            "recommended_poll_after_ms": 1500,
+            "scheduling_signal": {
+                "queue_depth_before": 3,
+                "queue_depth_after": 1,
+                "processed": 2,
+                "max_items": 4,
+                "remaining": 1,
+                "should_continue": False,
+                "stalled_signal": False,
+                "anomaly_ratio": 0.0,
+                "recommended_poll_after_ms": 1500,
+            },
+        }
+        with self.assertRaises(ContractValidationError):
+            validate_runtime_worker_drain_contract(payload)
 
     def test_runtime_worker_status_contract_valid(self) -> None:
         payload = {

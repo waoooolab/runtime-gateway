@@ -169,14 +169,64 @@ def test_worker_drain_happy_path(
     mock_execution_client: Mock, mock_token_exchange: Mock, auth_headers: dict[str, str]
 ) -> None:
     mock_execution_client.worker_drain.return_value = {
+        "fair": True,
+        "auto_start": True,
+        "max_items": 2,
         "processed": 2,
+        "queue_depth_before": 3,
+        "queue_depth_after": 1,
         "remaining": 1,
         "should_continue": True,
+        "anomaly_counts": {"missing_run": 0, "skipped": 0, "total": 0},
         "recommended_poll_after_ms": 250,
         "outcome_counts": {"progressed": 2, "missing_run": 0, "skipped": 0},
         "anomaly_ratio": 0.0,
         "progressed_ratio": 1.0,
         "stalled_signal": False,
+        "scheduling_signal": {
+            "queue_depth_before": 3,
+            "queue_depth_after": 1,
+            "processed": 2,
+            "max_items": 2,
+            "remaining": 1,
+            "should_continue": True,
+            "stalled_signal": False,
+            "anomaly_ratio": 0.0,
+            "recommended_poll_after_ms": 250,
+        },
+        "outcomes": [
+            {
+                "outcome": "progressed",
+                "fair": True,
+                "auto_start": True,
+                "leased_run_id": "run-1",
+                "before_status": "queued",
+                "after_status": "running",
+                "recommended_poll_after_ms": 1500,
+            },
+            {
+                "outcome": "progressed",
+                "fair": True,
+                "auto_start": True,
+                "leased_run_id": "run-2",
+                "before_status": "queued",
+                "after_status": "running",
+                "recommended_poll_after_ms": 1500,
+            },
+        ],
+        "lease_renew_signal": {
+            "attempted": 1,
+            "renewed": 1,
+            "errors": 0,
+            "expired_conflicts": 0,
+            "released_conflicts": 0,
+            "last_observed_at": "2026-03-12T03:01:02+00:00",
+            "total_attempted": 9,
+            "total_renewed": 7,
+            "total_errors": 2,
+            "total_expired_conflicts": 1,
+            "total_released_conflicts": 0,
+        },
     }
 
     client = TestClient(app)
@@ -189,8 +239,11 @@ def test_worker_drain_happy_path(
     assert payload["should_continue"] is True
     assert payload["recommended_poll_after_ms"] == 250
     assert payload["outcome_counts"]["progressed"] == 2
+    assert payload["anomaly_counts"]["total"] == 0
     assert payload["anomaly_ratio"] == 0.0
     assert payload["stalled_signal"] is False
+    assert payload["scheduling_signal"]["remaining"] == 1
+    assert len(payload["outcomes"]) == 2
     mock_execution_client.worker_drain.assert_called_once_with(
         auth_token="delegated-token",
         max_items=2,
@@ -571,6 +624,23 @@ def test_worker_health_rejects_invalid_downstream_contract(
     assert audit["action"] == "orchestration.worker_health"
     assert audit["decision"] == "deny"
     assert audit["metadata"]["validation_schema"] == "runtime/runtime-worker-health.v1.json"
+
+
+def test_worker_drain_rejects_invalid_downstream_contract(
+    mock_execution_client: Mock, mock_token_exchange: Mock, auth_headers: dict[str, str]
+) -> None:
+    _ = mock_token_exchange
+    mock_execution_client.worker_drain.return_value = {"processed": 2}
+
+    client = TestClient(app)
+    response = client.post("/v1/orchestration/worker:drain?max_items=2", headers=auth_headers)
+
+    assert response.status_code == 502
+    assert "invalid worker drain response" in response.text
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "orchestration.worker_drain"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["validation_schema"] == "runtime/runtime-worker-drain.v1.json"
 
 
 def test_worker_status_rejects_invalid_downstream_contract(
