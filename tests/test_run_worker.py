@@ -171,6 +171,41 @@ def test_worker_drain_happy_path(
     assert mock_token_exchange.call_args.kwargs["scope"] == ["runs:write"]
 
 
+def test_worker_loop_happy_path(
+    mock_execution_client: Mock, mock_token_exchange: Mock, auth_headers: dict[str, str]
+) -> None:
+    mock_execution_client.worker_loop.return_value = {
+        "scheduler_processed": 1,
+        "scheduler_promoted": 1,
+        "processed": 1,
+        "remaining": 0,
+        "recommended_poll_after_ms": 250,
+    }
+
+    client = TestClient(app)
+    response = client.post(
+        "/v1/orchestration/worker:loop?scheduler_max_items=4&scheduler_fair=false&worker_max_items=2&worker_fair=false&auto_start=false",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["scheduler_processed"] == 1
+    assert payload["scheduler_promoted"] == 1
+    assert payload["processed"] == 1
+    assert payload["recommended_poll_after_ms"] == 250
+    mock_execution_client.worker_loop.assert_called_once_with(
+        auth_token="delegated-token",
+        scheduler_max_items=4,
+        scheduler_fair=False,
+        worker_max_items=2,
+        worker_fair=False,
+        auto_start=False,
+    )
+    mock_token_exchange.assert_called_once()
+    assert mock_token_exchange.call_args.kwargs["scope"] == ["runs:write"]
+
+
 def test_worker_lifecycle_happy_path(
     mock_execution_client: Mock,
     mock_token_exchange: Mock,
@@ -464,6 +499,9 @@ def test_worker_endpoints_require_bearer_token() -> None:
     drain = client.post("/v1/orchestration/worker:drain")
     assert drain.status_code == 401
 
+    loop = client.post("/v1/orchestration/worker:loop")
+    assert loop.status_code == 401
+
     health = client.get("/v1/orchestration/worker:health")
     assert health.status_code == 401
 
@@ -490,6 +528,9 @@ def test_worker_endpoints_require_runs_write_scope() -> None:
 
     drain = client.post("/v1/orchestration/worker:drain", headers=headers)
     assert drain.status_code == 403
+
+    loop = client.post("/v1/orchestration/worker:loop", headers=headers)
+    assert loop.status_code == 403
 
     start = client.post("/v1/orchestration/worker:start", headers=headers)
     assert start.status_code == 403

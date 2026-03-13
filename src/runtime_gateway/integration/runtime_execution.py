@@ -282,6 +282,29 @@ class RuntimeExecutionClient:
             query={"max_items": max_items, "fair": fair, "auto_start": auto_start},
         )
 
+    def worker_loop(
+        self,
+        *,
+        auth_token: str,
+        scheduler_max_items: int = 32,
+        scheduler_fair: bool = True,
+        worker_max_items: int = 16,
+        worker_fair: bool = True,
+        auto_start: bool = True,
+    ) -> dict[str, Any]:
+        return self._post_json(
+            path="v1/orchestration/worker:loop",
+            auth_token=auth_token,
+            body={},
+            query={
+                "scheduler_max_items": scheduler_max_items,
+                "scheduler_fair": scheduler_fair,
+                "worker_max_items": worker_max_items,
+                "worker_fair": worker_fair,
+                "auto_start": auto_start,
+            },
+        )
+
     def worker_health(
         self,
         *,

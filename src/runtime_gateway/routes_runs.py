@@ -21,6 +21,7 @@ from .run_status import dispatch_get_run_status
 from .run_worker import (
     dispatch_worker_drain,
     dispatch_worker_health,
+    dispatch_worker_loop,
     dispatch_worker_restart,
     dispatch_worker_start,
     dispatch_worker_status,
@@ -220,6 +221,26 @@ def _register_worker_routes(
             execution_client=get_execution_client(),
             max_items=max_items,
             fair=fair,
+            auto_start=auto_start,
+        )
+
+    @app.post("/v1/orchestration/worker:loop")
+    def worker_loop(
+        scheduler_max_items: int = 32,
+        scheduler_fair: bool = True,
+        worker_max_items: int = 16,
+        worker_fair: bool = True,
+        auto_start: bool = True,
+        auth_context: AuthContext = Depends(require_runs_write_context),
+    ) -> dict[str, Any]:
+        return dispatch_worker_loop(
+            claims=auth_context.claims,
+            subject_token=auth_context.subject_token,
+            execution_client=get_execution_client(),
+            scheduler_max_items=scheduler_max_items,
+            scheduler_fair=scheduler_fair,
+            worker_max_items=worker_max_items,
+            worker_fair=worker_fair,
             auto_start=auto_start,
         )
 

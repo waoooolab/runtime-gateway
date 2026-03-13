@@ -135,6 +135,50 @@ class RuntimeExecutionClientTests(unittest.TestCase):
         assert exc.response_body is not None
         self.assertIn("max_items", str(exc.response_body.get("detail", "")))
 
+    def test_worker_loop_sends_query_parameters(self) -> None:
+        captured: dict[str, str] = {}
+
+        class _Response:
+            def getcode(self) -> int:
+                return 200
+
+            def read(self) -> bytes:
+                return b'{"scheduler_processed":1,"processed":1}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+                return None
+
+        def transport(request, timeout=10.0):
+            _ = timeout
+            captured["url"] = request.full_url
+            return _Response()
+
+        client = RuntimeExecutionClient(
+            base_url="http://runtime-execution.test",
+            _transport=transport,
+        )
+        payload = client.worker_loop(
+            auth_token="token-1",
+            scheduler_max_items=4,
+            scheduler_fair=False,
+            worker_max_items=2,
+            worker_fair=False,
+            auto_start=False,
+        )
+
+        self.assertEqual(payload["scheduler_processed"], 1)
+        self.assertEqual(payload["processed"], 1)
+        self.assertIn("/v1/orchestration/worker:loop?", captured["url"])
+        self.assertIn("scheduler_max_items=4", captured["url"])
+        self.assertIn("scheduler_fair=false", captured["url"])
+        self.assertIn("worker_max_items=2", captured["url"])
+        self.assertIn("worker_fair=false", captured["url"])
+        self.assertIn("auto_start=false", captured["url"])
+
     def test_worker_health_uses_get_method(self) -> None:
         captured: dict[str, str] = {}
 

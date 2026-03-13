@@ -290,6 +290,65 @@ def dispatch_worker_drain(
     return result
 
 
+def dispatch_worker_loop(
+    *,
+    claims: Mapping[str, Any],
+    subject_token: str,
+    execution_client: RuntimeExecutionClient,
+    scheduler_max_items: int = 32,
+    scheduler_fair: bool = True,
+    worker_max_items: int = 16,
+    worker_fair: bool = True,
+    auto_start: bool = True,
+) -> dict[str, Any]:
+    action = "orchestration.worker_loop"
+    trace_id = str(claims.get("trace_id", ""))
+    actor_id = str(claims.get("sub", "unknown"))
+    token = _exchange_runtime_execution_token(
+        action=action,
+        claims=claims,
+        subject_token=subject_token,
+        scope=["runs:write"],
+    )
+    try:
+        result = execution_client.worker_loop(
+            auth_token=token,
+            scheduler_max_items=scheduler_max_items,
+            scheduler_fair=scheduler_fair,
+            worker_max_items=worker_max_items,
+            worker_fair=worker_fair,
+            auto_start=auto_start,
+        )
+    except RuntimeExecutionClientError as exc:
+        detail: str | dict[str, Any] = str(exc)
+        if isinstance(exc.response_body, dict):
+            detail = _build_worker_error_detail(
+                message=str(exc),
+                status_code=exc.status_code or 502,
+                response_body=exc.response_body,
+            )
+        emit_audit_event(
+            action=action,
+            decision="deny",
+            actor_id=actor_id,
+            trace_id=trace_id,
+            metadata=_build_worker_error_audit_metadata(
+                reason=str(exc),
+                status_code=exc.status_code,
+                response_body=exc.response_body if isinstance(exc.response_body, dict) else None,
+            ),
+        )
+        raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
+    emit_audit_event(
+        action=action,
+        decision="allow",
+        actor_id=actor_id,
+        trace_id=trace_id,
+        metadata={"result": result},
+    )
+    return result
+
+
 def dispatch_worker_health(
     *,
     claims: Mapping[str, Any],
