@@ -8,6 +8,7 @@ from typing import Any
 from .tokens import TokenError, issue_token, verify_token
 
 ALLOWED_TOKEN_USES = {"service", "device", "exchange"}
+ALLOWED_SUBJECT_TOKEN_USES = {"access", "service", "exchange"}
 
 
 class ExchangeError(ValueError):
@@ -59,6 +60,21 @@ def _verify_parent_claims(subject_token: str) -> dict[str, Any]:
         raise ExchangeError(401, f"invalid subject token: {exc}") from exc
 
 
+def _validate_parent_claims(parent_claims: dict[str, Any]) -> None:
+    for field in ("tenant_id", "app_id", "trace_id"):
+        value = parent_claims.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise ExchangeError(401, f"invalid subject token claims: missing {field}")
+    token_use = parent_claims.get("token_use")
+    if not isinstance(token_use, str) or not token_use.strip():
+        raise ExchangeError(401, "invalid subject token claims: missing token_use")
+    if token_use.strip().lower() not in ALLOWED_SUBJECT_TOKEN_USES:
+        raise ExchangeError(
+            401,
+            f"invalid subject token claims: unsupported token_use '{token_use}'",
+        )
+
+
 def _delegated_claims(
     *,
     parent_claims: dict[str, Any],
@@ -104,6 +120,7 @@ def _exchange_subject_token(params: ExchangeSubjectParams) -> dict[str, Any]:
         audience=params.audience,
     )
     parent_claims = _verify_parent_claims(params.subject_token)
+    _validate_parent_claims(parent_claims)
     parent_scope = parent_claims.get("scope", [])
     if not isinstance(parent_scope, list):
         parent_scope = []
