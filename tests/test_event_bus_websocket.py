@@ -549,6 +549,14 @@ class EventBusWebsocketTests(unittest.TestCase):
             ):
                 pass
 
+    def test_websocket_rejects_invalid_source(self) -> None:
+        ws_token = self._token(scope=["runs:read"])
+        with self.assertRaises(WebSocketDisconnect):
+            with self.client.websocket_connect(
+                f"/v1/ws/events?access_token={ws_token}&tenant_id=t1&app_id=covernow&source=unknown"
+            ):
+                pass
+
     def test_websocket_can_filter_by_run_id(self) -> None:
         ws_token = self._token(scope=["runs:read"])
         publish_token = self._token(scope=["runs:write"])
@@ -577,6 +585,37 @@ class EventBusWebsocketTests(unittest.TestCase):
             event = ws.receive_json()
             self.assertEqual(event["event"]["event_type"], "runtime.run.status")
             self.assertEqual(event["event"]["payload"]["run_id"], "run-123")
+
+    def test_websocket_can_replay_durable_source_after_memory_reset(self) -> None:
+        ws_token = self._token(scope=["runs:read"])
+        publish_token = self._token(scope=["runs:write"])
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["RUNTIME_GATEWAY_EVENT_LOG_PATH"] = os.path.join(
+                tmp, "events", "runtime-events.ndjson"
+            )
+            self.client.post(
+                "/v1/events/publish",
+                json=_event_envelope("runtime.run.started", run_id="run-ws-durable"),
+                headers={"Authorization": f"Bearer {publish_token}"},
+            )
+            self.client.post(
+                "/v1/events/publish",
+                json=_event_envelope("runtime.run.completed", run_id="run-ws-durable"),
+                headers={"Authorization": f"Bearer {publish_token}"},
+            )
+            gateway_app_module._event_bus.clear()
+
+            with self.client.websocket_connect(
+                f"/v1/ws/events?access_token={ws_token}&tenant_id=t1&app_id=covernow&source=durable&run_id=run-ws-durable&cursor=0"
+            ) as ws:
+                ready = ws.receive_json()
+                self.assertEqual(ready["kind"], "ws.ready")
+                self.assertEqual(ready["source"], "durable")
+
+                first = ws.receive_json()
+                second = ws.receive_json()
+                self.assertEqual(first["event"]["event_type"], "runtime.run.started")
+                self.assertEqual(second["event"]["event_type"], "runtime.run.completed")
 
 
 if __name__ == "__main__":

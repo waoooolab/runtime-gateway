@@ -9,6 +9,7 @@ from fastapi import WebSocket, WebSocketDisconnect, status
 
 from .auth.tokens import TokenError, verify_token
 from .events.bus import InMemoryEventBus
+from .events.durable import read_event_page
 from .security import EVENT_SCOPE_READ, scope_contains
 
 
@@ -42,6 +43,13 @@ def _parse_cursor(raw: str) -> int:
         return 0
 
 
+def _parse_source(raw: str | None) -> str:
+    value = (raw or "memory").strip().lower()
+    if value not in {"memory", "durable"}:
+        raise ValueError("source must be one of: memory, durable")
+    return value
+
+
 def _resolve_query_scope(
     *,
     field: str,
@@ -59,7 +67,7 @@ def _resolve_query_scope(
 
 def _websocket_filters(
     websocket: WebSocket, claims: dict[str, Any]
-) -> tuple[str, str, set[str] | None, str | None, int]:
+) -> tuple[str, str, set[str] | None, str | None, int, str]:
     tenant_id = _resolve_query_scope(
         field="tenant_id",
         query_value=websocket.query_params.get("tenant_id"),
@@ -73,7 +81,8 @@ def _websocket_filters(
     event_types = _parse_event_types(websocket.query_params.get("event_types"))
     run_id = _parse_optional_str(websocket.query_params.get("run_id"))
     cursor = _parse_cursor(websocket.query_params.get("cursor", "0"))
-    return tenant_id, app_id, event_types, run_id, cursor
+    source = _parse_source(websocket.query_params.get("source"))
+    return tenant_id, app_id, event_types, run_id, cursor, source
 
 
 async def _send_ready(
@@ -83,12 +92,14 @@ async def _send_ready(
     tenant_id: str,
     app_id: str,
     run_id: str | None,
+    source: str,
 ) -> None:
     payload: dict[str, Any] = {
         "kind": "ws.ready",
         "cursor": cursor,
         "tenant_id": tenant_id,
         "app_id": app_id,
+        "source": source,
         "stats": event_bus.stats(),
     }
     if run_id is not None:
@@ -131,6 +142,40 @@ async def _wait_keepalive(websocket: WebSocket, cursor: int) -> bool:
     return True
 
 
+async def _replay_durable_records(
+    *,
+    websocket: WebSocket,
+    cursor: int,
+    tenant_id: str,
+    app_id: str,
+    event_types: set[str] | None,
+    run_id: str | None,
+) -> int:
+    next_cursor = cursor
+    while True:
+        page = read_event_page(
+            limit=200,
+            tenant_id=tenant_id,
+            app_id=app_id,
+            event_types=event_types,
+            run_id=run_id,
+            since_ts=None,
+            cursor=next_cursor,
+        )
+        items = page.get("items", [])
+        if not isinstance(items, list) or not items:
+            return next_cursor
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            bus_seq = item.get("bus_seq")
+            if isinstance(bus_seq, int):
+                next_cursor = max(next_cursor, bus_seq)
+            await websocket.send_json(item)
+        if not bool(page.get("has_more", False)):
+            return next_cursor
+
+
 async def handle_websocket_events(websocket: WebSocket, event_bus: InMemoryEventBus) -> None:
     token = _websocket_token(websocket)
     if not token:
@@ -148,7 +193,7 @@ async def handle_websocket_events(websocket: WebSocket, event_bus: InMemoryEvent
         return
 
     try:
-        tenant_id, app_id, event_types, run_id, cursor = _websocket_filters(websocket, claims)
+        tenant_id, app_id, event_types, run_id, cursor, source = _websocket_filters(websocket, claims)
     except ValueError as exc:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=str(exc))
         return
@@ -156,7 +201,19 @@ async def handle_websocket_events(websocket: WebSocket, event_bus: InMemoryEvent
     await websocket.accept()
     event_bus.open_connection()
     try:
-        await _send_ready(websocket, event_bus, cursor, tenant_id, app_id, run_id)
+        await _send_ready(websocket, event_bus, cursor, tenant_id, app_id, run_id, source)
+        if source == "durable":
+            cursor = await _replay_durable_records(
+                websocket=websocket,
+                cursor=cursor,
+                tenant_id=tenant_id,
+                app_id=app_id,
+                event_types=event_types,
+                run_id=run_id,
+            )
+            stats = event_bus.stats()
+            next_seq = int(stats.get("next_seq", 1))
+            cursor = max(0, next_seq - 1)
         while True:
             cursor = await _push_records(
                 websocket,
