@@ -1651,6 +1651,10 @@ class EndToEndRunFlowTests(unittest.TestCase):
         )
         self.assertEqual(second_status.status_code, 200)
         self.assertEqual(second_status.json()["payload"]["status"], "queued")
+        self.assertEqual(
+            second_status.json()["payload"]["orchestration"]["failure_reason_code"],
+            "capacity_exhausted",
+        )
 
         cancel_first = self.gateway_client.post(
             f"/v1/runs/{first_run_id}:cancel",
@@ -1684,6 +1688,16 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(second_run.status.value, "running")
         self.assertEqual(second_run.device_lease_state, "active")
         self.assertIsInstance(second_run.device_lease_id, str)
+        recovered_status = self.gateway_client.get(
+            f"/v1/runs/{second_run_id}",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(recovered_status.status_code, 200)
+        self.assertEqual(recovered_status.json()["payload"]["status"], "running")
+        self.assertNotIn(
+            "failure_reason_code",
+            recovered_status.json()["payload"]["orchestration"],
+        )
 
     def test_gateway_cancel_expires_device_hub_lease_e2e(self) -> None:
         if not DEVICE_HUB_AVAILABLE:
