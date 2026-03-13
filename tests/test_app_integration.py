@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from runtime_gateway.audit.emitter import clear_audit_events
+from runtime_gateway.audit.emitter import clear_audit_events, get_audit_events
 from runtime_gateway.auth.tokens import issue_token
 from runtime_gateway.integration import RuntimeExecutionClientError
 
@@ -83,6 +83,9 @@ class _FakeExecutionClientRejected:
                     "message": "no eligible device",
                     "classification": "capacity",
                     "details": ["compute route dispatch failed"],
+                },
+                "scheduling_signal": {
+                    "recommended_poll_after_ms": 1200,
                 },
             },
         }
@@ -376,6 +379,10 @@ class AppIntegrationTests(unittest.TestCase):
         assert isinstance(failure, dict)
         self.assertEqual(failure.get("code"), "no_eligible_device")
         self.assertEqual(failure.get("classification"), "capacity")
+        self.assertEqual(detail.get("failure_code"), "no_eligible_device")
+        self.assertEqual(detail.get("failure_classification"), "capacity")
+        self.assertEqual(detail.get("failure_message"), "no eligible device")
+        self.assertEqual(detail.get("recommended_poll_after_ms"), 1200)
         self.assertIn("HTTP 409", str(detail.get("message", "")))
 
         recent = self.client.get(
@@ -386,6 +393,13 @@ class AppIntegrationTests(unittest.TestCase):
         items = recent.json()["items"]
         self.assertGreaterEqual(len(items), 1)
         self.assertEqual(items[-1]["event"]["event_type"], "runtime.route.failed")
+
+        audit_latest = get_audit_events(limit=1)[0]
+        self.assertEqual(audit_latest["action"], "runs.dispatch")
+        self.assertEqual(audit_latest["decision"], "deny")
+        self.assertEqual(audit_latest["metadata"]["failure_code"], "no_eligible_device")
+        self.assertEqual(audit_latest["metadata"]["failure_classification"], "capacity")
+        self.assertEqual(audit_latest["metadata"]["recommended_poll_after_ms"], 1200)
 
 
 if __name__ == "__main__":

@@ -144,10 +144,38 @@ def _build_downstream_error_detail(
         decision = payload.get("decision")
         if isinstance(decision, dict):
             detail["decision"] = decision
+    detail.update(_extract_route_failure_metadata(downstream_event))
 
     if bus_seq is not None:
         detail["bus_seq"] = bus_seq
     return detail
+
+
+def _extract_route_failure_metadata(downstream_event: Mapping[str, Any]) -> dict[str, Any]:
+    payload = downstream_event.get("payload")
+    if not isinstance(payload, dict):
+        return {}
+
+    metadata: dict[str, Any] = {}
+    failure = payload.get("failure")
+    if isinstance(failure, dict):
+        failure_code = failure.get("code")
+        if isinstance(failure_code, str) and failure_code.strip():
+            metadata["failure_code"] = failure_code
+        failure_classification = failure.get("classification")
+        if isinstance(failure_classification, str) and failure_classification.strip():
+            metadata["failure_classification"] = failure_classification
+        failure_message = failure.get("message")
+        if isinstance(failure_message, str) and failure_message.strip():
+            metadata["failure_message"] = failure_message
+
+    scheduling_signal = payload.get("scheduling_signal")
+    if isinstance(scheduling_signal, dict):
+        recommended_poll_after_ms = scheduling_signal.get("recommended_poll_after_ms")
+        if isinstance(recommended_poll_after_ms, int) and recommended_poll_after_ms >= 0:
+            metadata["recommended_poll_after_ms"] = recommended_poll_after_ms
+
+    return metadata
 
 
 def _exchange_runtime_execution_token(
@@ -194,12 +222,14 @@ def _submit_command(
     except RuntimeExecutionClientError as exc:
         downstream_event_type = None
         bus_seq = None
+        route_failure_metadata: dict[str, Any] = {}
         detail: str | dict[str, Any] = str(exc)
         if isinstance(exc.response_body, dict):
             try:
                 validate_event_envelope(exc.response_body)
                 downstream_event_type = str(exc.response_body.get("event_type", ""))
                 bus_seq = publish_gateway_event(exc.response_body)
+                route_failure_metadata = _extract_route_failure_metadata(exc.response_body)
                 detail = _build_downstream_error_detail(
                     message=str(exc),
                     status_code=exc.status_code or 502,
@@ -211,17 +241,19 @@ def _submit_command(
                 downstream_event_type = None
                 bus_seq = None
 
+        audit_metadata: dict[str, Any] = {
+            "reason": str(exc),
+            "status_code": exc.status_code,
+            "downstream_event_type": downstream_event_type,
+            "bus_seq": bus_seq,
+        }
+        audit_metadata.update(route_failure_metadata)
         emit_audit_event(
             action="runs.dispatch",
             decision="deny",
             actor_id=actor_id,
             trace_id=trace_id,
-            metadata={
-                "reason": str(exc),
-                "status_code": exc.status_code,
-                "downstream_event_type": downstream_event_type,
-                "bus_seq": bus_seq,
-            },
+            metadata=audit_metadata,
         )
         raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
 
