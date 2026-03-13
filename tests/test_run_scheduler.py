@@ -108,6 +108,8 @@ def test_scheduler_enqueue_tick_health_happy_path(
         due_at=None,
         delay_ms=0,
         reason="manual",
+        misfire_policy=None,
+        misfire_grace_ms=None,
     )
 
     tick = client.post(
@@ -193,3 +195,43 @@ def test_scheduler_endpoints_scope_requirements() -> None:
 
     health = client.get("/v1/orchestration/scheduler:health", headers=write_headers)
     assert health.status_code == 403
+
+
+def test_scheduler_enqueue_forwards_misfire_settings(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    _ = mock_token_exchange
+    mock_execution_client.scheduler_enqueue.return_value = {
+        "run_id": "run-misfire-1",
+        "scheduler_depth": 1,
+        "misfire_policy": "skip",
+        "misfire_grace_ms": 500,
+        "recommended_poll_after_ms": 250,
+    }
+
+    client = TestClient(app)
+    response = client.post(
+        "/v1/orchestration/scheduler:enqueue",
+        json={
+            "run_id": "run-misfire-1",
+            "due_at": "2026-03-13T00:00:00+00:00",
+            "misfire_policy": "skip",
+            "misfire_grace_ms": 500,
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["misfire_policy"] == "skip"
+    assert payload["misfire_grace_ms"] == 500
+    mock_execution_client.scheduler_enqueue.assert_called_once_with(
+        auth_token="delegated-token",
+        run_id="run-misfire-1",
+        due_at="2026-03-13T00:00:00+00:00",
+        delay_ms=None,
+        reason=None,
+        misfire_policy="skip",
+        misfire_grace_ms=500,
+    )

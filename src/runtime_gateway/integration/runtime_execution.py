@@ -349,6 +349,8 @@ class RuntimeExecutionClient:
         due_at: str | None = None,
         delay_ms: int | None = None,
         reason: str | None = None,
+        misfire_policy: str | None = None,
+        misfire_grace_ms: int | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {"run_id": run_id}
         if due_at is not None:
@@ -357,6 +359,10 @@ class RuntimeExecutionClient:
             body["delay_ms"] = delay_ms
         if reason is not None:
             body["reason"] = reason
+        if misfire_policy is not None:
+            body["misfire_policy"] = misfire_policy
+        if misfire_grace_ms is not None:
+            body["misfire_grace_ms"] = misfire_grace_ms
         return self._post_json(
             path="v1/orchestration/scheduler:enqueue",
             auth_token=auth_token,

@@ -321,6 +321,46 @@ class RuntimeExecutionClientTests(unittest.TestCase):
         self.assertIn('"delay_ms":100', captured["body"])
         self.assertIn('"reason":"manual"', captured["body"])
 
+    def test_scheduler_enqueue_posts_misfire_settings_when_provided(self) -> None:
+        captured: dict[str, str] = {}
+
+        class _Response:
+            def getcode(self) -> int:
+                return 200
+
+            def read(self) -> bytes:
+                return b'{"run_id":"run-misfire-1","scheduler_depth":1}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+                return None
+
+        def transport(request, timeout=10.0):
+            _ = timeout
+            captured["url"] = request.full_url
+            captured["method"] = request.get_method()
+            captured["body"] = request.data.decode("utf-8")
+            return _Response()
+
+        client = RuntimeExecutionClient(base_url="http://runtime-execution.test", _transport=transport)
+        payload = client.scheduler_enqueue(
+            auth_token="token-1",
+            run_id="run-misfire-1",
+            due_at="2026-03-13T00:00:00+00:00",
+            misfire_policy="skip",
+            misfire_grace_ms=250,
+        )
+        self.assertEqual(payload["run_id"], "run-misfire-1")
+        self.assertIn("/v1/orchestration/scheduler:enqueue", captured["url"])
+        self.assertEqual(captured["method"], "POST")
+        self.assertIn('"run_id":"run-misfire-1"', captured["body"])
+        self.assertIn('"due_at":"2026-03-13T00:00:00+00:00"', captured["body"])
+        self.assertIn('"misfire_policy":"skip"', captured["body"])
+        self.assertIn('"misfire_grace_ms":250', captured["body"])
+
     def test_scheduler_tick_sends_query_parameters(self) -> None:
         captured: dict[str, str] = {}
 

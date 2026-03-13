@@ -58,10 +58,13 @@ def _build_scheduler_error_detail(
     for key in (
         "run_id",
         "due_at",
+        "misfire_policy",
+        "misfire_grace_ms",
         "max_items",
         "processed",
         "promoted",
         "deferred",
+        "misfired",
         "scheduler_depth",
         "scheduler_depth_before",
         "scheduler_depth_after",
@@ -95,10 +98,13 @@ def _build_scheduler_error_audit_metadata(
     for key in (
         "run_id",
         "due_at",
+        "misfire_policy",
+        "misfire_grace_ms",
         "max_items",
         "processed",
         "promoted",
         "deferred",
+        "misfired",
         "scheduler_depth",
         "scheduler_depth_before",
         "scheduler_depth_after",
@@ -107,6 +113,7 @@ def _build_scheduler_error_audit_metadata(
         "next_due_in_ms",
         "should_continue",
         "recommended_poll_after_ms",
+        "misfired_total",
     ):
         value = response_body.get(key)
         if value is not None:
@@ -123,6 +130,8 @@ def dispatch_scheduler_enqueue(
     due_at: str | None = None,
     delay_ms: int | None = None,
     reason: str | None = None,
+    misfire_policy: str | None = None,
+    misfire_grace_ms: int | None = None,
 ) -> dict[str, Any]:
     action = "orchestration.scheduler_enqueue"
     trace_id = str(claims.get("trace_id", ""))
@@ -140,6 +149,8 @@ def dispatch_scheduler_enqueue(
             due_at=due_at,
             delay_ms=delay_ms,
             reason=reason,
+            misfire_policy=misfire_policy,
+            misfire_grace_ms=misfire_grace_ms,
         )
     except RuntimeExecutionClientError as exc:
         detail: str | dict[str, Any] = str(exc)

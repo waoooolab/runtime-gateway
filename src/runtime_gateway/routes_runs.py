@@ -302,6 +302,13 @@ def _register_scheduler_routes(
         delay_ms = payload.get("delay_ms")
         reason_value = payload.get("reason")
         reason = str(reason_value).strip() if isinstance(reason_value, str) else None
+        misfire_policy_value = payload.get("misfire_policy")
+        misfire_policy = (
+            str(misfire_policy_value).strip()
+            if isinstance(misfire_policy_value, str)
+            else None
+        )
+        misfire_grace_ms = payload.get("misfire_grace_ms")
         return dispatch_scheduler_enqueue(
             claims=auth_context.claims,
             subject_token=auth_context.subject_token,
@@ -310,6 +317,10 @@ def _register_scheduler_routes(
             due_at=due_at or None,
             delay_ms=delay_ms if isinstance(delay_ms, int) else delay_ms,
             reason=reason or None,
+            misfire_policy=misfire_policy or None,
+            misfire_grace_ms=misfire_grace_ms
+            if isinstance(misfire_grace_ms, int)
+            else misfire_grace_ms,
         )
 
     @app.post("/v1/orchestration/scheduler:tick")
