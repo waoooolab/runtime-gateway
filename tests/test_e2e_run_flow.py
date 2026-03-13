@@ -1287,11 +1287,11 @@ class EndToEndRunFlowTests(unittest.TestCase):
             },
             headers={"Authorization": f"Bearer {write_token}"},
         )
-        self.assertEqual(second.status_code, 409)
+        self.assertEqual(second.status_code, 503)
         detail = second.json().get("detail")
         self.assertIsInstance(detail, dict)
         assert isinstance(detail, dict)
-        self.assertEqual(detail.get("status_code"), 409)
+        self.assertEqual(detail.get("status_code"), 503)
         self.assertEqual(detail.get("downstream_event_type"), "runtime.route.failed")
         failure = detail.get("failure")
         self.assertIsInstance(failure, dict)
@@ -1304,7 +1304,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
             detail.get("placement_resource_snapshot"),
             {"tenant_id": "t1", "tenant_active_leases": 1, "tenant_limit": 1},
         )
-        self.assertIn("HTTP 409", str(detail.get("message", "")))
+        self.assertIn("HTTP 503", str(detail.get("message", "")))
 
         run_ids_after_second = set(execution_app_module._runtime.runs.keys())
         rejected_run_ids = run_ids_after_second - run_ids_before_second
@@ -1448,11 +1448,11 @@ class EndToEndRunFlowTests(unittest.TestCase):
             },
             headers={"Authorization": f"Bearer {write_token}"},
         )
-        self.assertEqual(second.status_code, 409)
+        self.assertEqual(second.status_code, 503)
         detail = second.json().get("detail")
         self.assertIsInstance(detail, dict)
         assert isinstance(detail, dict)
-        self.assertEqual(detail.get("status_code"), 409)
+        self.assertEqual(detail.get("status_code"), 503)
         self.assertEqual(detail.get("downstream_event_type"), "runtime.route.failed")
         failure = detail.get("failure")
         self.assertIsInstance(failure, dict)
