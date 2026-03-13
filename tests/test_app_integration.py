@@ -51,6 +51,38 @@ class _FakeExecutionClient:
 
 
 @dataclass
+class _FakeExecutionClientComputeAccepted:
+    def submit_command(self, *, envelope: dict, auth_token: str) -> dict:
+        _ = auth_token
+        return {
+            "event_id": "evt-run-compute-1",
+            "event_type": "runtime.run.requested",
+            "tenant_id": str(envelope["tenant_id"]),
+            "app_id": str(envelope["app_id"]),
+            "session_key": str(envelope["session_key"]),
+            "trace_id": str(envelope["trace_id"]),
+            "correlation_id": str(envelope["command_id"]),
+            "ts": "2026-03-01T12:00:00+00:00",
+            "payload": {
+                "run_id": "run-test-compute",
+                "status": "queued",
+                "retry_attempts": 0,
+                "route": {
+                    "event_type": "runtime.route.decided",
+                    "execution_mode": "compute",
+                    "route_target": "device-hub",
+                    "placement_event_type": "device.lease.acquired",
+                    "placement_reason_code": "local_preference_fallback",
+                    "placement_reason": "no local device has free capacity; fallback to non-local device",
+                    "placement_score": 0.42,
+                    "placement_queue_depth": 3,
+                    "placement_resource_snapshot": {"queue_depth": 3},
+                },
+            },
+        }
+
+
+@dataclass
 class _FakeExecutionClientRejected:
     def submit_command(self, *, envelope: dict, auth_token: str) -> dict:
         _ = auth_token
@@ -262,6 +294,27 @@ class AppIntegrationTests(unittest.TestCase):
         data = response.json()
         self.assertIn("run_id", data)
         self.assertEqual(data["status"], "queued")
+
+    def test_runs_allow_audit_includes_compute_route_metadata(self) -> None:
+        gateway_app_module._execution_client = _FakeExecutionClientComputeAccepted()
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        response = self.client.post(
+            "/v1/runs",
+            json=self.payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+
+        audit_latest = get_audit_events(limit=1)[0]
+        self.assertEqual(audit_latest["action"], "runs.dispatch")
+        self.assertEqual(audit_latest["decision"], "allow")
+        metadata = audit_latest["metadata"]
+        self.assertEqual(metadata["execution_mode"], "compute")
+        self.assertEqual(metadata["route_target"], "device-hub")
+        self.assertEqual(metadata["placement_event_type"], "device.lease.acquired")
+        self.assertEqual(metadata["placement_reason_code"], "local_preference_fallback")
+        self.assertEqual(metadata["placement_queue_depth"], 3)
+        self.assertEqual(metadata["placement_resource_snapshot"], {"queue_depth": 3})
 
     def test_runs_rejects_invalid_execution_context(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["runs:write"])

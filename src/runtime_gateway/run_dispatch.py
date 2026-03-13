@@ -339,19 +339,56 @@ def _build_dispatch_response(
 ) -> CreateRunResponse:
     bus_seq = publish_gateway_event(execution_event)
     run_id, status = _extract_run_result(execution_event)
+    route_success_metadata = _extract_route_success_metadata(execution_event)
+    audit_metadata: dict[str, Any] = {
+        "run_id": run_id,
+        "status": status,
+        "downstream_event_type": execution_event.get("event_type"),
+        "bus_seq": bus_seq,
+    }
+    audit_metadata.update(route_success_metadata)
     emit_audit_event(
         action="runs.dispatch",
         decision="allow",
         actor_id=actor_id,
         trace_id=trace_id,
-        metadata={
-            "run_id": run_id,
-            "status": status,
-            "downstream_event_type": execution_event.get("event_type"),
-            "bus_seq": bus_seq,
-        },
+        metadata=audit_metadata,
     )
     return CreateRunResponse(run_id=run_id, status=status)
+
+
+def _extract_route_success_metadata(execution_event: Mapping[str, Any]) -> dict[str, Any]:
+    payload = execution_event.get("payload")
+    if not isinstance(payload, dict):
+        return {}
+    route = payload.get("route")
+    if not isinstance(route, dict):
+        return {}
+
+    metadata: dict[str, Any] = {}
+    for key in (
+        "execution_mode",
+        "route_target",
+        "placement_event_type",
+        "placement_reason_code",
+        "placement_reason",
+    ):
+        value = route.get(key)
+        if isinstance(value, str) and value.strip():
+            metadata[key] = value
+
+    placement_score = route.get("placement_score")
+    if isinstance(placement_score, (int, float)) and not isinstance(placement_score, bool):
+        metadata["placement_score"] = float(placement_score)
+
+    queue_depth = route.get("placement_queue_depth")
+    if isinstance(queue_depth, int) and queue_depth >= 0:
+        metadata["placement_queue_depth"] = queue_depth
+
+    snapshot = _filter_resource_snapshot(route.get("placement_resource_snapshot"))
+    if isinstance(snapshot, dict) and snapshot:
+        metadata["placement_resource_snapshot"] = snapshot
+    return metadata
 
 
 def dispatch_create_run(
