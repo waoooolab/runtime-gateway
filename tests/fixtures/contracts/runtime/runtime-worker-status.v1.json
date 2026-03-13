@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://waoooolab.dev/contracts/runtime/runtime-worker-status.v1.json",
+  "title": "RuntimeWorkerStatusV1",
+  "description": "Worker lifecycle status projection for runtime orchestration status endpoints.",
+  "type": "object",
+  "required": [
+    "lifecycle_state",
+    "is_running",
+    "lifecycle_health",
+    "queue_depth",
+    "last_transition",
+    "last_transition_at",
+    "last_heartbeat_at",
+    "last_heartbeat_age_seconds",
+    "is_heartbeat_stale",
+    "ticks_total",
+    "drain_calls_total",
+    "start_total",
+    "stop_total",
+    "restart_total",
+    "recommended_poll_after_ms"
+  ],
+  "properties": {
+    "lifecycle_state": {
+      "type": "string",
+      "enum": [
+        "running",
+        "stopped"
+      ]
+    },
+    "is_running": {
+      "type": "boolean"
+    },
+    "lifecycle_health": {
+      "type": "string",
+      "enum": [
+        "healthy",
+        "degraded",
+        "stopped"
+      ]
+    },
+    "queue_depth": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "last_transition": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "start",
+        "stop",
+        "restart",
+        null
+      ]
+    },
+    "last_transition_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "last_heartbeat_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "last_heartbeat_age_seconds": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "is_heartbeat_stale": {
+      "type": "boolean"
+    },
+    "ticks_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "drain_calls_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "start_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "stop_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "restart_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "recommended_poll_after_ms": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 60000
+    }
+  },
+  "additionalProperties": true
+}

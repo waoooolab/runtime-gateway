@@ -12,6 +12,7 @@ from runtime_gateway.contracts.validation import (
     validate_orchestration_hints_contract,
     validate_runtime_events_page_contract,
     validate_runtime_worker_health_contract,
+    validate_runtime_worker_status_contract,
     validate_token_exchange_contract,
 )
 from runtime_gateway.events.envelope import build_event_envelope
@@ -286,6 +287,47 @@ class ContractValidationTests(unittest.TestCase):
         }
         with self.assertRaises(ContractValidationError):
             validate_runtime_worker_health_contract(payload)
+
+    def test_runtime_worker_status_contract_valid(self) -> None:
+        payload = {
+            "lifecycle_state": "running",
+            "is_running": True,
+            "lifecycle_health": "healthy",
+            "queue_depth": 0,
+            "last_transition": "start",
+            "last_transition_at": "2026-03-12T00:00:00Z",
+            "last_heartbeat_at": "2026-03-12T00:00:00Z",
+            "last_heartbeat_age_seconds": 0.5,
+            "is_heartbeat_stale": False,
+            "ticks_total": 3,
+            "drain_calls_total": 1,
+            "start_total": 1,
+            "stop_total": 0,
+            "restart_total": 0,
+            "recommended_poll_after_ms": 5000,
+        }
+        validate_runtime_worker_status_contract(payload)
+
+    def test_runtime_worker_status_contract_rejects_invalid_lifecycle_health(self) -> None:
+        payload = {
+            "lifecycle_state": "running",
+            "is_running": True,
+            "lifecycle_health": "stalled",
+            "queue_depth": 0,
+            "last_transition": "start",
+            "last_transition_at": "2026-03-12T00:00:00Z",
+            "last_heartbeat_at": "2026-03-12T00:00:00Z",
+            "last_heartbeat_age_seconds": 0.5,
+            "is_heartbeat_stale": False,
+            "ticks_total": 3,
+            "drain_calls_total": 1,
+            "start_total": 1,
+            "stop_total": 0,
+            "restart_total": 0,
+            "recommended_poll_after_ms": 5000,
+        }
+        with self.assertRaises(ContractValidationError):
+            validate_runtime_worker_status_contract(payload)
 
 
 if __name__ == "__main__":

@@ -8,7 +8,11 @@ from fastapi import HTTPException
 
 from .audit.emitter import emit_audit_event
 from .auth.exchange import ExchangeError, exchange_subject_token
-from .contracts import ContractValidationError, validate_runtime_worker_health_contract
+from .contracts import (
+    ContractValidationError,
+    validate_runtime_worker_health_contract,
+    validate_runtime_worker_status_contract,
+)
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
 
 
@@ -596,6 +600,22 @@ def dispatch_worker_status(
             ),
         )
         raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
+
+    try:
+        validate_runtime_worker_status_contract(result)
+    except ContractValidationError as exc:
+        emit_audit_event(
+            action=action,
+            decision="deny",
+            actor_id=actor_id,
+            trace_id=trace_id,
+            metadata={
+                "reason": str(exc),
+                "validation_schema": "runtime/runtime-worker-status.v1.json",
+            },
+        )
+        raise HTTPException(status_code=502, detail=f"invalid worker status response: {exc}") from exc
+
     emit_audit_event(
         action=action,
         decision="allow",

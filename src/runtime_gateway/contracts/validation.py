@@ -20,6 +20,7 @@ ORCHESTRATION_HINTS_SCHEMA = "runtime/orchestration-hints.v1.json"
 RUNTIME_EVENTS_PAGE_SCHEMA = "runtime/runtime-events-page.v1.json"
 RUNTIME_RUN_LEASE_SCHEMA = "runtime/runtime-run-lease.v1.json"
 RUNTIME_WORKER_HEALTH_SCHEMA = "runtime/runtime-worker-health.v1.json"
+RUNTIME_WORKER_STATUS_SCHEMA = "runtime/runtime-worker-status.v1.json"
 
 _VALIDATOR_CACHE: dict[str, Draft202012Validator] = {}
 _CACHE_LOCK = Lock()
@@ -135,3 +136,7 @@ def validate_runtime_run_lease_contract(payload: dict[str, Any]) -> None:
 
 def validate_runtime_worker_health_contract(payload: dict[str, Any]) -> None:
     validate_contract(RUNTIME_WORKER_HEALTH_SCHEMA, payload)
+
+
+def validate_runtime_worker_status_contract(payload: dict[str, Any]) -> None:
+    validate_contract(RUNTIME_WORKER_STATUS_SCHEMA, payload)

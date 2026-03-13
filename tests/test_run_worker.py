@@ -264,6 +264,17 @@ def test_worker_lifecycle_happy_path(
     mock_execution_client.worker_status.return_value = {
         "lifecycle_state": "running",
         "is_running": True,
+        "lifecycle_health": "healthy",
+        "queue_depth": 0,
+        "last_transition": "restart",
+        "last_transition_at": "2026-03-12T03:02:00+00:00",
+        "last_heartbeat_at": "2026-03-12T03:02:00+00:00",
+        "last_heartbeat_age_seconds": 1.0,
+        "is_heartbeat_stale": False,
+        "ticks_total": 12,
+        "drain_calls_total": 3,
+        "start_total": 2,
+        "stop_total": 1,
         "restart_total": 1,
         "recommended_poll_after_ms": 5000,
     }
@@ -282,6 +293,8 @@ def test_worker_lifecycle_happy_path(
     assert restart.json()["action"] == "restart"
     assert status.status_code == 200
     assert status.json()["is_running"] is True
+    assert status.json()["lifecycle_health"] == "healthy"
+    assert status.json()["queue_depth"] == 0
     mock_execution_client.worker_stop.assert_called_once_with(
         auth_token="delegated-token",
         reason="maintenance",
@@ -558,6 +571,25 @@ def test_worker_health_rejects_invalid_downstream_contract(
     assert audit["action"] == "orchestration.worker_health"
     assert audit["decision"] == "deny"
     assert audit["metadata"]["validation_schema"] == "runtime/runtime-worker-health.v1.json"
+
+
+def test_worker_status_rejects_invalid_downstream_contract(
+    mock_execution_client: Mock, mock_token_exchange: Mock, read_auth_headers: dict[str, str]
+) -> None:
+    _ = mock_token_exchange
+    mock_execution_client.worker_status.return_value = {
+        "lifecycle_state": "running",
+    }
+
+    client = TestClient(app)
+    response = client.get("/v1/orchestration/worker:status", headers=read_auth_headers)
+
+    assert response.status_code == 502
+    assert "invalid worker status response" in response.text
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "orchestration.worker_status"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["validation_schema"] == "runtime/runtime-worker-status.v1.json"
 
 
 def test_worker_endpoints_require_bearer_token() -> None:
