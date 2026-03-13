@@ -35,6 +35,7 @@ if candidate_src.exists():
 
 try:
     from runtime_execution.service import RuntimeExecutionService
+    from runtime_execution.core.queue.queue_fabric import QueueType
     from runtime_execution.modules.integration.envelope import build_command_envelope
 except Exception:
     RUNTIME_EXECUTION_AVAILABLE = False
@@ -769,6 +770,48 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertIn("scheduling_signal", detail)
         self.assertEqual(int(detail["scheduling_signal"]["recommended_poll_after_ms"]), 5000)
         self.assertIs(detail["scheduling_signal"]["stalled_signal"], False)
+
+    def test_gateway_to_execution_scheduler_flow(self) -> None:
+        write_token = self._gateway_token(["runs:write"])
+        read_token = self._gateway_token(["runs:read"])
+        run_id = self._submit_run(write_token, "verify scheduler e2e flow")
+        _ = execution_app_module._runtime.queue_fabric.lease_one(
+            QueueType.ORCHESTRATION
+        )
+
+        enqueue = self.gateway_client.post(
+            "/v1/orchestration/scheduler:enqueue",
+            headers={"Authorization": f"Bearer {write_token}"},
+            json={"run_id": run_id, "delay_ms": 0, "reason": "manual-schedule"},
+        )
+        self.assertEqual(enqueue.status_code, 200)
+        enqueue_payload = enqueue.json()
+        self.assertEqual(enqueue_payload["run_id"], run_id)
+        self.assertEqual(int(enqueue_payload["scheduler_depth"]), 1)
+        self.assertIn("recommended_poll_after_ms", enqueue_payload)
+
+        tick = self.gateway_client.post(
+            "/v1/orchestration/scheduler:tick?max_items=2&fair=true",
+            headers={"Authorization": f"Bearer {write_token}"},
+        )
+        self.assertEqual(tick.status_code, 200)
+        tick_payload = tick.json()
+        self.assertEqual(int(tick_payload["processed"]), 1)
+        self.assertEqual(int(tick_payload["promoted"]), 1)
+        self.assertEqual(int(tick_payload["deferred"]), 0)
+        self.assertEqual(int(tick_payload["scheduler_depth_after"]), 0)
+        self.assertEqual(int(tick_payload["orchestration_depth_after"]), 1)
+        self.assertEqual(tick_payload["outcomes"][0]["run_id"], run_id)
+
+        health = self.gateway_client.get(
+            "/v1/orchestration/scheduler:health",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(health.status_code, 200)
+        health_payload = health.json()
+        self.assertEqual(int(health_payload["scheduler_depth"]), 0)
+        self.assertGreaterEqual(int(health_payload["ticks_total"]), 1)
+        self.assertGreaterEqual(int(health_payload["enqueue_total"]), 1)
 
     def test_gateway_and_execution_profile_catalog_are_aligned(self) -> None:
         gateway_response = self.gateway_client.get(

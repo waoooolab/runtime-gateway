@@ -283,6 +283,102 @@ class RuntimeExecutionClientTests(unittest.TestCase):
         self.assertIn("/v1/orchestration/worker:status", captured["url"])
         self.assertEqual(captured["method"], "GET")
 
+    def test_scheduler_enqueue_posts_payload(self) -> None:
+        captured: dict[str, str] = {}
+
+        class _Response:
+            def getcode(self) -> int:
+                return 200
+
+            def read(self) -> bytes:
+                return b'{"run_id":"run-1","scheduler_depth":1}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+                return None
+
+        def transport(request, timeout=10.0):
+            _ = timeout
+            captured["url"] = request.full_url
+            captured["method"] = request.get_method()
+            captured["body"] = request.data.decode("utf-8")
+            return _Response()
+
+        client = RuntimeExecutionClient(base_url="http://runtime-execution.test", _transport=transport)
+        payload = client.scheduler_enqueue(
+            auth_token="token-1",
+            run_id="run-1",
+            delay_ms=100,
+            reason="manual",
+        )
+        self.assertEqual(payload["run_id"], "run-1")
+        self.assertIn("/v1/orchestration/scheduler:enqueue", captured["url"])
+        self.assertEqual(captured["method"], "POST")
+        self.assertIn('"run_id":"run-1"', captured["body"])
+        self.assertIn('"delay_ms":100', captured["body"])
+        self.assertIn('"reason":"manual"', captured["body"])
+
+    def test_scheduler_tick_sends_query_parameters(self) -> None:
+        captured: dict[str, str] = {}
+
+        class _Response:
+            def getcode(self) -> int:
+                return 200
+
+            def read(self) -> bytes:
+                return b'{"processed":1,"promoted":1,"deferred":0}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+                return None
+
+        def transport(request, timeout=10.0):
+            _ = timeout
+            captured["url"] = request.full_url
+            return _Response()
+
+        client = RuntimeExecutionClient(base_url="http://runtime-execution.test", _transport=transport)
+        payload = client.scheduler_tick(auth_token="token-1", max_items=7, fair=False)
+        self.assertEqual(payload["promoted"], 1)
+        self.assertIn("/v1/orchestration/scheduler:tick?", captured["url"])
+        self.assertIn("max_items=7", captured["url"])
+        self.assertIn("fair=false", captured["url"])
+
+    def test_scheduler_health_uses_get_method(self) -> None:
+        captured: dict[str, str] = {}
+
+        class _Response:
+            def getcode(self) -> int:
+                return 200
+
+            def read(self) -> bytes:
+                return b'{"scheduler_depth":0,"orchestration_depth":2,"ticks_total":3}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+                return None
+
+        def transport(request, timeout=10.0):
+            _ = timeout
+            captured["url"] = request.full_url
+            captured["method"] = request.get_method()
+            return _Response()
+
+        client = RuntimeExecutionClient(base_url="http://runtime-execution.test", _transport=transport)
+        payload = client.scheduler_health(auth_token="token-1")
+        self.assertEqual(payload["ticks_total"], 3)
+        self.assertIn("/v1/orchestration/scheduler:health", captured["url"])
+        self.assertEqual(captured["method"], "GET")
+
     def test_get_run_status_uses_get_method(self) -> None:
         captured: dict[str, str] = {}
 

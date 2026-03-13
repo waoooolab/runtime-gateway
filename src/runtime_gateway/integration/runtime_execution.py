@@ -341,6 +341,52 @@ class RuntimeExecutionClient:
             auth_token=auth_token,
         )
 
+    def scheduler_enqueue(
+        self,
+        *,
+        auth_token: str,
+        run_id: str,
+        due_at: str | None = None,
+        delay_ms: int | None = None,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"run_id": run_id}
+        if due_at is not None:
+            body["due_at"] = due_at
+        if delay_ms is not None:
+            body["delay_ms"] = delay_ms
+        if reason is not None:
+            body["reason"] = reason
+        return self._post_json(
+            path="v1/orchestration/scheduler:enqueue",
+            auth_token=auth_token,
+            body=body,
+        )
+
+    def scheduler_tick(
+        self,
+        *,
+        auth_token: str,
+        max_items: int = 32,
+        fair: bool = True,
+    ) -> dict[str, Any]:
+        return self._post_json(
+            path="v1/orchestration/scheduler:tick",
+            auth_token=auth_token,
+            body={},
+            query={"max_items": max_items, "fair": fair},
+        )
+
+    def scheduler_health(
+        self,
+        *,
+        auth_token: str,
+    ) -> dict[str, Any]:
+        return self._get_json(
+            path="v1/orchestration/scheduler:health",
+            auth_token=auth_token,
+        )
+
     def get_run_status(
         self,
         *,

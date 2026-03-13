@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 
 from .api.schemas import CreateRunRequest, CreateRunResponse
 from .integration import RuntimeExecutionClient
@@ -12,6 +12,11 @@ from .run_approval import dispatch_approve_run, dispatch_reject_run
 from .run_control import dispatch_cancel_run, dispatch_complete_run, dispatch_timeout_run
 from .run_dispatch import dispatch_create_run
 from .run_lease import dispatch_get_run_lease
+from .run_scheduler import (
+    dispatch_scheduler_enqueue,
+    dispatch_scheduler_health,
+    dispatch_scheduler_tick,
+)
 from .run_status import dispatch_get_run_status
 from .run_worker import (
     dispatch_worker_drain,
@@ -278,6 +283,60 @@ def _register_worker_routes(
         )
 
 
+def _register_scheduler_routes(
+    *,
+    app: FastAPI,
+    get_execution_client: Callable[[], RuntimeExecutionClient],
+) -> None:
+    @app.post("/v1/orchestration/scheduler:enqueue")
+    def scheduler_enqueue(
+        body: dict[str, Any] | None = None,
+        auth_context: AuthContext = Depends(require_runs_write_context),
+    ) -> dict[str, Any]:
+        payload = body or {}
+        run_id = str(payload.get("run_id", "")).strip()
+        if not run_id:
+            raise HTTPException(status_code=422, detail="run_id is required")
+        due_at_value = payload.get("due_at")
+        due_at = str(due_at_value).strip() if isinstance(due_at_value, str) else None
+        delay_ms = payload.get("delay_ms")
+        reason_value = payload.get("reason")
+        reason = str(reason_value).strip() if isinstance(reason_value, str) else None
+        return dispatch_scheduler_enqueue(
+            claims=auth_context.claims,
+            subject_token=auth_context.subject_token,
+            execution_client=get_execution_client(),
+            run_id=run_id,
+            due_at=due_at or None,
+            delay_ms=delay_ms if isinstance(delay_ms, int) else delay_ms,
+            reason=reason or None,
+        )
+
+    @app.post("/v1/orchestration/scheduler:tick")
+    def scheduler_tick(
+        max_items: int = 32,
+        fair: bool = True,
+        auth_context: AuthContext = Depends(require_runs_write_context),
+    ) -> dict[str, Any]:
+        return dispatch_scheduler_tick(
+            claims=auth_context.claims,
+            subject_token=auth_context.subject_token,
+            execution_client=get_execution_client(),
+            max_items=max_items,
+            fair=fair,
+        )
+
+    @app.get("/v1/orchestration/scheduler:health")
+    def scheduler_health(
+        auth_context: AuthContext = Depends(require_runs_read_context),
+    ) -> dict[str, Any]:
+        return dispatch_scheduler_health(
+            claims=auth_context.claims,
+            subject_token=auth_context.subject_token,
+            execution_client=get_execution_client(),
+        )
+
+
 def register_run_routes(
     *,
     app: FastAPI,
@@ -294,6 +353,10 @@ def register_run_routes(
         get_execution_client=get_execution_client,
     )
     _register_worker_routes(
+        app=app,
+        get_execution_client=get_execution_client,
+    )
+    _register_scheduler_routes(
         app=app,
         get_execution_client=get_execution_client,
     )
