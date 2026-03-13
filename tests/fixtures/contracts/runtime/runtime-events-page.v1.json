@@ -1,5 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://waoooolab.dev/contracts/runtime/runtime-events-page.v1.json",
+  "title": "RuntimeEventsPageV1",
+  "description": "Cursor page response for runtime event stream reads.",
   "type": "object",
   "required": [
     "items",
@@ -70,7 +73,8 @@
               "payload": {
                 "type": "object"
               }
-            }
+            },
+            "additionalProperties": true
           }
         },
         "additionalProperties": false
@@ -108,7 +112,9 @@
           "type": "integer",
           "minimum": 1
         }
-      }
+      },
+      "additionalProperties": true
     }
-  }
+  },
+  "additionalProperties": true
 }
