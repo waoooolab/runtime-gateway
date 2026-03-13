@@ -2040,6 +2040,226 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(scheduler_health.status_code, 200)
         self.assertEqual(int(scheduler_health.json()["scheduler_depth"]), 0)
 
+    def test_gateway_compute_capacity_retry_exponential_backoff_sequence_e2e(self) -> None:
+        if not DEVICE_HUB_AVAILABLE:
+            self.skipTest("device-hub stack not available")
+
+        device_hub_app_module._hub = DeviceHubService()
+        device_hub_client = TestClient(device_hub_app_module.app)
+        execution_app_module._runtime = RuntimeExecutionService(
+            device_hub_client=_DeviceHubBoundaryClient(
+                client=device_hub_client,
+                token_factory=self._device_hub_token,
+            )
+        )
+        self.execution_client = TestClient(execution_app_module.app)
+
+        register = device_hub_client.post(
+            "/v1/devices/register",
+            json=build_command_envelope(
+                command_type="device.register",
+                payload={
+                    "device_id": "gpu-node-gateway-retry-exp-backoff-e2e",
+                    "capabilities": ["compute.comfyui.local"],
+                },
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-retry-exp-backoff-device-register",
+                run_id="run-gateway-retry-exp-backoff-device-bootstrap",
+                task_id="task-gateway-retry-exp-backoff-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(register.status_code, 200)
+        pair_request = device_hub_client.post(
+            "/v1/devices/pairing/request",
+            json=build_command_envelope(
+                command_type="device.pairing.request",
+                payload={"device_id": "gpu-node-gateway-retry-exp-backoff-e2e"},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-retry-exp-backoff-device-pair",
+                run_id="run-gateway-retry-exp-backoff-device-bootstrap",
+                task_id="task-gateway-retry-exp-backoff-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(pair_request.status_code, 200)
+        pair_code = pair_request.json()["payload"]["code"]
+        approve = device_hub_client.post(
+            "/v1/devices/pairing/approve",
+            json=build_command_envelope(
+                command_type="device.pairing.approve",
+                payload={"code": pair_code},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-retry-exp-backoff-device-approve",
+                run_id="run-gateway-retry-exp-backoff-device-bootstrap",
+                task_id="task-gateway-retry-exp-backoff-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(approve.status_code, 200)
+        heartbeat = device_hub_client.post(
+            "/v1/devices/heartbeat",
+            json=build_command_envelope(
+                command_type="device.heartbeat",
+                payload={"device_id": "gpu-node-gateway-retry-exp-backoff-e2e"},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-retry-exp-backoff-device-heartbeat",
+                run_id="run-gateway-retry-exp-backoff-device-bootstrap",
+                task_id="task-gateway-retry-exp-backoff-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(heartbeat.status_code, 200)
+
+        token = self._gateway_token(["runs:write"])
+        read_token = self._gateway_token(["runs:read"])
+        first_run_id = self._submit_run(
+            token,
+            "gateway compute retry exponential first run",
+            execution_profile={
+                "execution_mode": "compute",
+                "inference_target": "none",
+                "resource_class": "gpu",
+                "placement_constraints": {
+                    "tenant_id": "t1",
+                    "required_capabilities": ["compute.comfyui.local"],
+                },
+            },
+        )
+        first_tick = self.gateway_client.post(
+            "/v1/orchestration/worker:tick?fair=true&auto_start=true",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(first_tick.status_code, 200)
+        self.assertEqual(first_tick.json()["outcome"], "progressed")
+        self.assertEqual(first_tick.json()["leased_run_id"], first_run_id)
+
+        second = self.gateway_client.post(
+            "/v1/runs",
+            json={
+                "tenant_id": "t1",
+                "app_id": "covernow",
+                "session_key": "tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                "retry_policy": {
+                    "max_attempts": 3,
+                    "backoff_ms": 25,
+                    "strategy": "exponential",
+                },
+                "payload": {
+                    "goal": "gateway compute retry exponential second run",
+                    "dispatch_policy": {
+                        "queue": {
+                            "dispatch_min_score": -999,
+                            "max_queue_depth_for_dispatch": 0,
+                        }
+                    },
+                    "execution_profile": {
+                        "execution_mode": "compute",
+                        "inference_target": "none",
+                        "resource_class": "gpu",
+                        "placement_constraints": {
+                            "tenant_id": "t1",
+                            "required_capabilities": ["compute.comfyui.local"],
+                        },
+                    },
+                },
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(second.status_code, 503)
+        detail = second.json().get("detail")
+        self.assertIsInstance(detail, dict)
+        assert isinstance(detail, dict)
+        second_run_id = str(detail.get("run_id"))
+        self.assertEqual(detail.get("placement_reason_code"), "capacity_exhausted")
+        self.assertEqual(
+            detail.get("retry_policy"),
+            {"max_attempts": 3, "backoff_ms": 25, "strategy": "exponential"},
+        )
+
+        scheduled_first_retry = execution_app_module._runtime.queue_fabric.lease_one(QueueType.SCHEDULER)
+        self.assertIsNotNone(scheduled_first_retry)
+        assert scheduled_first_retry is not None
+        self.assertEqual(scheduled_first_retry.run_id, second_run_id)
+        self.assertEqual(scheduled_first_retry.retry_count, 1)
+        self.assertEqual(scheduled_first_retry.backoff_ms, 25)
+        first_marker = scheduled_first_retry.payload["orchestration_payload"]["_runtime_retry"]
+        self.assertEqual(first_marker["kind"], "dispatch_retry")
+        self.assertEqual(first_marker["attempt"], 1)
+        execution_app_module._runtime.queue_fabric.publish(QueueType.SCHEDULER, scheduled_first_retry)
+
+        def _promote_retry_once() -> None:
+            for _ in range(8):
+                scheduler_tick = self.gateway_client.post(
+                    "/v1/orchestration/scheduler:tick?max_items=1&fair=true",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                self.assertEqual(scheduler_tick.status_code, 200)
+                tick_payload = scheduler_tick.json()
+                if int(tick_payload.get("promoted", 0)) >= 1:
+                    return
+                next_due_in_ms = int(tick_payload.get("next_due_in_ms") or 0)
+                if next_due_in_ms > 0:
+                    time.sleep(min(0.2, (next_due_in_ms + 20) / 1000.0))
+            self.fail("scheduler did not promote retry message in expected retries")
+
+        _promote_retry_once()
+
+        retry_tick_one = self.gateway_client.post(
+            "/v1/orchestration/worker:tick?fair=true&auto_start=true",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(retry_tick_one.status_code, 200)
+        retry_tick_one_payload = retry_tick_one.json()
+        self.assertEqual(retry_tick_one_payload["outcome"], "skipped")
+        self.assertEqual(retry_tick_one_payload["reason"], "dispatch_retry_deferred")
+        self.assertEqual(retry_tick_one_payload["before_status"], "queued")
+        self.assertEqual(retry_tick_one_payload["after_status"], "queued")
+
+        scheduled_second_retry = execution_app_module._runtime.queue_fabric.lease_one(QueueType.SCHEDULER)
+        self.assertIsNotNone(scheduled_second_retry)
+        assert scheduled_second_retry is not None
+        self.assertEqual(scheduled_second_retry.run_id, second_run_id)
+        self.assertEqual(scheduled_second_retry.retry_count, 2)
+        self.assertEqual(scheduled_second_retry.backoff_ms, 50)
+        second_marker = scheduled_second_retry.payload["orchestration_payload"]["_runtime_retry"]
+        self.assertEqual(second_marker["kind"], "dispatch_retry")
+        self.assertEqual(second_marker["attempt"], 2)
+        execution_app_module._runtime.queue_fabric.publish(QueueType.SCHEDULER, scheduled_second_retry)
+
+        _promote_retry_once()
+
+        retry_tick_two = self.gateway_client.post(
+            "/v1/orchestration/worker:tick?fair=true&auto_start=true",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(retry_tick_two.status_code, 200)
+        retry_tick_two_payload = retry_tick_two.json()
+        self.assertEqual(retry_tick_two_payload["outcome"], "skipped")
+        self.assertEqual(retry_tick_two_payload["reason"], "dispatch_retry_failed")
+        self.assertEqual(retry_tick_two_payload["before_status"], "queued")
+        self.assertEqual(retry_tick_two_payload["after_status"], "failed")
+
+        second_status = self.gateway_client.get(
+            f"/v1/runs/{second_run_id}",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(second_status.status_code, 200)
+        status_payload = second_status.json()["payload"]
+        self.assertEqual(status_payload["status"], "failed")
+        self.assertEqual(status_payload["retry_attempts"], 2)
+        self.assertEqual(
+            status_payload["orchestration"]["failure_reason_code"],
+            "capacity_exhausted",
+        )
+
+        scheduler_health = self.gateway_client.get(
+            "/v1/orchestration/scheduler:health",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(scheduler_health.status_code, 200)
+        self.assertEqual(int(scheduler_health.json()["scheduler_depth"]), 0)
+
     def test_gateway_cancel_expires_device_hub_lease_e2e(self) -> None:
         if not DEVICE_HUB_AVAILABLE:
             self.skipTest("device-hub stack not available")
