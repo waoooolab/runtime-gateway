@@ -74,6 +74,15 @@ def _parse_required_bool(payload: dict[str, Any], *, key: str) -> bool:
     return value
 
 
+def _parse_optional_int(payload: dict[str, Any], *, key: str) -> int | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise HTTPException(status_code=422, detail=f"{key} must be integer when present")
+    return value
+
+
 def _parse_requested_by_run_id(payload: dict[str, Any], *, primary_key: str) -> str | None:
     primary = _parse_optional_str(payload, key=primary_key)
     shared = _parse_optional_str(payload, key="requested_by_run_id")
@@ -320,6 +329,41 @@ def dispatch_complete_run(
             **(
                 {"requested_failure_reason_code": failure_reason_code}
                 if failure_reason_code is not None
+                else {}
+            ),
+        },
+    )
+
+
+def dispatch_renew_run_lease(
+    *,
+    run_id: str,
+    body: dict[str, Any] | None,
+    claims: Mapping[str, Any],
+    subject_token: str,
+    execution_client: RuntimeExecutionClient,
+    publish_gateway_event: Callable[[dict[str, Any]], int | None],
+) -> dict[str, Any]:
+    payload = _require_object_payload(body)
+    lease_ttl_seconds = _parse_optional_int(payload, key="lease_ttl_seconds")
+    if lease_ttl_seconds is not None and (lease_ttl_seconds < 30 or lease_ttl_seconds > 3600):
+        raise HTTPException(status_code=422, detail="lease_ttl_seconds must be integer in [30, 3600]")
+    return _submit_control_action(
+        action="runs.lease_renew",
+        run_id=run_id,
+        claims=claims,
+        subject_token=subject_token,
+        execution_client=execution_client,
+        publish_gateway_event=publish_gateway_event,
+        submitter=lambda target_run_id, auth_token: execution_client.renew_run_lease(
+            run_id=target_run_id,
+            auth_token=auth_token,
+            lease_ttl_seconds=lease_ttl_seconds,
+        ),
+        audit_metadata={
+            **(
+                {"requested_lease_ttl_seconds": lease_ttl_seconds}
+                if lease_ttl_seconds is not None
                 else {}
             ),
         },

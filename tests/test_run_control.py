@@ -229,6 +229,51 @@ def test_complete_run_rejects_failure_reason_when_success_true(
     assert "only allowed when success=false" in response.json()["detail"]
 
 
+def test_renew_run_lease_happy_path(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.renew_run_lease.return_value = _run_status_event(
+        run_id="run-lease-renew-1",
+        status="queued",
+    )
+    client = TestClient(app)
+    response = client.post(
+        "/v1/runs/run-lease-renew-1:lease-renew",
+        json={"lease_ttl_seconds": 600},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["payload"]["status"] == "queued"
+    mock_execution_client.renew_run_lease.assert_called_once_with(
+        run_id="run-lease-renew-1",
+        auth_token="delegated-token",
+        lease_ttl_seconds=600,
+    )
+    mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "runs.lease_renew"
+    assert audit["decision"] == "allow"
+    assert audit["metadata"]["requested_lease_ttl_seconds"] == 600
+
+
+def test_renew_run_lease_rejects_invalid_ttl_type(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    _ = mock_execution_client, mock_token_exchange
+    client = TestClient(app)
+    response = client.post(
+        "/v1/runs/run-lease-renew-2:lease-renew",
+        json={"lease_ttl_seconds": "600"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 422
+    assert "lease_ttl_seconds must be integer" in response.json()["detail"]
+
+
 def test_complete_run_downstream_error_includes_requested_failure_reason_in_audit(
     mock_execution_client: Mock,
     mock_token_exchange: Mock,

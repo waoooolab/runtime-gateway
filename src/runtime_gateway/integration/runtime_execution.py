@@ -219,6 +219,18 @@ class RuntimeExecutionClient:
         )
         return self._post_json(path=f"v1/runs/{run_id}:complete", auth_token=auth_token, body=body)
 
+    def renew_run_lease(
+        self,
+        *,
+        run_id: str,
+        auth_token: str,
+        lease_ttl_seconds: int | None = None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {}
+        if lease_ttl_seconds is not None:
+            body["lease_ttl_seconds"] = lease_ttl_seconds
+        return self._post_json(path=f"v1/runs/{run_id}:lease-renew", auth_token=auth_token, body=body)
+
     def cancel_run(
         self,
         *,

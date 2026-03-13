@@ -655,6 +655,42 @@ class RuntimeExecutionClientTests(unittest.TestCase):
         self.assertIn('"success":false', captured["body"])
         self.assertIn('"failure_reason_code":"tool_contract_violation"', captured["body"])
 
+    def test_renew_run_lease_sends_ttl_when_provided(self) -> None:
+        captured: dict[str, str] = {}
+
+        class _Response:
+            def getcode(self) -> int:
+                return 200
+
+            def read(self) -> bytes:
+                return b'{"event_type":"runtime.run.status","payload":{"status":"queued"}}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+                return None
+
+        def transport(request, timeout=10.0):
+            _ = timeout
+            captured["url"] = request.full_url
+            captured["body"] = request.data.decode("utf-8")
+            return _Response()
+
+        client = RuntimeExecutionClient(
+            base_url="http://runtime-execution.test",
+            _transport=transport,
+        )
+        payload = client.renew_run_lease(
+            run_id="run-lease-renew-1",
+            auth_token="token-1",
+            lease_ttl_seconds=600,
+        )
+        self.assertEqual(payload["event_type"], "runtime.run.status")
+        self.assertIn("/v1/runs/run-lease-renew-1:lease-renew", captured["url"])
+        self.assertIn('"lease_ttl_seconds":600', captured["body"])
+
 
 if __name__ == "__main__":
     unittest.main()
