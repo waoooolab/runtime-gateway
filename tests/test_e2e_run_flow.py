@@ -508,6 +508,55 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(recent_items[-1]["event"]["event_type"], "app.capability.invoked.v1")
         self.assertEqual(recent_items[-1]["event"]["payload"]["capability_id"], capability_id)
 
+    def test_gateway_capability_compile_publish_envelope_flow_end_to_end(self) -> None:
+        write_token = self._gateway_token(["capabilities:write"])
+        invoke_token = self._gateway_token(["capabilities:invoke"])
+        capability_id = "cap_gateway_compile_publish_e2e"
+
+        compiled = self.gateway_client.post(
+            "/v1/capabilities/compile",
+            json={
+                "capability_id": capability_id,
+                "version": "0.2.0",
+                "workflow_source": {
+                    "workflow_id": "wf-gateway-cap-compile-publish",
+                    "workflow_version": "1",
+                    "graph_hash": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+                    "mode": "node",
+                },
+                "trace_id": "trace-gateway-cap-compile-publish",
+                "session_key": "tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+            },
+            headers={"Authorization": f"Bearer {write_token}"},
+        )
+        self.assertEqual(compiled.status_code, 200)
+        compiled_event = compiled.json()
+        self.assertEqual(compiled_event["event_type"], "app.capability.compiled.v1")
+        self.assertEqual(compiled_event["payload"]["capability_id"], capability_id)
+
+        published = self.gateway_client.post(
+            "/v1/capabilities/publish",
+            json=compiled_event,
+            headers={"Authorization": f"Bearer {write_token}"},
+        )
+        self.assertEqual(published.status_code, 200)
+        published_event = published.json()
+        self.assertEqual(published_event["event_type"], "app.capability.published.v1")
+        self.assertEqual(published_event["payload"]["capability_id"], capability_id)
+        self.assertEqual(published_event["payload"]["capability_version"], "0.2.0")
+        self.assertEqual(published_event["trace_id"], "trace-gateway-cap-compile-publish")
+
+        invoked = self.gateway_client.post(
+            f"/v1/capabilities/{capability_id}:invoke",
+            json={"version": "0.2.0", "input": {"prompt": "hello compile publish"}},
+            headers={"Authorization": f"Bearer {invoke_token}"},
+        )
+        self.assertEqual(invoked.status_code, 200)
+        invoked_event = invoked.json()
+        self.assertEqual(invoked_event["event_type"], "app.capability.invoked.v1")
+        self.assertEqual(invoked_event["payload"]["capability_id"], capability_id)
+        self.assertEqual(invoked_event["payload"]["status"], "invoked")
+
     def test_gateway_to_execution_e2e_run_flow(self) -> None:
         token = self._gateway_token(["runs:write"])
         run_id = self._submit_run(token, "verify e2e run flow")
