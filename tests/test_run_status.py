@@ -63,12 +63,15 @@ def _run_status_event(
     run_id: str,
     status: str,
     route: dict[str, object] | None = None,
+    failure_reason_code: str | None = None,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "run_id": run_id,
         "status": status,
         "retry_attempts": 0,
     }
+    if isinstance(failure_reason_code, str) and failure_reason_code.strip():
+        payload["orchestration"] = {"failure_reason_code": failure_reason_code.strip()}
     if isinstance(route, dict) and route:
         payload["route"] = dict(route)
     return {
@@ -183,6 +186,52 @@ def test_get_run_status_preserves_route_metadata(
     assert route["lease_id"] == "lease-test"
     assert payload["recommended_poll_after_ms"] == 1000
     mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "runs.read"
+    assert audit["decision"] == "allow"
+    assert audit["metadata"]["run_id"] == "run-status-route"
+    assert audit["metadata"]["downstream_route_event_type"] == "runtime.route.decided"
+    assert audit["metadata"]["downstream_execution_mode"] == "compute"
+    assert audit["metadata"]["downstream_route_target"] == "device-hub"
+    assert audit["metadata"]["downstream_failure_reason_code"] is None
+
+
+def test_get_run_status_terminal_failure_emits_failure_reason_metadata(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    read_auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.get_run_status.return_value = _run_status_event(
+        run_id="run-status-failed",
+        status="failed",
+        failure_reason_code="capacity_exhausted",
+        route={
+            "event_type": "runtime.route.decided",
+            "execution_mode": "compute",
+            "route_target": "device-hub",
+            "placement_reason_code": "capacity_exhausted",
+        },
+    )
+    client = TestClient(app)
+    response = client.get(
+        "/v1/runs/run-status-failed",
+        headers=read_auth_headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["payload"]["status"] == "failed"
+    assert payload["payload"]["orchestration"]["failure_reason_code"] == "capacity_exhausted"
+    assert payload["recommended_poll_after_ms"] == 10000
+    mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "runs.read"
+    assert audit["decision"] == "allow"
+    assert audit["metadata"]["run_id"] == "run-status-failed"
+    assert audit["metadata"]["downstream_failure_reason_code"] == "capacity_exhausted"
+    assert audit["metadata"]["downstream_route_event_type"] == "runtime.route.decided"
+    assert audit["metadata"]["downstream_execution_mode"] == "compute"
+    assert audit["metadata"]["downstream_route_target"] == "device-hub"
+    assert audit["metadata"]["downstream_placement_reason_code"] == "capacity_exhausted"
 
 
 def test_get_run_status_downstream_error_maps_status(
@@ -212,6 +261,55 @@ def test_get_run_status_downstream_error_maps_status(
     assert audit["action"] == "runs.read"
     assert audit["decision"] == "deny"
     assert audit["metadata"]["run_id"] == "run-missing"
+
+
+def test_get_run_status_downstream_error_surfaces_failure_and_route_diagnostics(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    read_auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.get_run_status.side_effect = RuntimeExecutionClientError(
+        "HTTP 503 calling run status endpoint",
+        status_code=503,
+        response_body=_run_status_event(
+            run_id="run-status-upstream-failed",
+            status="failed",
+            failure_reason_code="run_preempted",
+            route={
+                "event_type": "runtime.route.decided",
+                "execution_mode": "compute",
+                "route_target": "device-hub",
+                "placement_reason_code": "capacity_exhausted",
+            },
+        ),
+    )
+    client = TestClient(app)
+    response = client.get(
+        "/v1/runs/run-status-upstream-failed",
+        headers=read_auth_headers,
+    )
+    assert response.status_code == 503
+    detail = response.json().get("detail")
+    assert isinstance(detail, dict)
+    assert detail["status_code"] == 503
+    assert detail["requested_run_id"] == "run-status-upstream-failed"
+    assert detail["downstream_status"] == "failed"
+    assert detail["downstream_failure_reason_code"] == "run_preempted"
+    assert detail["downstream_route_event_type"] == "runtime.route.decided"
+    assert detail["downstream_execution_mode"] == "compute"
+    assert detail["downstream_route_target"] == "device-hub"
+    assert detail["downstream_placement_reason_code"] == "capacity_exhausted"
+    mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "runs.read"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["run_id"] == "run-status-upstream-failed"
+    assert audit["metadata"]["downstream_status"] == "failed"
+    assert audit["metadata"]["downstream_failure_reason_code"] == "run_preempted"
+    assert audit["metadata"]["downstream_route_event_type"] == "runtime.route.decided"
+    assert audit["metadata"]["downstream_execution_mode"] == "compute"
+    assert audit["metadata"]["downstream_route_target"] == "device-hub"
+    assert audit["metadata"]["downstream_placement_reason_code"] == "capacity_exhausted"
 
 
 def test_get_run_status_rejects_invalid_event_envelope(

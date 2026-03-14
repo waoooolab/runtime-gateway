@@ -38,6 +38,42 @@ def _extract_downstream_run_id(event: dict[str, Any]) -> str | None:
     return normalized or None
 
 
+def _extract_downstream_failure_reason_code(event: dict[str, Any]) -> str | None:
+    payload = event.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    orchestration = payload.get("orchestration")
+    if not isinstance(orchestration, dict):
+        return None
+    failure_reason_code = orchestration.get("failure_reason_code")
+    if not isinstance(failure_reason_code, str):
+        return None
+    normalized = failure_reason_code.strip()
+    return normalized or None
+
+
+def _extract_downstream_route_metadata(event: dict[str, Any]) -> dict[str, str]:
+    payload = event.get("payload")
+    if not isinstance(payload, dict):
+        return {}
+    route = payload.get("route")
+    if not isinstance(route, dict):
+        return {}
+
+    metadata: dict[str, str] = {}
+    scalar_fields: tuple[tuple[str, str], ...] = (
+        ("event_type", "downstream_route_event_type"),
+        ("execution_mode", "downstream_execution_mode"),
+        ("route_target", "downstream_route_target"),
+        ("placement_reason_code", "downstream_placement_reason_code"),
+    )
+    for source, target in scalar_fields:
+        raw_value = route.get(source)
+        if isinstance(raw_value, str) and raw_value.strip():
+            metadata[target] = raw_value.strip()
+    return metadata
+
+
 def _recommended_poll_after_ms_for_run_status(status: str | None) -> int:
     normalized = (status or "").strip().lower()
     if normalized in _TERMINAL_RUN_STATUSES:
@@ -71,6 +107,10 @@ def _build_downstream_error_detail(
     downstream_run_id = _extract_downstream_run_id(response_body)
     if downstream_run_id is not None:
         detail["downstream_run_id"] = downstream_run_id
+    downstream_failure_reason_code = _extract_downstream_failure_reason_code(response_body)
+    if downstream_failure_reason_code is not None:
+        detail["downstream_failure_reason_code"] = downstream_failure_reason_code
+    detail.update(_extract_downstream_route_metadata(response_body))
     return detail
 
 
@@ -146,12 +186,16 @@ def dispatch_get_run_status(
         downstream_event_type = None
         downstream_status = None
         downstream_run_id = None
+        downstream_failure_reason_code = None
+        downstream_route_metadata: dict[str, str] = {}
         if isinstance(exc.response_body, dict):
             downstream_event_type_raw = exc.response_body.get("event_type")
             if isinstance(downstream_event_type_raw, str) and downstream_event_type_raw.strip():
                 downstream_event_type = downstream_event_type_raw
             downstream_status = _extract_downstream_status(exc.response_body)
             downstream_run_id = _extract_downstream_run_id(exc.response_body)
+            downstream_failure_reason_code = _extract_downstream_failure_reason_code(exc.response_body)
+            downstream_route_metadata = _extract_downstream_route_metadata(exc.response_body)
             detail = _build_downstream_error_detail(
                 message=str(exc),
                 status_code=resolved_status,
@@ -170,6 +214,8 @@ def dispatch_get_run_status(
                 "downstream_event_type": downstream_event_type,
                 "downstream_status": downstream_status,
                 "downstream_run_id": downstream_run_id,
+                "downstream_failure_reason_code": downstream_failure_reason_code,
+                **downstream_route_metadata,
             },
         )
         raise HTTPException(status_code=resolved_status, detail=detail) from exc
@@ -191,6 +237,8 @@ def dispatch_get_run_status(
         trace_id=trace_id,
     )
     downstream_status = _extract_downstream_status(result)
+    downstream_failure_reason_code = _extract_downstream_failure_reason_code(result)
+    downstream_route_metadata = _extract_downstream_route_metadata(result)
     recommended_poll_after_ms = _recommended_poll_after_ms_for_run_status(downstream_status)
     response_payload = dict(result)
     response_payload["recommended_poll_after_ms"] = recommended_poll_after_ms
@@ -204,6 +252,8 @@ def dispatch_get_run_status(
             "run_id": run_id,
             "downstream_event_type": result.get("event_type"),
             "downstream_status": downstream_status,
+            "downstream_failure_reason_code": downstream_failure_reason_code,
+            **downstream_route_metadata,
             "recommended_poll_after_ms": recommended_poll_after_ms,
         },
     )
