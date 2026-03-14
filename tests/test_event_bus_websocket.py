@@ -45,6 +45,28 @@ def _event_envelope(event_type: str = "runtime.task.updated", run_id: str | None
     }
 
 
+def _capability_event_envelope(
+    event_type: str = "app.capability.compiled.v1",
+    capability_id: str = "cap.demo",
+    status: str = "compiled",
+) -> dict:
+    return {
+        "event_id": str(uuid4()),
+        "event_type": event_type,
+        "tenant_id": "t1",
+        "app_id": "covernow",
+        "session_key": "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+        "trace_id": "trace-cap-events-1",
+        "correlation_id": "corr-cap-events-1",
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "payload": {
+            "capability_id": capability_id,
+            "capability_version": "1.0.0",
+            "status": status,
+        },
+    }
+
+
 @unittest.skipUnless(FASTAPI_STACK_AVAILABLE, "fastapi stack not installed")
 class EventBusWebsocketTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -123,6 +145,31 @@ class EventBusWebsocketTests(unittest.TestCase):
         self.assertEqual(items[-1]["event"]["event_type"], "runtime.route.decided")
         self.assertFalse(payload["has_more"])
         self.assertEqual(payload["recommended_poll_after_ms"], 1500)
+
+    def test_publish_event_and_list_recent_with_capability_scopes(self) -> None:
+        write_token = self._token(scope=["capabilities:write"])
+        read_token = self._token(scope=["capabilities:read"])
+        publish = self.client.post(
+            "/v1/events/publish",
+            json=_capability_event_envelope("app.capability.published.v1", capability_id="cap.events"),
+            headers={"Authorization": f"Bearer {write_token}"},
+        )
+        self.assertEqual(publish.status_code, 200)
+        body = publish.json()
+        self.assertTrue(body["accepted"])
+        self.assertGreaterEqual(int(body["bus_seq"]), 1)
+
+        recent = self.client.get(
+            "/v1/events/recent?event_types=app.capability.published.v1",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(recent.status_code, 200)
+        payload = recent.json()
+        items = payload["items"]
+        self.assertGreaterEqual(len(items), 1)
+        self.assertEqual(items[-1]["event"]["event_type"], "app.capability.published.v1")
+        self.assertEqual(items[-1]["event"]["payload"]["capability_id"], "cap.events")
+        self.assertFalse(payload["has_more"])
 
     def test_recent_events_requires_bearer_token(self) -> None:
         response = self.client.get("/v1/events/recent")
@@ -534,6 +581,41 @@ class EventBusWebsocketTests(unittest.TestCase):
             assert event is not None
             self.assertIn("bus_seq", event)
             self.assertEqual(event["event"]["tenant_id"], "t1")
+
+    def test_websocket_receives_capability_event_with_capability_scope(self) -> None:
+        ws_token = self._token(scope=["capabilities:read"])
+        publish_token = self._token(scope=["capabilities:write"])
+
+        with self.client.websocket_connect(
+            f"/v1/ws/events?access_token={ws_token}&tenant_id=t1&app_id=covernow"
+        ) as ws:
+            ready = ws.receive_json()
+            self.assertEqual(ready["kind"], "ws.ready")
+
+            publish = self.client.post(
+                "/v1/events/publish",
+                json=_capability_event_envelope(
+                    event_type="app.capability.invoked.v1",
+                    capability_id="cap.ws",
+                    status="invoked",
+                ),
+                headers={"Authorization": f"Bearer {publish_token}"},
+            )
+            self.assertEqual(publish.status_code, 200)
+
+            event = None
+            for _ in range(5):
+                msg = ws.receive_json()
+                if msg.get("event", {}).get("event_type") == "app.capability.invoked.v1":
+                    event = msg
+                    break
+                if msg.get("kind") == "ws.pong":
+                    continue
+                ws.send_text("ping")
+
+            self.assertIsNotNone(event)
+            assert event is not None
+            self.assertEqual(event["event"]["payload"]["capability_id"], "cap.ws")
 
     def test_websocket_rejects_cross_tenant_override(self) -> None:
         ws_token = self._token(scope=["runs:read"])
