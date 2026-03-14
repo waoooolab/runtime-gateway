@@ -44,6 +44,19 @@ def _extract_device_hub_status(payload: dict[str, Any]) -> str | None:
     return None
 
 
+def _extract_device_hub_expire_reason_code(payload: dict[str, Any]) -> str | None:
+    device_hub = payload.get("device_hub")
+    if not isinstance(device_hub, dict):
+        return None
+    snapshot = device_hub.get("snapshot")
+    if not isinstance(snapshot, dict):
+        return None
+    reason_code = snapshot.get("expire_reason_code")
+    if isinstance(reason_code, str) and reason_code.strip():
+        return reason_code.strip()
+    return None
+
+
 def _extract_run_id(payload: dict[str, Any]) -> str | None:
     run_id = payload.get("run_id")
     if not isinstance(run_id, str):
@@ -74,6 +87,9 @@ def _build_downstream_error_detail(
     device_hub_status = _extract_device_hub_status(response_body)
     if device_hub_status is not None:
         detail["device_hub_status"] = device_hub_status
+    expire_reason_code = _extract_device_hub_expire_reason_code(response_body)
+    if expire_reason_code is not None:
+        detail["expire_reason_code"] = expire_reason_code
     return detail
 
 
@@ -164,10 +180,12 @@ def dispatch_get_run_lease(
         downstream_run_id = None
         lease_state = None
         device_hub_status = None
+        expire_reason_code = None
         if isinstance(exc.response_body, dict):
             downstream_run_id = _extract_run_id(exc.response_body)
             lease_state = _extract_lease_state(exc.response_body)
             device_hub_status = _extract_device_hub_status(exc.response_body)
+            expire_reason_code = _extract_device_hub_expire_reason_code(exc.response_body)
             detail = _build_downstream_error_detail(
                 message=str(exc),
                 status_code=resolved_status,
@@ -186,6 +204,7 @@ def dispatch_get_run_lease(
                 "downstream_run_id": downstream_run_id,
                 "lease_state": lease_state,
                 "device_hub_status": device_hub_status,
+                "expire_reason_code": expire_reason_code,
             },
         )
         raise HTTPException(status_code=resolved_status, detail=detail) from exc
@@ -211,6 +230,7 @@ def dispatch_get_run_lease(
             "run_id": run_id,
             "lease_state": lease_state,
             "device_hub_status": _extract_device_hub_status(result),
+            "expire_reason_code": _extract_device_hub_expire_reason_code(result),
             "recommended_poll_after_ms": recommended_poll_after_ms,
         },
     )

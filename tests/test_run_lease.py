@@ -122,6 +122,40 @@ def test_get_run_lease_terminal_recommends_slow_poll(
     assert audit["metadata"]["recommended_poll_after_ms"] == 10000
 
 
+def test_get_run_lease_terminal_exposes_expire_reason_code_in_audit(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    read_auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.get_run_lease.return_value = {
+        "run_id": "run-lease-preempted",
+        "lease": {"lease_id": "lease-preempted", "task_id": "run-lease-preempted:root", "state": "expired"},
+        "device_hub": {
+            "status": "ok",
+            "snapshot": {
+                "status": "expired",
+                "expire_reason_code": "run_preempted",
+            },
+        },
+    }
+    client = TestClient(app)
+    response = client.get(
+        "/v1/runs/run-lease-preempted/lease",
+        headers=read_auth_headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["device_hub"]["snapshot"]["expire_reason_code"] == "run_preempted"
+    assert payload["recommended_poll_after_ms"] == 10000
+    mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "runs.lease"
+    assert audit["decision"] == "allow"
+    assert audit["metadata"]["run_id"] == "run-lease-preempted"
+    assert audit["metadata"]["lease_state"] == "expired"
+    assert audit["metadata"]["expire_reason_code"] == "run_preempted"
+
+
 def test_get_run_lease_downstream_error_maps_status(
     mock_execution_client: Mock,
     mock_token_exchange: Mock,
@@ -149,6 +183,48 @@ def test_get_run_lease_downstream_error_maps_status(
     assert audit["action"] == "runs.lease"
     assert audit["decision"] == "deny"
     assert audit["metadata"]["run_id"] == "run-missing"
+
+
+def test_get_run_lease_downstream_error_includes_expire_reason_code(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    read_auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.get_run_lease.side_effect = RuntimeExecutionClientError(
+        "HTTP 409 calling lease endpoint",
+        status_code=409,
+        response_body={
+            "run_id": "run-lease-rejected",
+            "lease": {"lease_id": "lease-1", "task_id": "run-lease-rejected:root", "state": "expired"},
+            "device_hub": {
+                "status": "ok",
+                "snapshot": {
+                    "status": "expired",
+                    "expire_reason_code": "approval_rejected",
+                },
+            },
+        },
+    )
+    client = TestClient(app)
+    response = client.get(
+        "/v1/runs/run-lease-rejected/lease",
+        headers=read_auth_headers,
+    )
+    assert response.status_code == 409
+    detail = response.json().get("detail")
+    assert isinstance(detail, dict)
+    assert detail["status_code"] == 409
+    assert detail["requested_run_id"] == "run-lease-rejected"
+    assert detail["lease_state"] == "expired"
+    assert detail["device_hub_status"] == "ok"
+    assert detail["expire_reason_code"] == "approval_rejected"
+    mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "runs.lease"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["run_id"] == "run-lease-rejected"
+    assert audit["metadata"]["lease_state"] == "expired"
+    assert audit["metadata"]["expire_reason_code"] == "approval_rejected"
 
 
 def test_get_run_lease_rejects_invalid_contract_payload(
