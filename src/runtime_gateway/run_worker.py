@@ -15,6 +15,7 @@ from .contracts import (
     validate_runtime_worker_status_contract,
 )
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
+from .upstream_error import resolve_upstream_status_code
 
 
 def _exchange_runtime_execution_token(
@@ -190,6 +191,14 @@ def _build_worker_error_audit_metadata(
     return metadata
 
 
+def _resolve_worker_error_status(exc: RuntimeExecutionClientError) -> int:
+    return resolve_upstream_status_code(
+        status_code=exc.status_code,
+        retryable=exc.retryable,
+        message=str(exc),
+    )
+
+
 def dispatch_worker_tick(
     *,
     claims: Mapping[str, Any],
@@ -214,11 +223,12 @@ def dispatch_worker_tick(
             auto_start=auto_start,
         )
     except RuntimeExecutionClientError as exc:
+        resolved_status = _resolve_worker_error_status(exc)
         detail: str | dict[str, Any] = str(exc)
         if isinstance(exc.response_body, dict):
             detail = _build_worker_error_detail(
                 message=str(exc),
-                status_code=exc.status_code or 502,
+                status_code=resolved_status,
                 response_body=exc.response_body,
             )
         emit_audit_event(
@@ -228,11 +238,11 @@ def dispatch_worker_tick(
             trace_id=trace_id,
             metadata=_build_worker_error_audit_metadata(
                 reason=str(exc),
-                status_code=exc.status_code,
+                status_code=resolved_status,
                 response_body=exc.response_body if isinstance(exc.response_body, dict) else None,
             ),
         )
-        raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
+        raise HTTPException(status_code=resolved_status, detail=detail) from exc
     emit_audit_event(
         action=action,
         decision="allow",
@@ -269,11 +279,12 @@ def dispatch_worker_drain(
             auto_start=auto_start,
         )
     except RuntimeExecutionClientError as exc:
+        resolved_status = _resolve_worker_error_status(exc)
         detail: str | dict[str, Any] = str(exc)
         if isinstance(exc.response_body, dict):
             detail = _build_worker_error_detail(
                 message=str(exc),
-                status_code=exc.status_code or 502,
+                status_code=resolved_status,
                 response_body=exc.response_body,
             )
         emit_audit_event(
@@ -283,11 +294,11 @@ def dispatch_worker_drain(
             trace_id=trace_id,
             metadata=_build_worker_error_audit_metadata(
                 reason=str(exc),
-                status_code=exc.status_code,
+                status_code=resolved_status,
                 response_body=exc.response_body if isinstance(exc.response_body, dict) else None,
             ),
         )
-        raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
+        raise HTTPException(status_code=resolved_status, detail=detail) from exc
 
     try:
         validate_runtime_worker_drain_contract(result)
@@ -344,11 +355,12 @@ def dispatch_worker_loop(
             auto_start=auto_start,
         )
     except RuntimeExecutionClientError as exc:
+        resolved_status = _resolve_worker_error_status(exc)
         detail: str | dict[str, Any] = str(exc)
         if isinstance(exc.response_body, dict):
             detail = _build_worker_error_detail(
                 message=str(exc),
-                status_code=exc.status_code or 502,
+                status_code=resolved_status,
                 response_body=exc.response_body,
             )
         emit_audit_event(
@@ -358,11 +370,11 @@ def dispatch_worker_loop(
             trace_id=trace_id,
             metadata=_build_worker_error_audit_metadata(
                 reason=str(exc),
-                status_code=exc.status_code,
+                status_code=resolved_status,
                 response_body=exc.response_body if isinstance(exc.response_body, dict) else None,
             ),
         )
-        raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
+        raise HTTPException(status_code=resolved_status, detail=detail) from exc
     emit_audit_event(
         action=action,
         decision="allow",
@@ -391,11 +403,12 @@ def dispatch_worker_health(
     try:
         result = execution_client.worker_health(auth_token=token)
     except RuntimeExecutionClientError as exc:
+        resolved_status = _resolve_worker_error_status(exc)
         detail: str | dict[str, Any] = str(exc)
         if isinstance(exc.response_body, dict):
             detail = _build_worker_error_detail(
                 message=str(exc),
-                status_code=exc.status_code or 502,
+                status_code=resolved_status,
                 response_body=exc.response_body,
             )
         emit_audit_event(
@@ -405,11 +418,11 @@ def dispatch_worker_health(
             trace_id=trace_id,
             metadata=_build_worker_error_audit_metadata(
                 reason=str(exc),
-                status_code=exc.status_code,
+                status_code=resolved_status,
                 response_body=exc.response_body if isinstance(exc.response_body, dict) else None,
             ),
         )
-        raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
+        raise HTTPException(status_code=resolved_status, detail=detail) from exc
 
     try:
         validate_runtime_worker_health_contract(result)
@@ -455,11 +468,12 @@ def dispatch_worker_start(
     try:
         result = execution_client.worker_start(auth_token=token, reason=reason)
     except RuntimeExecutionClientError as exc:
+        resolved_status = _resolve_worker_error_status(exc)
         detail: str | dict[str, Any] = str(exc)
         if isinstance(exc.response_body, dict):
             detail = _build_worker_error_detail(
                 message=str(exc),
-                status_code=exc.status_code or 502,
+                status_code=resolved_status,
                 response_body=exc.response_body,
             )
         emit_audit_event(
@@ -469,11 +483,11 @@ def dispatch_worker_start(
             trace_id=trace_id,
             metadata=_build_worker_error_audit_metadata(
                 reason=str(exc),
-                status_code=exc.status_code,
+                status_code=resolved_status,
                 response_body=exc.response_body if isinstance(exc.response_body, dict) else None,
             ),
         )
-        raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
+        raise HTTPException(status_code=resolved_status, detail=detail) from exc
     emit_audit_event(
         action=action,
         decision="allow",
@@ -503,11 +517,12 @@ def dispatch_worker_stop(
     try:
         result = execution_client.worker_stop(auth_token=token, reason=reason)
     except RuntimeExecutionClientError as exc:
+        resolved_status = _resolve_worker_error_status(exc)
         detail: str | dict[str, Any] = str(exc)
         if isinstance(exc.response_body, dict):
             detail = _build_worker_error_detail(
                 message=str(exc),
-                status_code=exc.status_code or 502,
+                status_code=resolved_status,
                 response_body=exc.response_body,
             )
         emit_audit_event(
@@ -517,11 +532,11 @@ def dispatch_worker_stop(
             trace_id=trace_id,
             metadata=_build_worker_error_audit_metadata(
                 reason=str(exc),
-                status_code=exc.status_code,
+                status_code=resolved_status,
                 response_body=exc.response_body if isinstance(exc.response_body, dict) else None,
             ),
         )
-        raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
+        raise HTTPException(status_code=resolved_status, detail=detail) from exc
     emit_audit_event(
         action=action,
         decision="allow",
@@ -551,11 +566,12 @@ def dispatch_worker_restart(
     try:
         result = execution_client.worker_restart(auth_token=token, reason=reason)
     except RuntimeExecutionClientError as exc:
+        resolved_status = _resolve_worker_error_status(exc)
         detail: str | dict[str, Any] = str(exc)
         if isinstance(exc.response_body, dict):
             detail = _build_worker_error_detail(
                 message=str(exc),
-                status_code=exc.status_code or 502,
+                status_code=resolved_status,
                 response_body=exc.response_body,
             )
         emit_audit_event(
@@ -565,11 +581,11 @@ def dispatch_worker_restart(
             trace_id=trace_id,
             metadata=_build_worker_error_audit_metadata(
                 reason=str(exc),
-                status_code=exc.status_code,
+                status_code=resolved_status,
                 response_body=exc.response_body if isinstance(exc.response_body, dict) else None,
             ),
         )
-        raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
+        raise HTTPException(status_code=resolved_status, detail=detail) from exc
     emit_audit_event(
         action=action,
         decision="allow",
@@ -598,11 +614,12 @@ def dispatch_worker_status(
     try:
         result = execution_client.worker_status(auth_token=token)
     except RuntimeExecutionClientError as exc:
+        resolved_status = _resolve_worker_error_status(exc)
         detail: str | dict[str, Any] = str(exc)
         if isinstance(exc.response_body, dict):
             detail = _build_worker_error_detail(
                 message=str(exc),
-                status_code=exc.status_code or 502,
+                status_code=resolved_status,
                 response_body=exc.response_body,
             )
         emit_audit_event(
@@ -612,11 +629,11 @@ def dispatch_worker_status(
             trace_id=trace_id,
             metadata=_build_worker_error_audit_metadata(
                 reason=str(exc),
-                status_code=exc.status_code,
+                status_code=resolved_status,
                 response_body=exc.response_body if isinstance(exc.response_body, dict) else None,
             ),
         )
-        raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
+        raise HTTPException(status_code=resolved_status, detail=detail) from exc
 
     try:
         validate_runtime_worker_status_contract(result)
