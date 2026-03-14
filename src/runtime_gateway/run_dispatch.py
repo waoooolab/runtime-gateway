@@ -163,6 +163,53 @@ def _build_downstream_error_detail(
     return detail
 
 
+def _resolve_gateway_error_status(
+    *,
+    status_code: int | None,
+    retryable: bool,
+) -> int:
+    if isinstance(status_code, int):
+        return status_code
+    return 503 if retryable else 502
+
+
+def _extract_gateway_failure_classification(
+    *,
+    message: str,
+    detail: Any,
+) -> str:
+    if isinstance(detail, dict):
+        category = detail.get("category")
+        if isinstance(category, str) and category.strip():
+            return category
+        classification = detail.get("classification")
+        if isinstance(classification, str) and classification.strip():
+            return classification
+    lowered = message.strip().lower()
+    if "connection error" in lowered or "timeout" in lowered:
+        return "upstream_unavailable"
+    return "upstream_error"
+
+
+def _build_upstream_error_detail(
+    *,
+    message: str,
+    status_code: int,
+    retryable: bool,
+    failure_classification: str,
+    retry_policy: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    detail: dict[str, Any] = {
+        "message": message,
+        "status_code": status_code,
+        "retryable": retryable,
+        "failure_classification": failure_classification,
+    }
+    if isinstance(retry_policy, dict) and retry_policy:
+        detail["retry_policy"] = dict(retry_policy)
+    return detail
+
+
 def _extract_retry_policy_metadata(command: Mapping[str, Any]) -> dict[str, Any]:
     retry_policy = command.get("retry_policy")
     if not isinstance(retry_policy, dict):
@@ -317,8 +364,24 @@ def _submit_command(
         downstream_event_type = None
         bus_seq = None
         route_failure_metadata: dict[str, Any] = {}
-        detail: str | dict[str, Any] = str(exc)
+        failure_classification = _extract_gateway_failure_classification(
+            message=str(exc),
+            detail=exc.detail,
+        )
         effective_retryable = exc.retryable
+        effective_status_code = _resolve_gateway_error_status(
+            status_code=exc.status_code,
+            retryable=effective_retryable,
+        )
+        detail: str | dict[str, Any] = _build_upstream_error_detail(
+            message=str(exc),
+            status_code=effective_status_code,
+            retryable=effective_retryable,
+            failure_classification=failure_classification,
+            retry_policy=retry_policy_metadata.get("retry_policy")
+            if isinstance(retry_policy_metadata.get("retry_policy"), dict)
+            else None,
+        )
         if isinstance(exc.response_body, dict):
             try:
                 validate_event_envelope(exc.response_body)
@@ -331,7 +394,7 @@ def _submit_command(
                 )
                 detail = _build_downstream_error_detail(
                     message=str(exc),
-                    status_code=exc.status_code or 502,
+                    status_code=effective_status_code,
                     downstream_event=exc.response_body,
                     downstream_event_type=downstream_event_type,
                     bus_seq=bus_seq,
@@ -346,10 +409,11 @@ def _submit_command(
 
         audit_metadata: dict[str, Any] = {
             "reason": str(exc),
-            "status_code": exc.status_code,
+            "status_code": effective_status_code,
             "downstream_event_type": downstream_event_type,
             "bus_seq": bus_seq,
             "retryable": effective_retryable,
+            "failure_classification": failure_classification,
         }
         audit_metadata.update(retry_policy_metadata)
         audit_metadata.update(route_failure_metadata)
@@ -360,7 +424,7 @@ def _submit_command(
             trace_id=trace_id,
             metadata=audit_metadata,
         )
-        raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
+        raise HTTPException(status_code=effective_status_code, detail=detail) from exc
 
 
 def _extract_run_result(execution_event: dict[str, Any]) -> tuple[str, str]:

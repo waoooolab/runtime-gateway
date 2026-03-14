@@ -326,6 +326,22 @@ class _FakeExecutionClientPolicyRejectedTerminalRetryable:
         )
 
 
+@dataclass
+class _FakeExecutionClientTransportUnavailable:
+    def submit_command(self, *, envelope: dict, auth_token: str) -> dict:
+        _ = envelope, auth_token
+        raise RuntimeExecutionClientError(
+            "connection error calling runtime-execution: connection refused",
+            status_code=None,
+            detail={
+                "category": "upstream_unavailable",
+                "code": "upstream_connection_error",
+                "retryable": True,
+                "message": "connection refused",
+            },
+        )
+
+
 @unittest.skipUnless(FASTAPI_STACK_AVAILABLE, "fastapi stack not installed")
 class AppIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -768,6 +784,37 @@ class AppIntegrationTests(unittest.TestCase):
         items = recent.json()["items"]
         self.assertGreaterEqual(len(items), 1)
         self.assertEqual(items[-1]["event"]["event_type"], "runtime.run.requested")
+
+    def test_runs_connection_error_returns_structured_retryable_detail(self) -> None:
+        gateway_app_module._execution_client = _FakeExecutionClientTransportUnavailable()
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        response = self.client.post(
+            "/v1/runs",
+            json=self.payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 503)
+        detail = response.json().get("detail")
+        self.assertIsInstance(detail, dict)
+        assert isinstance(detail, dict)
+        self.assertEqual(detail.get("status_code"), 503)
+        self.assertEqual(detail.get("retryable"), True)
+        self.assertEqual(detail.get("failure_classification"), "upstream_unavailable")
+        self.assertEqual(
+            detail.get("retry_policy"),
+            {"max_attempts": 3, "backoff_ms": 250, "strategy": "fixed"},
+        )
+        self.assertIn("connection error", str(detail.get("message", "")))
+
+        audit_latest = get_audit_events(limit=1)[0]
+        self.assertEqual(audit_latest["decision"], "deny")
+        self.assertEqual(audit_latest["metadata"].get("status_code"), 503)
+        self.assertEqual(audit_latest["metadata"].get("retryable"), True)
+        self.assertEqual(
+            audit_latest["metadata"].get("failure_classification"),
+            "upstream_unavailable",
+        )
+        self.assertEqual(audit_latest["metadata"].get("downstream_event_type"), None)
 
     def test_runs_propagates_downstream_route_failed_status_and_publishes_event(self) -> None:
         gateway_app_module._execution_client = _FakeExecutionClientRejected()

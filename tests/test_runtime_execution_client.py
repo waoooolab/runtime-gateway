@@ -5,6 +5,7 @@ import json
 import os
 import unittest
 import urllib.error
+from urllib.error import URLError
 from unittest.mock import patch
 
 from runtime_gateway.integration.runtime_execution import (
@@ -114,6 +115,27 @@ class RuntimeExecutionClientTests(unittest.TestCase):
         self.assertIsNone(exc.response_body)
         self.assertIsNone(exc.detail)
         self.assertTrue(exc.retryable)
+
+    def test_submit_command_connection_error_is_retryable_with_structured_detail(self) -> None:
+        def transport(request, timeout=10.0):
+            _ = timeout
+            raise URLError("connection refused")
+
+        client = RuntimeExecutionClient(
+            base_url="http://runtime-execution.test",
+            _transport=transport,
+        )
+        with self.assertRaises(RuntimeExecutionClientError) as ctx:
+            client.submit_command(envelope={"x": 1}, auth_token="token-1")
+
+        exc = ctx.exception
+        self.assertEqual(exc.status_code, 503)
+        self.assertTrue(exc.retryable)
+        self.assertIsNone(exc.response_body)
+        self.assertIsInstance(exc.detail, dict)
+        assert isinstance(exc.detail, dict)
+        self.assertEqual(exc.detail.get("category"), "upstream_unavailable")
+        self.assertEqual(exc.detail.get("code"), "upstream_connection_error")
 
     def test_worker_tick_sends_query_parameters(self) -> None:
         captured: dict[str, str] = {}

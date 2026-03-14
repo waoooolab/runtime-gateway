@@ -232,7 +232,18 @@ class RuntimeExecutionClient:
         except urllib.error.HTTPError as exc:
             raise _parse_http_error(exc, url) from exc
         except urllib.error.URLError as exc:
-            raise RuntimeExecutionClientError(f"connection error calling {url}: {exc.reason}") from exc
+            reason = str(exc.reason)
+            raise RuntimeExecutionClientError(
+                f"connection error calling {url}: {reason}",
+                status_code=503,
+                detail={
+                    "error": "upstream_transport_error",
+                    "category": "upstream_unavailable",
+                    "code": "upstream_connection_error",
+                    "retryable": True,
+                    "message": reason,
+                },
+            ) from exc
 
         if status >= 400:
             response_body = _try_parse_json_object(raw)
