@@ -661,6 +661,11 @@ class EndToEndRunFlowTests(unittest.TestCase):
             event = ws.receive_json()
             self.assertEqual(event["event"]["event_type"], "runtime.run.status")
             self.assertEqual(event["event"]["payload"]["run_id"], target_run_id)
+            route = event["event"]["payload"].get("route")
+            self.assertIsInstance(route, dict)
+            assert isinstance(route, dict)
+            self.assertEqual(route.get("execution_mode"), "control")
+            self.assertEqual(route.get("route_target"), "langgraph-core")
 
     def test_gateway_to_execution_timeout_flow(self) -> None:
         token = self._gateway_token(["runs:write"])
