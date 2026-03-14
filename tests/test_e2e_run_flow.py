@@ -2029,6 +2029,235 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(retry_run.device_lease_state, "active")
         self.assertIsInstance(retry_run.device_lease_id, str)
 
+    def test_gateway_concurrent_capacity_retries_recover_after_invalid_expiry_reconciliation_e2e(self) -> None:
+        if not DEVICE_HUB_AVAILABLE:
+            self.skipTest("device-hub stack not available")
+
+        device_hub_app_module._hub = DeviceHubService(max_active_leases_per_tenant=4)
+        device_hub_client = TestClient(device_hub_app_module.app)
+        execution_app_module._runtime = RuntimeExecutionService(
+            device_hub_client=_DeviceHubBoundaryClient(
+                client=device_hub_client,
+                token_factory=self._device_hub_token,
+            )
+        )
+        self.execution_client = TestClient(execution_app_module.app)
+
+        def _register_online_compute_device(*, device_id: str, trace_prefix: str) -> None:
+            register = device_hub_client.post(
+                "/v1/devices/register",
+                json=build_command_envelope(
+                    command_type="device.register",
+                    payload={"device_id": device_id, "capabilities": ["compute.comfyui.local"]},
+                    session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                    trace_id=f"{trace_prefix}-register",
+                    run_id=f"run-{trace_prefix}-bootstrap",
+                    task_id=f"task-{trace_prefix}-bootstrap",
+                ),
+                headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+            )
+            self.assertEqual(register.status_code, 200)
+            pair_request = device_hub_client.post(
+                "/v1/devices/pairing/request",
+                json=build_command_envelope(
+                    command_type="device.pairing.request",
+                    payload={"device_id": device_id},
+                    session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                    trace_id=f"{trace_prefix}-pair",
+                    run_id=f"run-{trace_prefix}-bootstrap",
+                    task_id=f"task-{trace_prefix}-bootstrap",
+                ),
+                headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+            )
+            self.assertEqual(pair_request.status_code, 200)
+            pair_code = pair_request.json()["payload"]["code"]
+            approve = device_hub_client.post(
+                "/v1/devices/pairing/approve",
+                json=build_command_envelope(
+                    command_type="device.pairing.approve",
+                    payload={"code": pair_code},
+                    session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                    trace_id=f"{trace_prefix}-approve",
+                    run_id=f"run-{trace_prefix}-bootstrap",
+                    task_id=f"task-{trace_prefix}-bootstrap",
+                ),
+                headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+            )
+            self.assertEqual(approve.status_code, 200)
+            heartbeat = device_hub_client.post(
+                "/v1/devices/heartbeat",
+                json=build_command_envelope(
+                    command_type="device.heartbeat",
+                    payload={"device_id": device_id},
+                    session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                    trace_id=f"{trace_prefix}-heartbeat",
+                    run_id=f"run-{trace_prefix}-bootstrap",
+                    task_id=f"task-{trace_prefix}-bootstrap",
+                ),
+                headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+            )
+            self.assertEqual(heartbeat.status_code, 200)
+
+        _register_online_compute_device(
+            device_id="gpu-node-gateway-concurrent-retry-recovery-a-e2e",
+            trace_prefix="trace-gateway-concurrent-retry-recovery-a-device",
+        )
+        _register_online_compute_device(
+            device_id="gpu-node-gateway-concurrent-retry-recovery-b-e2e",
+            trace_prefix="trace-gateway-concurrent-retry-recovery-b-device",
+        )
+
+        write_token = self._gateway_token(["runs:write"])
+        execution_profile = {
+            "execution_mode": "compute",
+            "inference_target": "none",
+            "resource_class": "gpu",
+            "placement_constraints": {
+                "tenant_id": "t1",
+                "required_capabilities": ["compute.comfyui.local"],
+            },
+        }
+
+        def _submit_seed_run(*, goal: str) -> str:
+            seed = self.gateway_client.post(
+                "/v1/runs",
+                json={
+                    "tenant_id": "t1",
+                    "app_id": "covernow",
+                    "session_key": "tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                    "payload": {
+                        "goal": goal,
+                        "dispatch_policy": {
+                            "queue": {
+                                "dispatch_min_score": -999.0,
+                                "max_queue_depth_for_dispatch": 0,
+                            }
+                        },
+                        "execution_profile": execution_profile,
+                    },
+                },
+                headers={"Authorization": f"Bearer {write_token}"},
+            )
+            self.assertEqual(seed.status_code, 200)
+            return str(seed.json()["run_id"])
+
+        first_run_id = _submit_seed_run(goal="gateway concurrent retry recovery first run")
+        second_run_id = _submit_seed_run(goal="gateway concurrent retry recovery second run")
+        self.assertNotEqual(first_run_id, second_run_id)
+        for _ in range(8):
+            scheduler_tick = self.gateway_client.post(
+                "/v1/orchestration/scheduler:tick?max_items=2&fair=true",
+                headers={"Authorization": f"Bearer {write_token}"},
+            )
+            self.assertEqual(scheduler_tick.status_code, 200)
+            worker_tick = self.gateway_client.post(
+                "/v1/orchestration/worker:tick?fair=true&auto_start=true",
+                headers={"Authorization": f"Bearer {write_token}"},
+            )
+            self.assertEqual(worker_tick.status_code, 200)
+            first_run = execution_app_module._runtime.runs[first_run_id]
+            second_run = execution_app_module._runtime.runs[second_run_id]
+            if first_run.device_lease_id and second_run.device_lease_id:
+                break
+
+        first_run = execution_app_module._runtime.runs[first_run_id]
+        second_run = execution_app_module._runtime.runs[second_run_id]
+        self.assertEqual(first_run.device_lease_state, "active")
+        self.assertEqual(second_run.device_lease_state, "active")
+        first_lease_id = first_run.device_lease_id
+        second_lease_id = second_run.device_lease_id
+        self.assertIsInstance(first_lease_id, str)
+        self.assertIsInstance(second_lease_id, str)
+        assert first_lease_id is not None
+        assert second_lease_id is not None
+        _ = execution_app_module._runtime.queue_fabric.lease_one(QueueType.ORCHESTRATION)
+        _ = execution_app_module._runtime.queue_fabric.lease_one(QueueType.ORCHESTRATION)
+
+        def _submit_capacity_retry_rejection(*, goal: str) -> str:
+            run_ids_before = set(execution_app_module._runtime.runs.keys())
+            rejected = self.gateway_client.post(
+                "/v1/runs",
+                json={
+                    "tenant_id": "t1",
+                    "app_id": "covernow",
+                    "session_key": "tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                    "retry_policy": {
+                        "max_attempts": 4,
+                        "backoff_ms": 0,
+                        "strategy": "fixed",
+                    },
+                    "payload": {
+                        "goal": goal,
+                        "dispatch_policy": {
+                            "queue": {
+                                "dispatch_min_score": -999.0,
+                                "max_queue_depth_for_dispatch": 0,
+                            }
+                        },
+                        "execution_profile": execution_profile,
+                    },
+                },
+                headers={"Authorization": f"Bearer {write_token}"},
+            )
+            self.assertEqual(rejected.status_code, 503)
+            detail = rejected.json().get("detail")
+            self.assertIsInstance(detail, dict)
+            assert isinstance(detail, dict)
+            failure = detail.get("failure")
+            self.assertIsInstance(failure, dict)
+            assert isinstance(failure, dict)
+            self.assertEqual(failure.get("code"), "capacity_exhausted")
+            self.assertEqual(failure.get("classification"), "capacity")
+
+            run_ids_after = set(execution_app_module._runtime.runs.keys())
+            retry_candidates = run_ids_after - run_ids_before
+            self.assertEqual(len(retry_candidates), 1)
+            return next(iter(retry_candidates))
+
+        retry_run_ids = {
+            _submit_capacity_retry_rejection(goal="gateway concurrent retry recovery third run"),
+            _submit_capacity_retry_rejection(goal="gateway concurrent retry recovery fourth run"),
+        }
+        self.assertEqual(len(retry_run_ids), 2)
+        for run_id in retry_run_ids:
+            retry_run = execution_app_module._runtime.runs[run_id]
+            self.assertEqual(retry_run.status.value, "queued")
+            self.assertIsNone(retry_run.device_lease_id)
+
+        device_hub_app_module._hub.leases[first_lease_id].lease_expires_at = "invalid-datetime"
+        device_hub_app_module._hub.leases[second_lease_id].lease_expires_at = "invalid-datetime"
+
+        recovered_run_ids: set[str] = set()
+        for _ in range(12):
+            scheduler_tick = self.gateway_client.post(
+                "/v1/orchestration/scheduler:tick?max_items=4&fair=true",
+                headers={"Authorization": f"Bearer {write_token}"},
+            )
+            self.assertEqual(scheduler_tick.status_code, 200)
+
+            worker_tick = self.gateway_client.post(
+                "/v1/orchestration/worker:tick?fair=true&auto_start=true",
+                headers={"Authorization": f"Bearer {write_token}"},
+            )
+            self.assertEqual(worker_tick.status_code, 200)
+            for run_id in retry_run_ids:
+                refreshed = execution_app_module._runtime.runs[run_id]
+                if refreshed.device_lease_id:
+                    recovered_run_ids.add(run_id)
+            if recovered_run_ids == retry_run_ids:
+                break
+        self.assertEqual(recovered_run_ids, retry_run_ids)
+
+        for lease_id in (first_lease_id, second_lease_id):
+            lease = device_hub_app_module._hub.leases[lease_id]
+            self.assertEqual(lease.status, "expired")
+            self.assertEqual(lease.expire_reason_code, "ttl_expired")
+
+        for run_id in retry_run_ids:
+            retry_run = execution_app_module._runtime.runs[run_id]
+            self.assertEqual(retry_run.device_lease_state, "active")
+            self.assertIsInstance(retry_run.device_lease_id, str)
+
     def test_gateway_submit_compute_rejected_when_capacity_exhausted_e2e(self) -> None:
         if not DEVICE_HUB_AVAILABLE:
             self.skipTest("device-hub stack not available")
