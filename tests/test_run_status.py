@@ -58,7 +58,19 @@ def _make_token(
     return issue_token(claims, ttl_seconds=300)
 
 
-def _run_status_event(*, run_id: str, status: str) -> dict[str, object]:
+def _run_status_event(
+    *,
+    run_id: str,
+    status: str,
+    route: dict[str, object] | None = None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "run_id": run_id,
+        "status": status,
+        "retry_attempts": 0,
+    }
+    if isinstance(route, dict) and route:
+        payload["route"] = dict(route)
     return {
         "event_id": f"evt-{run_id}",
         "event_type": "runtime.run.status",
@@ -68,11 +80,7 @@ def _run_status_event(*, run_id: str, status: str) -> dict[str, object]:
         "trace_id": "trace-test-status",
         "correlation_id": run_id,
         "ts": "2026-03-12T06:00:00+00:00",
-        "payload": {
-            "run_id": run_id,
-            "status": status,
-            "retry_attempts": 0,
-        },
+        "payload": payload,
     }
 
 
@@ -140,6 +148,41 @@ def test_get_run_status_terminal_recommends_slow_poll(
     assert audit["metadata"]["run_id"] == "run-status-terminal"
     assert audit["metadata"]["downstream_status"] == "succeeded"
     assert audit["metadata"]["recommended_poll_after_ms"] == 10000
+
+
+def test_get_run_status_preserves_route_metadata(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    read_auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.get_run_status.return_value = _run_status_event(
+        run_id="run-status-route",
+        status="running",
+        route={
+            "event_type": "runtime.route.decided",
+            "execution_mode": "compute",
+            "route_target": "device-hub",
+            "placement_event_type": "device.lease.acquired",
+            "device_id": "gpu-node-test",
+            "lease_id": "lease-test",
+        },
+    )
+    client = TestClient(app)
+    response = client.get(
+        "/v1/runs/run-status-route",
+        headers=read_auth_headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    route = payload["payload"]["route"]
+    assert route["event_type"] == "runtime.route.decided"
+    assert route["execution_mode"] == "compute"
+    assert route["route_target"] == "device-hub"
+    assert route["placement_event_type"] == "device.lease.acquired"
+    assert route["device_id"] == "gpu-node-test"
+    assert route["lease_id"] == "lease-test"
+    assert payload["recommended_poll_after_ms"] == 1000
+    mock_token_exchange.assert_called_once()
 
 
 def test_get_run_status_downstream_error_maps_status(

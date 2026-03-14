@@ -564,7 +564,13 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertIn(run_id, execution_app_module._runtime.runs)
         run = execution_app_module._runtime.runs[run_id]
         self.assertEqual(run.trace_id, "trace-e2e-1")
-        self.assertEqual(run.payload, {"goal": "verify e2e run flow"})
+        self.assertEqual(run.payload.get("goal"), "verify e2e run flow")
+        route_marker = run.payload.get("_runtime_route")
+        self.assertIsInstance(route_marker, dict)
+        assert isinstance(route_marker, dict)
+        self.assertEqual(route_marker.get("event_type"), "runtime.route.decided")
+        self.assertEqual(route_marker.get("execution_mode"), "control")
+        self.assertEqual(route_marker.get("route_target"), "langgraph-core")
 
         read_response = self.execution_client.get(
             f"/v1/runs/{run_id}",
