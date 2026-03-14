@@ -661,11 +661,41 @@ class EndToEndRunFlowTests(unittest.TestCase):
             event = ws.receive_json()
             self.assertEqual(event["event"]["event_type"], "runtime.run.status")
             self.assertEqual(event["event"]["payload"]["run_id"], target_run_id)
+            self.assertEqual(event["event"]["payload"]["status"], "canceled")
+            self.assertEqual(
+                event["event"]["payload"]["orchestration"]["failure_reason_code"],
+                "run_canceled",
+            )
             route = event["event"]["payload"].get("route")
             self.assertIsInstance(route, dict)
             assert isinstance(route, dict)
             self.assertEqual(route.get("execution_mode"), "control")
             self.assertEqual(route.get("route_target"), "langgraph-core")
+
+        target_recent = self.gateway_client.get(
+            f"/v1/events/recent?run_id={target_run_id}&event_types=runtime.run.status&limit=10",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(target_recent.status_code, 200)
+        target_items = target_recent.json()["items"]
+        target_status_events = [
+            item["event"]
+            for item in target_items
+            if item.get("event", {}).get("payload", {}).get("run_id") == target_run_id
+        ]
+        self.assertGreaterEqual(len(target_status_events), 1)
+        latest_target_event = target_status_events[-1]
+        self.assertEqual(latest_target_event["event_type"], "runtime.run.status")
+        self.assertEqual(latest_target_event["payload"]["status"], "canceled")
+        self.assertEqual(
+            latest_target_event["payload"]["orchestration"]["failure_reason_code"],
+            "run_canceled",
+        )
+        latest_route = latest_target_event["payload"].get("route")
+        self.assertIsInstance(latest_route, dict)
+        assert isinstance(latest_route, dict)
+        self.assertEqual(latest_route.get("execution_mode"), "control")
+        self.assertEqual(latest_route.get("route_target"), "langgraph-core")
 
     def test_gateway_to_execution_timeout_flow(self) -> None:
         token = self._gateway_token(["runs:write"])
