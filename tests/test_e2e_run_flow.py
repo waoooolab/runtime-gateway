@@ -1817,6 +1817,218 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(second_run.device_lease_state, "active")
         self.assertIsInstance(second_run.device_lease_id, str)
 
+    def test_gateway_mixed_quota_and_capacity_rejections_then_retry_recovery_e2e(self) -> None:
+        if not DEVICE_HUB_AVAILABLE:
+            self.skipTest("device-hub stack not available")
+
+        device_hub_app_module._hub = DeviceHubService(max_active_leases_per_tenant=1)
+        device_hub_client = TestClient(device_hub_app_module.app)
+        execution_app_module._runtime = RuntimeExecutionService(
+            device_hub_client=_DeviceHubBoundaryClient(
+                client=device_hub_client,
+                token_factory=self._device_hub_token,
+            )
+        )
+        self.execution_client = TestClient(execution_app_module.app)
+
+        register = device_hub_client.post(
+            "/v1/devices/register",
+            json=build_command_envelope(
+                command_type="device.register",
+                payload={
+                    "device_id": "gpu-node-gateway-mixed-pressure-recovery-e2e",
+                    "capabilities": ["compute.comfyui.local"],
+                },
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-mixed-pressure-recovery-device-register",
+                run_id="run-gateway-mixed-pressure-recovery-device-bootstrap",
+                task_id="task-gateway-mixed-pressure-recovery-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(register.status_code, 200)
+        pair_request = device_hub_client.post(
+            "/v1/devices/pairing/request",
+            json=build_command_envelope(
+                command_type="device.pairing.request",
+                payload={"device_id": "gpu-node-gateway-mixed-pressure-recovery-e2e"},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-mixed-pressure-recovery-device-pair",
+                run_id="run-gateway-mixed-pressure-recovery-device-bootstrap",
+                task_id="task-gateway-mixed-pressure-recovery-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(pair_request.status_code, 200)
+        pair_code = pair_request.json()["payload"]["code"]
+        approve = device_hub_client.post(
+            "/v1/devices/pairing/approve",
+            json=build_command_envelope(
+                command_type="device.pairing.approve",
+                payload={"code": pair_code},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-mixed-pressure-recovery-device-approve",
+                run_id="run-gateway-mixed-pressure-recovery-device-bootstrap",
+                task_id="task-gateway-mixed-pressure-recovery-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(approve.status_code, 200)
+        heartbeat = device_hub_client.post(
+            "/v1/devices/heartbeat",
+            json=build_command_envelope(
+                command_type="device.heartbeat",
+                payload={"device_id": "gpu-node-gateway-mixed-pressure-recovery-e2e"},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-mixed-pressure-recovery-device-heartbeat",
+                run_id="run-gateway-mixed-pressure-recovery-device-bootstrap",
+                task_id="task-gateway-mixed-pressure-recovery-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(heartbeat.status_code, 200)
+
+        write_token = self._gateway_token(["runs:write"])
+        first_run_id = self._submit_run(
+            write_token,
+            "gateway mixed pressure recovery first run",
+            execution_profile={
+                "execution_mode": "compute",
+                "inference_target": "none",
+                "resource_class": "gpu",
+                "placement_constraints": {
+                    "tenant_id": "t1",
+                    "required_capabilities": ["compute.comfyui.local"],
+                },
+            },
+        )
+        first_run = execution_app_module._runtime.runs[first_run_id]
+        self.assertEqual(first_run.device_lease_state, "active")
+        first_lease_id = first_run.device_lease_id
+        self.assertIsInstance(first_lease_id, str)
+        assert first_lease_id is not None
+        _ = execution_app_module._runtime.queue_fabric.lease_one(QueueType.ORCHESTRATION)
+
+        quota_reject = self.gateway_client.post(
+            "/v1/runs",
+            json={
+                "tenant_id": "t1",
+                "app_id": "covernow",
+                "session_key": "tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                "retry_policy": {
+                    "max_attempts": 1,
+                    "backoff_ms": 0,
+                    "strategy": "fixed",
+                },
+                "payload": {
+                    "goal": "gateway mixed pressure recovery quota reject",
+                    "dispatch_policy": {
+                        "queue": {
+                            "dispatch_min_score": -999.0,
+                            "max_queue_depth_for_dispatch": 0,
+                        }
+                    },
+                    "execution_profile": {
+                        "execution_mode": "compute",
+                        "inference_target": "none",
+                        "resource_class": "gpu",
+                        "placement_constraints": {
+                            "tenant_id": "t1",
+                            "required_capabilities": ["compute.comfyui.local"],
+                        },
+                    },
+                },
+            },
+            headers={"Authorization": f"Bearer {write_token}"},
+        )
+        self.assertEqual(quota_reject.status_code, 503)
+        quota_detail = quota_reject.json().get("detail")
+        self.assertIsInstance(quota_detail, dict)
+        assert isinstance(quota_detail, dict)
+        quota_failure = quota_detail.get("failure")
+        self.assertIsInstance(quota_failure, dict)
+        assert isinstance(quota_failure, dict)
+        self.assertEqual(quota_failure.get("code"), "tenant_quota_exhausted")
+        self.assertEqual(quota_failure.get("classification"), "capacity")
+
+        device_hub_app_module._hub.max_active_leases_per_tenant = 2
+
+        run_ids_before_capacity = set(execution_app_module._runtime.runs.keys())
+        capacity_reject = self.gateway_client.post(
+            "/v1/runs",
+            json={
+                "tenant_id": "t1",
+                "app_id": "covernow",
+                "session_key": "tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                "retry_policy": {
+                    "max_attempts": 3,
+                    "backoff_ms": 0,
+                    "strategy": "fixed",
+                },
+                "payload": {
+                    "goal": "gateway mixed pressure recovery capacity reject",
+                    "dispatch_policy": {
+                        "queue": {
+                            "dispatch_min_score": -999.0,
+                            "max_queue_depth_for_dispatch": 0,
+                        }
+                    },
+                    "execution_profile": {
+                        "execution_mode": "compute",
+                        "inference_target": "none",
+                        "resource_class": "gpu",
+                        "placement_constraints": {
+                            "tenant_id": "t1",
+                            "required_capabilities": ["compute.comfyui.local"],
+                        },
+                    },
+                },
+            },
+            headers={"Authorization": f"Bearer {write_token}"},
+        )
+        self.assertEqual(capacity_reject.status_code, 503)
+        capacity_detail = capacity_reject.json().get("detail")
+        self.assertIsInstance(capacity_detail, dict)
+        assert isinstance(capacity_detail, dict)
+        capacity_failure = capacity_detail.get("failure")
+        self.assertIsInstance(capacity_failure, dict)
+        assert isinstance(capacity_failure, dict)
+        self.assertEqual(capacity_failure.get("code"), "capacity_exhausted")
+        self.assertEqual(capacity_failure.get("classification"), "capacity")
+
+        run_ids_after_capacity = set(execution_app_module._runtime.runs.keys())
+        retry_candidates = run_ids_after_capacity - run_ids_before_capacity
+        self.assertEqual(len(retry_candidates), 1)
+        retry_run_id = next(iter(retry_candidates))
+
+        device_hub_app_module._hub.leases[first_lease_id].lease_expires_at = "invalid-datetime"
+
+        scheduler_tick = self.gateway_client.post(
+            "/v1/orchestration/scheduler:tick?max_items=2&fair=true",
+            headers={"Authorization": f"Bearer {write_token}"},
+        )
+        self.assertEqual(scheduler_tick.status_code, 200)
+        self.assertGreaterEqual(int(scheduler_tick.json()["processed"]), 1)
+
+        recovered = False
+        for _ in range(6):
+            worker_tick = self.gateway_client.post(
+                "/v1/orchestration/worker:tick?fair=true&auto_start=true",
+                headers={"Authorization": f"Bearer {write_token}"},
+            )
+            self.assertEqual(worker_tick.status_code, 200)
+            refreshed = execution_app_module._runtime.runs[retry_run_id]
+            if refreshed.device_lease_id:
+                recovered = True
+                break
+        self.assertTrue(recovered)
+
+        self.assertEqual(device_hub_app_module._hub.leases[first_lease_id].status, "expired")
+        self.assertEqual(device_hub_app_module._hub.leases[first_lease_id].expire_reason_code, "ttl_expired")
+        retry_run = execution_app_module._runtime.runs[retry_run_id]
+        self.assertEqual(retry_run.device_lease_state, "active")
+        self.assertIsInstance(retry_run.device_lease_id, str)
+
     def test_gateway_submit_compute_rejected_when_capacity_exhausted_e2e(self) -> None:
         if not DEVICE_HUB_AVAILABLE:
             self.skipTest("device-hub stack not available")
