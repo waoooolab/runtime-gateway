@@ -19,7 +19,21 @@ os.environ["WAOOOOLAB_PLATFORM_CONTRACTS_DIR"] = str(
 )
 
 
-def _run_status_event(*, run_id: str, status: str) -> dict:
+def _run_status_event(
+    *,
+    run_id: str,
+    status: str,
+    failure_reason_code: str | None = None,
+    route: dict[str, object] | None = None,
+) -> dict:
+    payload: dict[str, object] = {
+        "run_id": run_id,
+        "status": status,
+    }
+    if isinstance(failure_reason_code, str) and failure_reason_code.strip():
+        payload["orchestration"] = {"failure_reason_code": failure_reason_code.strip()}
+    if isinstance(route, dict) and route:
+        payload["route"] = dict(route)
     return {
         "event_id": f"evt-{run_id}",
         "event_type": "runtime.run.status",
@@ -29,10 +43,7 @@ def _run_status_event(*, run_id: str, status: str) -> dict:
         "trace_id": "trace-test-control",
         "correlation_id": run_id,
         "ts": datetime.now(timezone.utc).isoformat(),
-        "payload": {
-            "run_id": run_id,
-            "status": status,
-        },
+        "payload": payload,
     }
 
 
@@ -147,6 +158,13 @@ def test_preempt_run_happy_path(
     mock_execution_client.preempt_run.return_value = _run_status_event(
         run_id="run-preempt-1",
         status="canceled",
+        failure_reason_code="run_preempted",
+        route={
+            "event_type": "runtime.route.decided",
+            "execution_mode": "compute",
+            "route_target": "device-hub",
+            "placement_reason_code": "capacity_exhausted",
+        },
     )
     client = TestClient(app)
     response = client.post(
@@ -168,6 +186,15 @@ def test_preempt_run_happy_path(
         preempted_by_run_id="run-priority-parent",
     )
     mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "runs.preempt"
+    assert audit["decision"] == "allow"
+    assert audit["metadata"]["downstream_status"] == "canceled"
+    assert audit["metadata"]["downstream_failure_reason_code"] == "run_preempted"
+    assert audit["metadata"]["downstream_route_event_type"] == "runtime.route.decided"
+    assert audit["metadata"]["downstream_execution_mode"] == "compute"
+    assert audit["metadata"]["downstream_route_target"] == "device-hub"
+    assert audit["metadata"]["downstream_placement_reason_code"] == "capacity_exhausted"
 
 
 def test_complete_run_happy_path(
@@ -313,17 +340,17 @@ def test_complete_run_downstream_error_includes_requested_failure_reason_in_audi
     mock_execution_client.complete_run.side_effect = RuntimeExecutionClientError(
         "HTTP 409 calling complete endpoint",
         status_code=409,
-        response_body={
-            "event_id": "evt-run-complete-fail",
-            "event_type": "runtime.run.status",
-            "tenant_id": "t1",
-            "app_id": "covernow",
-            "session_key": "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
-            "trace_id": "trace-test-control",
-            "correlation_id": "run-complete-fail",
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "payload": {"run_id": "run-complete-fail", "status": "failed"},
-        },
+        response_body=_run_status_event(
+            run_id="run-complete-fail",
+            status="failed",
+            failure_reason_code="tool_contract_violation",
+            route={
+                "event_type": "runtime.route.decided",
+                "execution_mode": "compute",
+                "route_target": "device-hub",
+                "placement_reason_code": "capacity_exhausted",
+            },
+        ),
     )
     client = TestClient(app)
     response = client.post(
@@ -338,6 +365,11 @@ def test_complete_run_downstream_error_includes_requested_failure_reason_in_audi
     assert detail["downstream_event_type"] == "runtime.run.status"
     assert detail["run_id"] == "run-complete-fail"
     assert detail["status"] == "failed"
+    assert detail["downstream_failure_reason_code"] == "tool_contract_violation"
+    assert detail["downstream_route_event_type"] == "runtime.route.decided"
+    assert detail["downstream_execution_mode"] == "compute"
+    assert detail["downstream_route_target"] == "device-hub"
+    assert detail["downstream_placement_reason_code"] == "capacity_exhausted"
     assert "HTTP 409" in str(detail["message"])
     mock_token_exchange.assert_called_once()
     audit = get_audit_events(limit=1)[0]
@@ -345,6 +377,12 @@ def test_complete_run_downstream_error_includes_requested_failure_reason_in_audi
     assert audit["decision"] == "deny"
     assert audit["metadata"]["requested_success"] is False
     assert audit["metadata"]["requested_failure_reason_code"] == "tool_contract_violation"
+    assert audit["metadata"]["downstream_status"] == "failed"
+    assert audit["metadata"]["downstream_failure_reason_code"] == "tool_contract_violation"
+    assert audit["metadata"]["downstream_route_event_type"] == "runtime.route.decided"
+    assert audit["metadata"]["downstream_execution_mode"] == "compute"
+    assert audit["metadata"]["downstream_route_target"] == "device-hub"
+    assert audit["metadata"]["downstream_placement_reason_code"] == "capacity_exhausted"
 
 
 def test_cancel_run_accepts_requested_by_run_id_alias(

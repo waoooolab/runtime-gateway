@@ -107,6 +107,41 @@ def _extract_downstream_status(event: dict[str, Any]) -> str | None:
     return None
 
 
+def _extract_downstream_failure_reason_code(event: dict[str, Any]) -> str | None:
+    payload = event.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    orchestration = payload.get("orchestration")
+    if not isinstance(orchestration, dict):
+        return None
+    failure_reason_code = orchestration.get("failure_reason_code")
+    if not isinstance(failure_reason_code, str):
+        return None
+    normalized = failure_reason_code.strip()
+    return normalized or None
+
+
+def _extract_downstream_route_metadata(event: dict[str, Any]) -> dict[str, str]:
+    payload = event.get("payload")
+    if not isinstance(payload, dict):
+        return {}
+    route = payload.get("route")
+    if not isinstance(route, dict):
+        return {}
+    metadata: dict[str, str] = {}
+    scalar_fields: tuple[tuple[str, str], ...] = (
+        ("event_type", "downstream_route_event_type"),
+        ("execution_mode", "downstream_execution_mode"),
+        ("route_target", "downstream_route_target"),
+        ("placement_reason_code", "downstream_placement_reason_code"),
+    )
+    for source, target in scalar_fields:
+        raw_value = route.get(source)
+        if isinstance(raw_value, str) and raw_value.strip():
+            metadata[target] = raw_value.strip()
+    return metadata
+
+
 def _build_downstream_error_detail(
     *,
     message: str,
@@ -140,6 +175,10 @@ def _build_downstream_error_detail(
         decision = payload.get("decision")
         if isinstance(decision, dict):
             detail["decision"] = decision
+    downstream_failure_reason_code = _extract_downstream_failure_reason_code(downstream_event)
+    if downstream_failure_reason_code is not None:
+        detail["downstream_failure_reason_code"] = downstream_failure_reason_code
+    detail.update(_extract_downstream_route_metadata(downstream_event))
     if bus_seq is not None:
         detail["bus_seq"] = bus_seq
     return detail
@@ -179,12 +218,18 @@ def _submit_control_action(
             message=str(exc),
         )
         downstream_event_type = None
+        downstream_status = None
+        downstream_failure_reason_code = None
+        downstream_route_metadata: dict[str, str] = {}
         bus_seq = None
         detail: str | dict[str, Any] = str(exc)
         if isinstance(exc.response_body, dict):
             try:
                 validate_event_envelope(exc.response_body)
                 downstream_event_type = str(exc.response_body.get("event_type", ""))
+                downstream_status = _extract_downstream_status(exc.response_body)
+                downstream_failure_reason_code = _extract_downstream_failure_reason_code(exc.response_body)
+                downstream_route_metadata = _extract_downstream_route_metadata(exc.response_body)
                 bus_seq = publish_gateway_event(exc.response_body)
                 detail = _build_downstream_error_detail(
                     message=str(exc),
@@ -195,6 +240,9 @@ def _submit_control_action(
                 )
             except ValueError:
                 downstream_event_type = None
+                downstream_status = None
+                downstream_failure_reason_code = None
+                downstream_route_metadata = {}
                 bus_seq = None
         emit_audit_event(
             action=action,
@@ -206,6 +254,9 @@ def _submit_control_action(
                 "status_code": resolved_status,
                 "run_id": run_id,
                 "downstream_event_type": downstream_event_type,
+                "downstream_status": downstream_status,
+                "downstream_failure_reason_code": downstream_failure_reason_code,
+                **downstream_route_metadata,
                 "bus_seq": bus_seq,
                 **(audit_metadata or {}),
             },
@@ -230,6 +281,8 @@ def _submit_control_action(
             "run_id": run_id,
             "downstream_event_type": result.get("event_type"),
             "downstream_status": _extract_downstream_status(result),
+            "downstream_failure_reason_code": _extract_downstream_failure_reason_code(result),
+            **_extract_downstream_route_metadata(result),
             "bus_seq": bus_seq,
             **(audit_metadata or {}),
         },
