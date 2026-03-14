@@ -177,6 +177,24 @@ def _env_truthy(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _normalize_base_url(base_url: str, *, require_https: bool) -> str:
+    normalized = base_url.strip()
+    if not normalized:
+        raise ValueError("RuntimeExecutionClient base_url must not be empty")
+    parsed = urlparse(normalized)
+    if not parsed.netloc:
+        raise ValueError("RuntimeExecutionClient base_url must include host")
+    if parsed.query or parsed.fragment:
+        raise ValueError("RuntimeExecutionClient base_url must not include query or fragment")
+    if parsed.path not in {"", "/"}:
+        raise ValueError("RuntimeExecutionClient base_url must not include path")
+    if require_https:
+        scheme = parsed.scheme.strip().lower()
+        if scheme != "https":
+            raise ValueError("RuntimeExecutionClient base_url must use https when WAOOOOLAB_REQUIRE_INTERNAL_TLS=true")
+    return normalized.rstrip("/")
+
+
 @dataclass
 class RuntimeExecutionClient:
     base_url: str = field(
@@ -189,11 +207,7 @@ class RuntimeExecutionClient:
     _transport: TransportCallable = field(default=urllib.request.urlopen)
 
     def __post_init__(self) -> None:
-        if not self.require_https:
-            return
-        scheme = urlparse(self.base_url).scheme.strip().lower()
-        if scheme != "https":
-            raise ValueError("RuntimeExecutionClient base_url must use https when WAOOOOLAB_REQUIRE_INTERNAL_TLS=true")
+        self.base_url = _normalize_base_url(self.base_url, require_https=self.require_https)
 
     def _request_json(
         self,

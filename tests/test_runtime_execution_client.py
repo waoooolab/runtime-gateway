@@ -13,6 +13,26 @@ from runtime_gateway.integration.runtime_execution import (
 )
 
 class RuntimeExecutionClientTests(unittest.TestCase):
+    def test_rejects_empty_base_url(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            RuntimeExecutionClient(base_url=" ")
+        self.assertIn("must not be empty", str(ctx.exception))
+
+    def test_rejects_base_url_without_host(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            RuntimeExecutionClient(base_url="http:///")
+        self.assertIn("must include host", str(ctx.exception))
+
+    def test_rejects_base_url_with_path(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            RuntimeExecutionClient(base_url="http://runtime-execution.test/v1")
+        self.assertIn("must not include path", str(ctx.exception))
+
+    def test_rejects_base_url_with_query(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            RuntimeExecutionClient(base_url="http://runtime-execution.test?env=dev")
+        self.assertIn("must not include query or fragment", str(ctx.exception))
+
     def test_rejects_non_https_base_url_when_tls_required(self) -> None:
         with patch.dict(os.environ, {"WAOOOOLAB_REQUIRE_INTERNAL_TLS": "true"}, clear=False):
             with self.assertRaises(ValueError) as ctx:
