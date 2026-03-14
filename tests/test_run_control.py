@@ -451,6 +451,23 @@ def test_preempt_run_rejects_conflicting_requested_by_fields(
     assert "must match when both are present" in response.json()["detail"]
 
 
+def test_preempt_run_downstream_error_is_mapped(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.preempt_run.side_effect = RuntimeExecutionClientError(
+        "HTTP 409 calling preempt endpoint",
+        status_code=409,
+        response_body={"error": "preempt conflict"},
+    )
+    client = TestClient(app)
+    response = client.post("/v1/runs/run-preempt-conflict:preempt", headers=auth_headers)
+    assert response.status_code == 409
+    assert "409" in response.text
+    mock_token_exchange.assert_called_once()
+
+
 def test_run_control_rejects_invalid_payload_type(
     mock_execution_client: Mock,
     mock_token_exchange: Mock,
