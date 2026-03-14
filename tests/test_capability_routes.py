@@ -209,6 +209,31 @@ def test_invoke_capability_downstream_event_error_is_mapped_and_published() -> N
     assert audit["metadata"]["downstream_event_type"] == "app.capability.invoke_failed.v1"
 
 
+def test_invoke_capability_connection_error_maps_to_503() -> None:
+    client = TestClient(app)
+    from runtime_gateway import app as app_module
+
+    app_module._execution_client.invoke_capability.side_effect = RuntimeExecutionClientError(
+        "connection error calling capability invoke endpoint",
+        status_code=None,
+    )
+
+    invoke_headers = {"Authorization": f"Bearer {_token(['capabilities:invoke'])}"}
+    invoke = client.post(
+        "/v1/capabilities/cap.connection:invoke",
+        json={"version": "1.0.0"},
+        headers=invoke_headers,
+    )
+    assert invoke.status_code == 503
+    assert "connection error" in invoke.text
+
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "capabilities.invoke"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["status_code"] == 503
+    assert audit["metadata"]["downstream_event_type"] is None
+
+
 def test_capability_routes_require_matching_scope() -> None:
     client = TestClient(app)
     bad_headers = {"Authorization": f"Bearer {_token(['runs:write'])}"}

@@ -10,6 +10,7 @@ from .audit.emitter import emit_audit_event
 from .auth.exchange import ExchangeError, exchange_subject_token
 from .events.validation import validate_event_envelope
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
+from .upstream_error import resolve_upstream_status_code
 
 
 def _require_object_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
@@ -129,6 +130,11 @@ def _submit_capability_action(
             validate_event_envelope(result)
             bus_seq = publish_gateway_event(result)
     except RuntimeExecutionClientError as exc:
+        resolved_status = resolve_upstream_status_code(
+            status_code=exc.status_code,
+            retryable=exc.retryable,
+            message=str(exc),
+        )
         downstream_event_type = None
         downstream_status = None
         bus_seq = None
@@ -141,7 +147,7 @@ def _submit_capability_action(
                 bus_seq = publish_gateway_event(exc.response_body)
                 detail = _build_downstream_error_detail(
                     message=str(exc),
-                    status_code=exc.status_code or 502,
+                    status_code=resolved_status,
                     downstream_event=exc.response_body,
                     downstream_event_type=downstream_event_type,
                     bus_seq=bus_seq,
@@ -157,14 +163,14 @@ def _submit_capability_action(
             trace_id=trace_id,
             metadata={
                 "reason": str(exc),
-                "status_code": exc.status_code,
+                "status_code": resolved_status,
                 "downstream_event_type": downstream_event_type,
                 "downstream_status": downstream_status,
                 "bus_seq": bus_seq,
                 **(audit_metadata or {}),
             },
         )
-        raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
+        raise HTTPException(status_code=resolved_status, detail=detail) from exc
     except ValueError as exc:
         emit_audit_event(
             action=action,
