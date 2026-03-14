@@ -408,6 +408,106 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(data["status"], "queued")
         return str(data["run_id"])
 
+    @staticmethod
+    def _app_capability(
+        *,
+        capability_id: str,
+        version: str = "1.0.0",
+    ) -> dict:
+        return {
+            "schema_version": "app-capability.v1",
+            "kind": "app",
+            "capability_id": capability_id,
+            "version": version,
+            "display_name": f"{capability_id} name",
+            "description": "gateway e2e app capability",
+            "visibility": "private",
+            "source": {
+                "workflow_id": "wf-gateway-e2e",
+                "workflow_version": "1",
+                "graph_hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                "mode": "node",
+                "entry_nodes": ["n-start"],
+                "exit_nodes": ["n-end"],
+            },
+            "interface": {
+                "input_schema": {"type": "object"},
+                "output_schema": {"type": "object"},
+                "ui": {"default_mode": "tools", "switchable_modes": ["tools", "canvas"]},
+            },
+            "execution": {
+                "requested_mode": "control",
+                "route_policy": "default",
+                "timeout_ms": 120000,
+            },
+            "governance": {
+                "owner": "team-platform",
+                "tags": ["gateway-e2e"],
+                "review_status": "approved",
+                "trust_level": "internal",
+                "policy_profile": "internal_default",
+            },
+        }
+
+    def test_gateway_capability_flow_end_to_end(self) -> None:
+        write_token = self._gateway_token(["capabilities:write"])
+        read_token = self._gateway_token(["capabilities:read"])
+        invoke_token = self._gateway_token(["capabilities:invoke"])
+        capability_id = "cap_gateway_e2e"
+
+        register = self.gateway_client.post(
+            "/v1/capabilities/register",
+            json={"capability": self._app_capability(capability_id=capability_id)},
+            headers={"Authorization": f"Bearer {write_token}"},
+        )
+        self.assertEqual(register.status_code, 200)
+        self.assertEqual(register.json()["status"], "registered")
+
+        listed = self.gateway_client.get(
+            "/v1/capabilities",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(listed.status_code, 200)
+        listed_items = listed.json()["items"]
+        self.assertTrue(any(item.get("capability_id") == capability_id for item in listed_items))
+
+        resolved = self.gateway_client.post(
+            "/v1/capabilities/resolve",
+            json={"capability_id": capability_id},
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(resolved.status_code, 200)
+        self.assertEqual(resolved.json()["resolved_version"], "1.0.0")
+
+        published = self.gateway_client.post(
+            "/v1/capabilities/publish",
+            json={"capability": self._app_capability(capability_id=capability_id, version="1.0.1")},
+            headers={"Authorization": f"Bearer {write_token}"},
+        )
+        self.assertEqual(published.status_code, 200)
+        self.assertEqual(published.json()["event_type"], "app.capability.published.v1")
+        self.assertEqual(published.json()["payload"]["status"], "published")
+
+        invoked = self.gateway_client.post(
+            f"/v1/capabilities/{capability_id}:invoke",
+            json={"version": "1.0.1", "input": {"prompt": "hello capability"}},
+            headers={"Authorization": f"Bearer {invoke_token}"},
+        )
+        self.assertEqual(invoked.status_code, 200)
+        self.assertEqual(invoked.json()["event_type"], "app.capability.invoked.v1")
+        self.assertEqual(invoked.json()["payload"]["status"], "invoked")
+        self.assertIsInstance(invoked.json()["payload"]["run_id"], str)
+
+        recent = self.gateway_client.get(
+            "/v1/events/recent?event_types=app.capability.invoked.v1&limit=10",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(recent.status_code, 200)
+        recent_items = recent.json()["items"]
+        self.assertGreaterEqual(len(recent_items), 1)
+        self.assertEqual(recent_items[-1]["event"]["event_type"], "app.capability.invoked.v1")
+        self.assertEqual(recent_items[-1]["event"]["payload"]["capability_id"], capability_id)
+
     def test_gateway_to_execution_e2e_run_flow(self) -> None:
         token = self._gateway_token(["runs:write"])
         run_id = self._submit_run(token, "verify e2e run flow")
