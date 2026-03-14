@@ -785,6 +785,76 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertGreaterEqual(len(items), 1)
         self.assertEqual(items[-1]["event"]["event_type"], "runtime.run.requested")
 
+    @patch("runtime_gateway.app.read_event_page")
+    def test_recent_events_durable_keeps_next_cursor_monotonic(self, mock_read_event_page) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:read"])
+        mock_read_event_page.return_value = {
+            "items": [],
+            "next_cursor": 3,
+            "has_more": False,
+            "stats": {
+                "connections": 0,
+                "buffered_events": 0,
+                "next_seq": 1,
+            },
+        }
+
+        response = self.client.get(
+            "/v1/events/recent?source=durable&cursor=10&limit=5",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["source"], "durable")
+        self.assertEqual(payload["next_cursor"], 10)
+        self.assertEqual(payload["items"], [])
+        self.assertEqual(payload["has_more"], False)
+        self.assertEqual(payload["recommended_poll_after_ms"], 5000)
+        mock_read_event_page.assert_called_once()
+
+    @patch("runtime_gateway.app.read_event_page")
+    def test_recent_events_durable_keeps_next_cursor_monotonic_with_items(self, mock_read_event_page) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:read"])
+        mock_read_event_page.return_value = {
+            "items": [
+                {
+                    "bus_seq": 8,
+                    "event": {
+                        "event_id": "evt-durable-regress-1",
+                        "event_type": "runtime.run.status",
+                        "tenant_id": "t1",
+                        "app_id": "covernow",
+                        "session_key": "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+                        "trace_id": "trace-durable-regress-1",
+                        "correlation_id": "corr-durable-regress-1",
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                        "payload": {"run_id": "run-durable-regress", "status": "queued"},
+                    },
+                }
+            ],
+            "next_cursor": 8,
+            "has_more": False,
+            "stats": {
+                "connections": 0,
+                "buffered_events": 1,
+                "next_seq": 9,
+            },
+        }
+
+        response = self.client.get(
+            "/v1/events/recent?source=durable&cursor=12&limit=5",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["source"], "durable")
+        self.assertEqual(payload["next_cursor"], 12)
+        self.assertEqual(len(payload["items"]), 1)
+        self.assertEqual(payload["items"][0]["bus_seq"], 8)
+        self.assertEqual(payload["items"][0]["event"]["event_type"], "runtime.run.status")
+        self.assertEqual(payload["recommended_poll_after_ms"], 1500)
+        mock_read_event_page.assert_called_once()
+
     def test_runs_connection_error_returns_structured_retryable_detail(self) -> None:
         gateway_app_module._execution_client = _FakeExecutionClientTransportUnavailable()
         token = self._token(audience="runtime-gateway", scope=["runs:write"])

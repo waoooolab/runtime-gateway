@@ -78,6 +78,13 @@ def _recommended_poll_after_ms_for_recent_events(*, has_more: bool, item_count: 
     return 5000
 
 
+def _normalize_next_cursor(*, requested_cursor: int | None, resolved_next_cursor: int) -> int:
+    normalized = max(0, int(resolved_next_cursor))
+    if requested_cursor is None:
+        return normalized
+    return max(int(requested_cursor), normalized)
+
+
 def _parse_since_ts_or_raise(raw_since_ts: str | None) -> datetime | None:
     if raw_since_ts is None:
         return None
@@ -163,6 +170,10 @@ def list_recent_events(
         next_cursor = cursor if cursor is not None else 0
         if items:
             next_cursor = int(items[-1]["bus_seq"])
+        next_cursor = _normalize_next_cursor(
+            requested_cursor=cursor,
+            resolved_next_cursor=next_cursor,
+        )
         stats = _event_bus.stats()
     else:
         durable_page = read_event_page(
@@ -176,7 +187,10 @@ def list_recent_events(
         )
         items = durable_page["items"]
         has_more = bool(durable_page["has_more"])
-        next_cursor = int(durable_page["next_cursor"])
+        next_cursor = _normalize_next_cursor(
+            requested_cursor=cursor,
+            resolved_next_cursor=int(durable_page["next_cursor"]),
+        )
         stats = dict(durable_page["stats"])
     recommended_poll_after_ms = _recommended_poll_after_ms_for_recent_events(
         has_more=has_more,
