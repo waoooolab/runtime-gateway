@@ -331,6 +331,23 @@ class RuntimeExecutionClient:
         )
         return self._post_json(path=f"v1/runs/{run_id}:timeout", auth_token=auth_token, body=body)
 
+    def preempt_run(
+        self,
+        *,
+        run_id: str,
+        auth_token: str,
+        reason: str | None = None,
+        cascade_children: bool | None = None,
+        preempted_by_run_id: str | None = None,
+    ) -> dict[str, Any]:
+        body = _build_run_control_body(
+            reason=reason,
+            cascade_children=cascade_children,
+            by_run_key="preempted_by_run_id",
+            by_run_id=preempted_by_run_id,
+        )
+        return self._post_json(path=f"v1/runs/{run_id}:preempt", auth_token=auth_token, body=body)
+
     def worker_tick(
         self,
         *,

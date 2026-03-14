@@ -680,6 +680,46 @@ class RuntimeExecutionClientTests(unittest.TestCase):
         self.assertIn('"cascade_children":true', captured["body"])
         self.assertIn('"timed_out_by_run_id":"run-watchdog"', captured["body"])
 
+    def test_preempt_run_sends_payload_fields(self) -> None:
+        captured: dict[str, str] = {}
+
+        class _Response:
+            def getcode(self) -> int:
+                return 200
+
+            def read(self) -> bytes:
+                return b'{"event_type":"runtime.run.status","payload":{"status":"canceled"}}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+                return None
+
+        def transport(request, timeout=10.0):
+            _ = timeout
+            captured["url"] = request.full_url
+            captured["body"] = request.data.decode("utf-8")
+            return _Response()
+
+        client = RuntimeExecutionClient(
+            base_url="http://runtime-execution.test",
+            _transport=transport,
+        )
+        payload = client.preempt_run(
+            run_id="run-preempt-3",
+            auth_token="token-1",
+            reason="resource_preempted",
+            cascade_children=True,
+            preempted_by_run_id="run-priority-parent",
+        )
+        self.assertEqual(payload["event_type"], "runtime.run.status")
+        self.assertIn("/v1/runs/run-preempt-3:preempt", captured["url"])
+        self.assertIn('"reason":"resource_preempted"', captured["body"])
+        self.assertIn('"cascade_children":true', captured["body"])
+        self.assertIn('"preempted_by_run_id":"run-priority-parent"', captured["body"])
+
     def test_complete_run_sends_failure_reason_when_provided(self) -> None:
         captured: dict[str, str] = {}
 

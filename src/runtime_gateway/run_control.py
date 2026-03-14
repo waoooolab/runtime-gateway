@@ -297,6 +297,39 @@ def dispatch_timeout_run(
     )
 
 
+def dispatch_preempt_run(
+    *,
+    run_id: str,
+    body: dict[str, Any] | None,
+    claims: Mapping[str, Any],
+    subject_token: str,
+    execution_client: RuntimeExecutionClient,
+    publish_gateway_event: Callable[[dict[str, Any]], int | None],
+) -> dict[str, Any]:
+    payload = _require_object_payload(body)
+    reason = _parse_optional_str(payload, key="reason")
+    cascade_children = _parse_optional_bool(payload, key="cascade_children")
+    preempted_by_run_id = _parse_requested_by_run_id(
+        payload,
+        primary_key="preempted_by_run_id",
+    )
+    return _submit_control_action(
+        action="runs.preempt",
+        run_id=run_id,
+        claims=claims,
+        subject_token=subject_token,
+        execution_client=execution_client,
+        publish_gateway_event=publish_gateway_event,
+        submitter=lambda target_run_id, auth_token: execution_client.preempt_run(
+            run_id=target_run_id,
+            auth_token=auth_token,
+            reason=reason,
+            cascade_children=cascade_children,
+            preempted_by_run_id=preempted_by_run_id,
+        ),
+    )
+
+
 def dispatch_complete_run(
     *,
     run_id: str,

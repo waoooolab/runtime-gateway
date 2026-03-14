@@ -1,4 +1,4 @@
-"""Tests for run cancel/timeout endpoints."""
+"""Tests for run cancel/timeout/preempt endpoints."""
 
 from __future__ import annotations
 
@@ -135,6 +135,37 @@ def test_timeout_run_happy_path(
         reason="deadline_exceeded",
         cascade_children=True,
         timed_out_by_run_id="run-watchdog",
+    )
+    mock_token_exchange.assert_called_once()
+
+
+def test_preempt_run_happy_path(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.preempt_run.return_value = _run_status_event(
+        run_id="run-preempt-1",
+        status="canceled",
+    )
+    client = TestClient(app)
+    response = client.post(
+        "/v1/runs/run-preempt-1:preempt",
+        json={
+            "reason": "resource_preempted",
+            "cascade_children": True,
+            "preempted_by_run_id": "run-priority-parent",
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["payload"]["status"] == "canceled"
+    mock_execution_client.preempt_run.assert_called_once_with(
+        run_id="run-preempt-1",
+        auth_token="delegated-token",
+        reason="resource_preempted",
+        cascade_children=True,
+        preempted_by_run_id="run-priority-parent",
     )
     mock_token_exchange.assert_called_once()
 
@@ -375,6 +406,51 @@ def test_timeout_run_connection_error_maps_to_502(
     mock_token_exchange.assert_called_once()
 
 
+def test_preempt_run_accepts_requested_by_run_id_alias(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.preempt_run.return_value = _run_status_event(
+        run_id="run-preempt-alias",
+        status="canceled",
+    )
+    client = TestClient(app)
+    response = client.post(
+        "/v1/runs/run-preempt-alias:preempt",
+        json={"requested_by_run_id": "run-shared-requester"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    mock_execution_client.preempt_run.assert_called_once_with(
+        run_id="run-preempt-alias",
+        auth_token="delegated-token",
+        reason=None,
+        cascade_children=None,
+        preempted_by_run_id="run-shared-requester",
+    )
+    mock_token_exchange.assert_called_once()
+
+
+def test_preempt_run_rejects_conflicting_requested_by_fields(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    _ = (mock_execution_client, mock_token_exchange)
+    client = TestClient(app)
+    response = client.post(
+        "/v1/runs/run-preempt-conflict:preempt",
+        json={
+            "preempted_by_run_id": "run-a",
+            "requested_by_run_id": "run-b",
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 422
+    assert "must match when both are present" in response.json()["detail"]
+
+
 def test_run_control_rejects_invalid_payload_type(
     mock_execution_client: Mock,
     mock_token_exchange: Mock,
@@ -400,6 +476,12 @@ def test_cancel_run_missing_auth() -> None:
 def test_timeout_run_missing_auth() -> None:
     client = TestClient(app)
     response = client.post("/v1/runs/run-1:timeout")
+    assert response.status_code == 401
+
+
+def test_preempt_run_missing_auth() -> None:
+    client = TestClient(app)
+    response = client.post("/v1/runs/run-1:preempt")
     assert response.status_code == 401
 
 

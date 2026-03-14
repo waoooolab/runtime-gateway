@@ -12,6 +12,7 @@ from .run_approval import dispatch_approve_run, dispatch_reject_run
 from .run_control import (
     dispatch_cancel_run,
     dispatch_complete_run,
+    dispatch_preempt_run,
     dispatch_renew_run_lease,
     dispatch_timeout_run,
 )
@@ -117,6 +118,21 @@ def _register_run_control_routes(
         auth_context: AuthContext = Depends(require_runs_write_context),
     ) -> dict[str, Any]:
         return dispatch_timeout_run(
+            run_id=run_id,
+            body=body,
+            claims=auth_context.claims,
+            subject_token=auth_context.subject_token,
+            execution_client=get_execution_client(),
+            publish_gateway_event=publish_gateway_event,
+        )
+
+    @app.post("/v1/runs/{run_id}:preempt")
+    def preempt_run(
+        run_id: str,
+        body: dict[str, Any] | None = None,
+        auth_context: AuthContext = Depends(require_runs_write_context),
+    ) -> dict[str, Any]:
+        return dispatch_preempt_run(
             run_id=run_id,
             body=body,
             claims=auth_context.claims,

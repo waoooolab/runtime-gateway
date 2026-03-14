@@ -185,6 +185,41 @@ class _DeviceHubBoundaryClient:
             raise RuntimeError(f"device-hub expire failed: {response.status_code} {response.text}")
         return response.json()
 
+    def preempt_placement(
+        self,
+        *,
+        lease_id: str,
+        reason_code: str,
+        session_key: str,
+        trace_id: str,
+        run_id: str | None = None,
+        task_id: str | None = None,
+    ) -> dict:
+        payload = {
+            "lease_id": lease_id,
+            "reason_code": reason_code,
+        }
+        if run_id:
+            payload["run_id"] = run_id
+        if task_id:
+            payload["task_id"] = task_id
+        envelope = build_command_envelope(
+            command_type="device.placement.preempt",
+            payload=payload,
+            session_key=session_key,
+            trace_id=trace_id,
+            run_id=run_id,
+            task_id=task_id,
+        )
+        response = self._client.post(
+            "/v1/placements/preempt",
+            json=envelope,
+            headers=self._headers(["devices:write", "devices:read"]),
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(f"device-hub preempt failed: {response.status_code} {response.text}")
+        return response.json()
+
     def renew_placement(
         self,
         *,
@@ -3701,6 +3736,137 @@ class EndToEndRunFlowTests(unittest.TestCase):
         lease = device_hub_app_module._hub.leases[lease_id]
         self.assertEqual(lease.status, "expired")
         self.assertEqual(lease.expire_reason_code, "run_timed_out")
+
+        capacity_response = device_hub_client.get(
+            "/v1/placements/capacity",
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:read'])}"},
+        )
+        self.assertEqual(capacity_response.status_code, 200)
+        self.assertEqual(capacity_response.json()["active_leases"], 0)
+
+    def test_gateway_preempt_preempts_device_hub_lease_e2e(self) -> None:
+        if not DEVICE_HUB_AVAILABLE:
+            self.skipTest("device-hub stack not available")
+
+        device_hub_app_module._hub = DeviceHubService()
+        device_hub_client = TestClient(device_hub_app_module.app)
+        execution_app_module._runtime = RuntimeExecutionService(
+            device_hub_client=_DeviceHubBoundaryClient(
+                client=device_hub_client,
+                token_factory=self._device_hub_token,
+            )
+        )
+        self.execution_client = TestClient(execution_app_module.app)
+
+        register = device_hub_client.post(
+            "/v1/devices/register",
+            json=build_command_envelope(
+                command_type="device.register",
+                payload={"device_id": "gpu-node-gateway-preempt-e2e", "capabilities": ["compute.comfyui.local"]},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-preempt-device-register",
+                run_id="run-gateway-preempt-device-bootstrap",
+                task_id="task-gateway-preempt-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(register.status_code, 200)
+        pair_request = device_hub_client.post(
+            "/v1/devices/pairing/request",
+            json=build_command_envelope(
+                command_type="device.pairing.request",
+                payload={"device_id": "gpu-node-gateway-preempt-e2e"},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-preempt-device-pair",
+                run_id="run-gateway-preempt-device-bootstrap",
+                task_id="task-gateway-preempt-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(pair_request.status_code, 200)
+        pair_code = pair_request.json()["payload"]["code"]
+        approve = device_hub_client.post(
+            "/v1/devices/pairing/approve",
+            json=build_command_envelope(
+                command_type="device.pairing.approve",
+                payload={"code": pair_code},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-preempt-device-approve",
+                run_id="run-gateway-preempt-device-bootstrap",
+                task_id="task-gateway-preempt-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(approve.status_code, 200)
+        heartbeat = device_hub_client.post(
+            "/v1/devices/heartbeat",
+            json=build_command_envelope(
+                command_type="device.heartbeat",
+                payload={"device_id": "gpu-node-gateway-preempt-e2e"},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-preempt-device-heartbeat",
+                run_id="run-gateway-preempt-device-bootstrap",
+                task_id="task-gateway-preempt-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(heartbeat.status_code, 200)
+
+        run_id = self._submit_run(
+            self._gateway_token(["runs:write"]),
+            "gateway compute preempt flow",
+            execution_profile={
+                "execution_mode": "compute",
+                "inference_target": "none",
+                "resource_class": "gpu",
+                "placement_constraints": {
+                    "tenant_id": "t1",
+                    "required_capabilities": ["compute.comfyui.local"],
+                },
+            },
+        )
+        leased_run = execution_app_module._runtime.runs[run_id]
+        self.assertEqual(leased_run.device_lease_state, "active")
+        lease_id = leased_run.device_lease_id
+        self.assertIsInstance(lease_id, str)
+        read_token = self._gateway_token(["runs:read"])
+
+        preempt_response = self.gateway_client.post(
+            f"/v1/runs/{run_id}:preempt",
+            json={"reason": "resource_preempted_gateway_e2e", "cascade_children": True},
+            headers={"Authorization": f"Bearer {self._gateway_token(['runs:write'])}"},
+        )
+        self.assertEqual(preempt_response.status_code, 200)
+        self.assertEqual(preempt_response.json()["payload"]["status"], "canceled")
+        self.assertEqual(
+            preempt_response.json()["payload"]["orchestration"]["failure_reason_code"],
+            "run_preempted",
+        )
+
+        status_preempted = self.gateway_client.get(
+            f"/v1/runs/{run_id}",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(status_preempted.status_code, 200)
+        self.assertEqual(status_preempted.json()["payload"]["run_id"], run_id)
+        self.assertEqual(status_preempted.json()["payload"]["status"], "canceled")
+        self.assertEqual(status_preempted.json()["recommended_poll_after_ms"], 10000)
+
+        lease_expired = self.gateway_client.get(
+            f"/v1/runs/{run_id}/lease",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(lease_expired.status_code, 200)
+        self.assertEqual(lease_expired.json()["run_id"], run_id)
+        self.assertEqual(lease_expired.json()["lease"]["state"], "expired")
+        self.assertEqual(lease_expired.json()["device_hub"]["status"], "ok")
+        self.assertEqual(lease_expired.json()["recommended_poll_after_ms"], 10000)
+
+        self.assertEqual(execution_app_module._runtime.runs[run_id].device_lease_state, "expired")
+        assert lease_id is not None
+        lease = device_hub_app_module._hub.leases[lease_id]
+        self.assertEqual(lease.status, "expired")
+        self.assertEqual(lease.expire_reason_code, "run_preempted")
 
         capacity_response = device_hub_client.get(
             "/v1/placements/capacity",
