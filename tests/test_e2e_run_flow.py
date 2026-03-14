@@ -3666,6 +3666,10 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(lease_expired.json()["run_id"], run_id)
         self.assertEqual(lease_expired.json()["lease"]["state"], "expired")
         self.assertEqual(lease_expired.json()["device_hub"]["status"], "ok")
+        self.assertEqual(
+            lease_expired.json()["device_hub"]["snapshot"]["expire_reason_code"],
+            "run_canceled",
+        )
         self.assertEqual(lease_expired.json()["recommended_poll_after_ms"], 10000)
 
         self.assertEqual(execution_app_module._runtime.runs[run_id].device_lease_state, "expired")
@@ -3792,6 +3796,10 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(lease_expired.json()["run_id"], run_id)
         self.assertEqual(lease_expired.json()["lease"]["state"], "expired")
         self.assertEqual(lease_expired.json()["device_hub"]["status"], "ok")
+        self.assertEqual(
+            lease_expired.json()["device_hub"]["snapshot"]["expire_reason_code"],
+            "approval_rejected",
+        )
         self.assertEqual(lease_expired.json()["recommended_poll_after_ms"], 10000)
 
         self.assertEqual(execution_app_module._runtime.runs[run_id].device_lease_state, "expired")
@@ -3919,6 +3927,10 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(lease_expired.json()["run_id"], run_id)
         self.assertEqual(lease_expired.json()["lease"]["state"], "expired")
         self.assertEqual(lease_expired.json()["device_hub"]["status"], "ok")
+        self.assertEqual(
+            lease_expired.json()["device_hub"]["snapshot"]["expire_reason_code"],
+            "run_timed_out",
+        )
         self.assertEqual(lease_expired.json()["recommended_poll_after_ms"], 10000)
 
         self.assertEqual(execution_app_module._runtime.runs[run_id].device_lease_state, "expired")
@@ -4050,6 +4062,10 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(lease_expired.json()["run_id"], run_id)
         self.assertEqual(lease_expired.json()["lease"]["state"], "expired")
         self.assertEqual(lease_expired.json()["device_hub"]["status"], "ok")
+        self.assertEqual(
+            lease_expired.json()["device_hub"]["snapshot"]["expire_reason_code"],
+            "run_preempted",
+        )
         self.assertEqual(lease_expired.json()["recommended_poll_after_ms"], 10000)
 
         self.assertEqual(execution_app_module._runtime.runs[run_id].device_lease_state, "expired")
