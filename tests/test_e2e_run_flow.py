@@ -1049,6 +1049,117 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(device_hub_app_module._hub.leases[lease_id].status, "expired")
         self.assertEqual(device_hub_app_module._hub.leases[lease_id].expire_reason_code, "ttl_expired")
 
+    def test_gateway_run_lease_lookup_reconciles_invalid_expiry_state_e2e(self) -> None:
+        if not DEVICE_HUB_AVAILABLE:
+            self.skipTest("device-hub stack not available")
+
+        device_hub_app_module._hub = DeviceHubService()
+        device_hub_client = TestClient(device_hub_app_module.app)
+        execution_app_module._runtime = RuntimeExecutionService(
+            device_hub_client=_DeviceHubBoundaryClient(
+                client=device_hub_client,
+                token_factory=self._device_hub_token,
+            )
+        )
+        self.execution_client = TestClient(execution_app_module.app)
+
+        register = device_hub_client.post(
+            "/v1/devices/register",
+            json=build_command_envelope(
+                command_type="device.register",
+                payload={
+                    "device_id": "gpu-node-gateway-invalid-expiry-sync-e2e",
+                    "capabilities": ["compute.comfyui.local"],
+                },
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-invalid-expiry-sync-device-register",
+                run_id="run-gateway-invalid-expiry-sync-device-bootstrap",
+                task_id="task-gateway-invalid-expiry-sync-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(register.status_code, 200)
+        pair_request = device_hub_client.post(
+            "/v1/devices/pairing/request",
+            json=build_command_envelope(
+                command_type="device.pairing.request",
+                payload={"device_id": "gpu-node-gateway-invalid-expiry-sync-e2e"},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-invalid-expiry-sync-device-pair",
+                run_id="run-gateway-invalid-expiry-sync-device-bootstrap",
+                task_id="task-gateway-invalid-expiry-sync-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(pair_request.status_code, 200)
+        pair_code = pair_request.json()["payload"]["code"]
+        approve = device_hub_client.post(
+            "/v1/devices/pairing/approve",
+            json=build_command_envelope(
+                command_type="device.pairing.approve",
+                payload={"code": pair_code},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-invalid-expiry-sync-device-approve",
+                run_id="run-gateway-invalid-expiry-sync-device-bootstrap",
+                task_id="task-gateway-invalid-expiry-sync-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(approve.status_code, 200)
+        heartbeat = device_hub_client.post(
+            "/v1/devices/heartbeat",
+            json=build_command_envelope(
+                command_type="device.heartbeat",
+                payload={"device_id": "gpu-node-gateway-invalid-expiry-sync-e2e"},
+                session_key="tenant:t1:app:covernow:channel:web:actor:u-e2e:thread:main:agent:pm",
+                trace_id="trace-gateway-invalid-expiry-sync-device-heartbeat",
+                run_id="run-gateway-invalid-expiry-sync-device-bootstrap",
+                task_id="task-gateway-invalid-expiry-sync-device-bootstrap",
+            ),
+            headers={"Authorization": f"Bearer {self._device_hub_token(['devices:write'])}"},
+        )
+        self.assertEqual(heartbeat.status_code, 200)
+
+        run_id = self._submit_run(
+            self._gateway_token(["runs:write"]),
+            "gateway lease invalid expiry sync flow",
+            execution_profile={
+                "execution_mode": "compute",
+                "inference_target": "none",
+                "resource_class": "gpu",
+                "placement_constraints": {
+                    "tenant_id": "t1",
+                    "required_capabilities": ["compute.comfyui.local"],
+                },
+            },
+        )
+        leased_run = execution_app_module._runtime.runs[run_id]
+        self.assertEqual(leased_run.device_lease_state, "active")
+        lease_id = leased_run.device_lease_id
+        self.assertIsInstance(lease_id, str)
+        assert lease_id is not None
+
+        device_hub_app_module._hub.leases[lease_id].lease_expires_at = "invalid-datetime"
+
+        lease_expired = self.gateway_client.get(
+            f"/v1/runs/{run_id}/lease",
+            headers={"Authorization": f"Bearer {self._gateway_token(['runs:read'])}"},
+        )
+        self.assertEqual(lease_expired.status_code, 200)
+        payload = lease_expired.json()
+        self.assertEqual(payload["run_id"], run_id)
+        self.assertEqual(payload["lease"]["state"], "expired")
+        self.assertEqual(payload["device_hub"]["status"], "ok")
+        self.assertEqual(payload["device_hub"]["snapshot"]["status"], "expired")
+        self.assertEqual(payload["device_hub"]["snapshot"]["expire_reason_code"], "ttl_expired")
+        self.assertEqual(payload["recommended_poll_after_ms"], 10000)
+
+        self.assertEqual(execution_app_module._runtime.runs[run_id].device_lease_state, "expired")
+        resumed = execution_app_module._runtime.resume_from_checkpoint(run_id)
+        self.assertEqual(resumed.device_lease_state, "expired")
+        self.assertEqual(device_hub_app_module._hub.leases[lease_id].status, "expired")
+        self.assertEqual(device_hub_app_module._hub.leases[lease_id].expire_reason_code, "ttl_expired")
+
     def test_gateway_worker_tick_auto_renews_due_active_lease_e2e(self) -> None:
         if not DEVICE_HUB_AVAILABLE:
             self.skipTest("device-hub stack not available")
