@@ -535,3 +535,85 @@ class RuntimeExecutionClient:
             path=f"v1/runs/{run_id}/lease",
             auth_token=auth_token,
         )
+
+    def register_capability(
+        self,
+        *,
+        auth_token: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._post_json(
+            path="v1/capabilities/register",
+            auth_token=auth_token,
+            body=payload,
+        )
+
+    def list_capabilities(
+        self,
+        *,
+        auth_token: str,
+    ) -> dict[str, Any]:
+        return self._get_json(
+            path="v1/capabilities",
+            auth_token=auth_token,
+        )
+
+    def get_capability(
+        self,
+        *,
+        capability_id: str,
+        auth_token: str,
+    ) -> dict[str, Any]:
+        return self._get_json(
+            path=f"v1/capabilities/{capability_id}",
+            auth_token=auth_token,
+        )
+
+    def resolve_capability(
+        self,
+        *,
+        auth_token: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._post_json(
+            path="v1/capabilities/resolve",
+            auth_token=auth_token,
+            body=payload,
+        )
+
+    def compile_capability(
+        self,
+        *,
+        auth_token: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._post_json(
+            path="v1/capabilities/compile",
+            auth_token=auth_token,
+            body=payload,
+        )
+
+    def publish_capability(
+        self,
+        *,
+        auth_token: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._post_json(
+            path="v1/capabilities/publish",
+            auth_token=auth_token,
+            body=payload,
+        )
+
+    def invoke_capability(
+        self,
+        *,
+        capability_id: str,
+        auth_token: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._post_json(
+            path=f"v1/capabilities/{capability_id}:invoke",
+            auth_token=auth_token,
+            body=payload,
+        )

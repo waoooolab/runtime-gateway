@@ -10,14 +10,23 @@ from fastapi import Header, HTTPException
 from .audit.emitter import emit_audit_event
 from .auth.tokens import TokenError, verify_token
 
-EVENT_SCOPE_WRITE = {"events:write", "runs:write", "devices:write"}
-EVENT_SCOPE_READ = {"events:read", "runs:read", "runs:write", "devices:read"}
+EVENT_SCOPE_WRITE = {"events:write", "runs:write", "devices:write", "capabilities:write"}
+EVENT_SCOPE_READ = {
+    "events:read",
+    "runs:read",
+    "runs:write",
+    "devices:read",
+    "capabilities:read",
+    "capabilities:write",
+    "capabilities:invoke",
+}
 EVENT_TYPE_PREFIX_ALLOWLIST = (
     "runtime.run.",
     "runtime.task.",
     "runtime.route.",
     "device.route.",
     "device.lease.",
+    "app.capability.",
 )
 ALLOWED_GATEWAY_TOKEN_USES = {"access", "service"}
 
@@ -125,6 +134,87 @@ def require_runs_read_context(authorization: str | None = Header(default=None)) 
             metadata={"reason": "missing required scope", "required_scope": "runs:read"},
         )
         raise HTTPException(status_code=403, detail="missing required scope: runs:read")
+
+    emit_audit_event(
+        action=action,
+        decision="allow",
+        actor_id=actor_id,
+        trace_id=str(claims.get("trace_id", "")),
+        metadata={"scope": scope},
+    )
+    return AuthContext(claims=claims, subject_token=token)
+
+
+def require_capabilities_write_context(authorization: str | None = Header(default=None)) -> AuthContext:
+    action = "capabilities.write"
+    token = _extract_bearer_token(authorization, action=action)
+    claims = _verify_gateway_token(token, action=action)
+
+    actor_id = str(claims.get("sub", "unknown"))
+    scope = claims.get("scope", [])
+    if not isinstance(scope, list) or "capabilities:write" not in scope:
+        emit_audit_event(
+            action=action,
+            decision="deny",
+            actor_id=actor_id,
+            trace_id=str(claims.get("trace_id", "")),
+            metadata={"reason": "missing required scope", "required_scope": "capabilities:write"},
+        )
+        raise HTTPException(status_code=403, detail="missing required scope: capabilities:write")
+
+    emit_audit_event(
+        action=action,
+        decision="allow",
+        actor_id=actor_id,
+        trace_id=str(claims.get("trace_id", "")),
+        metadata={"scope": scope},
+    )
+    return AuthContext(claims=claims, subject_token=token)
+
+
+def require_capabilities_read_context(authorization: str | None = Header(default=None)) -> AuthContext:
+    action = "capabilities.read"
+    token = _extract_bearer_token(authorization, action=action)
+    claims = _verify_gateway_token(token, action=action)
+
+    actor_id = str(claims.get("sub", "unknown"))
+    scope = claims.get("scope", [])
+    if not isinstance(scope, list) or "capabilities:read" not in scope:
+        emit_audit_event(
+            action=action,
+            decision="deny",
+            actor_id=actor_id,
+            trace_id=str(claims.get("trace_id", "")),
+            metadata={"reason": "missing required scope", "required_scope": "capabilities:read"},
+        )
+        raise HTTPException(status_code=403, detail="missing required scope: capabilities:read")
+
+    emit_audit_event(
+        action=action,
+        decision="allow",
+        actor_id=actor_id,
+        trace_id=str(claims.get("trace_id", "")),
+        metadata={"scope": scope},
+    )
+    return AuthContext(claims=claims, subject_token=token)
+
+
+def require_capabilities_invoke_context(authorization: str | None = Header(default=None)) -> AuthContext:
+    action = "capabilities.invoke"
+    token = _extract_bearer_token(authorization, action=action)
+    claims = _verify_gateway_token(token, action=action)
+
+    actor_id = str(claims.get("sub", "unknown"))
+    scope = claims.get("scope", [])
+    if not isinstance(scope, list) or "capabilities:invoke" not in scope:
+        emit_audit_event(
+            action=action,
+            decision="deny",
+            actor_id=actor_id,
+            trace_id=str(claims.get("trace_id", "")),
+            metadata={"reason": "missing required scope", "required_scope": "capabilities:invoke"},
+        )
+        raise HTTPException(status_code=403, detail="missing required scope: capabilities:invoke")
 
     emit_audit_event(
         action=action,

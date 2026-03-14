@@ -19,6 +19,7 @@ from .events.durable import append_event_record, read_event_page
 from .events.validation import validate_event_envelope
 from .executor_profiles import list_executor_profiles
 from .integration import RuntimeExecutionClient
+from .routes_capabilities import register_capability_routes
 from .routes_runs import register_run_routes
 from .security import (
     AuthContext,
@@ -287,6 +288,12 @@ def get_executor_profiles(
 
 
 register_run_routes(
+    app=app,
+    get_execution_client=lambda: _execution_client,
+    publish_gateway_event=_publish_gateway_event,
+)
+
+register_capability_routes(
     app=app,
     get_execution_client=lambda: _execution_client,
     publish_gateway_event=_publish_gateway_event,

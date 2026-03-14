@@ -794,6 +794,148 @@ class RuntimeExecutionClientTests(unittest.TestCase):
         self.assertIn("/v1/runs/run-lease-renew-1:lease-renew", captured["url"])
         self.assertIn('"lease_ttl_seconds":600', captured["body"])
 
+    def test_register_capability_posts_payload(self) -> None:
+        captured: dict[str, str] = {}
+
+        class _Response:
+            def getcode(self) -> int:
+                return 200
+
+            def read(self) -> bytes:
+                return b'{"status":"registered","capability_id":"cap.demo","version":"1.0.0"}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+                return None
+
+        def transport(request, timeout=10.0):
+            _ = timeout
+            captured["url"] = request.full_url
+            captured["method"] = request.get_method()
+            captured["body"] = request.data.decode("utf-8")
+            return _Response()
+
+        client = RuntimeExecutionClient(
+            base_url="http://runtime-execution.test",
+            _transport=transport,
+        )
+        payload = client.register_capability(
+            auth_token="token-1",
+            payload={"capability": {"capability_id": "cap.demo"}},
+        )
+        self.assertEqual(payload["status"], "registered")
+        self.assertEqual(captured["method"], "POST")
+        self.assertIn("/v1/capabilities/register", captured["url"])
+        self.assertIn('"capability_id":"cap.demo"', captured["body"])
+
+    def test_list_and_get_capability_use_get_method(self) -> None:
+        captured: list[dict[str, str]] = []
+
+        class _Response:
+            def __init__(self, *, body: bytes) -> None:
+                self._body = body
+
+            def getcode(self) -> int:
+                return 200
+
+            def read(self) -> bytes:
+                return self._body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+                return None
+
+        def transport(request, timeout=10.0):
+            _ = timeout
+            captured.append({"url": request.full_url, "method": request.get_method()})
+            if request.full_url.endswith("/v1/capabilities"):
+                return _Response(body=b'{"count":1,"items":[{"capability_id":"cap.demo"}]}')
+            return _Response(body=b'{"capability_id":"cap.demo","latest_version":"1.0.0","capability":{"kind":"app"}}')
+
+        client = RuntimeExecutionClient(
+            base_url="http://runtime-execution.test",
+            _transport=transport,
+        )
+        listed = client.list_capabilities(auth_token="token-1")
+        got = client.get_capability(capability_id="cap.demo", auth_token="token-1")
+
+        self.assertEqual(listed["count"], 1)
+        self.assertEqual(got["capability_id"], "cap.demo")
+        self.assertEqual(captured[0]["method"], "GET")
+        self.assertIn("/v1/capabilities", captured[0]["url"])
+        self.assertEqual(captured[1]["method"], "GET")
+        self.assertIn("/v1/capabilities/cap.demo", captured[1]["url"])
+
+    def test_compile_publish_invoke_capability_send_payload_fields(self) -> None:
+        captured: list[dict[str, str]] = []
+
+        class _Response:
+            def __init__(self, *, body: bytes) -> None:
+                self._body = body
+
+            def getcode(self) -> int:
+                return 200
+
+            def read(self) -> bytes:
+                return self._body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+                return None
+
+        def transport(request, timeout=10.0):
+            _ = timeout
+            captured.append(
+                {
+                    "url": request.full_url,
+                    "method": request.get_method(),
+                    "body": request.data.decode("utf-8"),
+                }
+            )
+            if request.full_url.endswith("/v1/capabilities/compile"):
+                return _Response(body=b'{"event_type":"app.capability.compiled.v1","payload":{"status":"compiled"}}')
+            if request.full_url.endswith("/v1/capabilities/publish"):
+                return _Response(body=b'{"event_type":"app.capability.published.v1","payload":{"status":"published"}}')
+            return _Response(body=b'{"event_type":"app.capability.invoked.v1","payload":{"status":"invoked"}}')
+
+        client = RuntimeExecutionClient(
+            base_url="http://runtime-execution.test",
+            _transport=transport,
+        )
+        compiled = client.compile_capability(
+            auth_token="token-1",
+            payload={"capability_id": "cap.demo"},
+        )
+        published = client.publish_capability(
+            auth_token="token-1",
+            payload={"capability": {"capability_id": "cap.demo"}},
+        )
+        invoked = client.invoke_capability(
+            capability_id="cap.demo",
+            auth_token="token-1",
+            payload={"version": "1.0.0", "input": {"prompt": "hello"}},
+        )
+
+        self.assertEqual(compiled["event_type"], "app.capability.compiled.v1")
+        self.assertEqual(published["event_type"], "app.capability.published.v1")
+        self.assertEqual(invoked["event_type"], "app.capability.invoked.v1")
+        self.assertEqual(captured[0]["method"], "POST")
+        self.assertIn("/v1/capabilities/compile", captured[0]["url"])
+        self.assertIn('"capability_id":"cap.demo"', captured[0]["body"])
+        self.assertIn("/v1/capabilities/publish", captured[1]["url"])
+        self.assertIn('"capability_id":"cap.demo"', captured[1]["body"])
+        self.assertIn("/v1/capabilities/cap.demo:invoke", captured[2]["url"])
+        self.assertIn('"version":"1.0.0"', captured[2]["body"])
+
 
 if __name__ == "__main__":
     unittest.main()
