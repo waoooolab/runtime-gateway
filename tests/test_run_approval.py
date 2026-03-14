@@ -230,7 +230,7 @@ def test_approve_run_downstream_connection_error(
     client = TestClient(app)
     response = client.post("/v1/runs/run-777:approve", headers=auth_headers)
 
-    assert response.status_code == 502
+    assert response.status_code == 503
     assert "connection error" in response.text
 
 

@@ -10,6 +10,7 @@ from .audit.emitter import emit_audit_event
 from .auth.exchange import ExchangeError, exchange_subject_token
 from .contracts import ContractValidationError, validate_runtime_run_lease_contract
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
+from .upstream_error import resolve_upstream_status_code
 
 
 def _recommended_poll_after_ms_for_lease_state(lease_state: str | None) -> int:
@@ -154,6 +155,11 @@ def dispatch_get_run_lease(
             auth_token=delegated_token,
         )
     except RuntimeExecutionClientError as exc:
+        resolved_status = resolve_upstream_status_code(
+            status_code=exc.status_code,
+            retryable=exc.retryable,
+            message=str(exc),
+        )
         detail: str | dict[str, Any] = str(exc)
         downstream_run_id = None
         lease_state = None
@@ -164,7 +170,7 @@ def dispatch_get_run_lease(
             device_hub_status = _extract_device_hub_status(exc.response_body)
             detail = _build_downstream_error_detail(
                 message=str(exc),
-                status_code=exc.status_code or 502,
+                status_code=resolved_status,
                 requested_run_id=run_id,
                 response_body=exc.response_body,
             )
@@ -175,14 +181,14 @@ def dispatch_get_run_lease(
             trace_id=trace_id,
             metadata={
                 "reason": str(exc),
-                "status_code": exc.status_code,
+                "status_code": resolved_status,
                 "run_id": run_id,
                 "downstream_run_id": downstream_run_id,
                 "lease_state": lease_state,
                 "device_hub_status": device_hub_status,
             },
         )
-        raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
+        raise HTTPException(status_code=resolved_status, detail=detail) from exc
 
     _validate_run_lease_response_or_raise(
         result=result,

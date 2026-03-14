@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from .audit.emitter import emit_audit_event
 from .auth.exchange import ExchangeError, exchange_subject_token
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
+from .upstream_error import resolve_upstream_status_code
 
 
 def _exchange_runtime_execution_token(
@@ -160,11 +161,16 @@ def dispatch_scheduler_enqueue(
             cron_interval_ms=cron_interval_ms,
         )
     except RuntimeExecutionClientError as exc:
+        resolved_status = resolve_upstream_status_code(
+            status_code=exc.status_code,
+            retryable=exc.retryable,
+            message=str(exc),
+        )
         detail: str | dict[str, Any] = str(exc)
         if isinstance(exc.response_body, dict):
             detail = _build_scheduler_error_detail(
                 message=str(exc),
-                status_code=exc.status_code or 502,
+                status_code=resolved_status,
                 response_body=exc.response_body,
             )
         emit_audit_event(
@@ -174,11 +180,11 @@ def dispatch_scheduler_enqueue(
             trace_id=trace_id,
             metadata=_build_scheduler_error_audit_metadata(
                 reason=str(exc),
-                status_code=exc.status_code,
+                status_code=resolved_status,
                 response_body=exc.response_body if isinstance(exc.response_body, dict) else None,
             ),
         )
-        raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
+        raise HTTPException(status_code=resolved_status, detail=detail) from exc
     emit_audit_event(
         action=action,
         decision="allow",
@@ -209,11 +215,16 @@ def dispatch_scheduler_tick(
     try:
         result = execution_client.scheduler_tick(auth_token=token, max_items=max_items, fair=fair)
     except RuntimeExecutionClientError as exc:
+        resolved_status = resolve_upstream_status_code(
+            status_code=exc.status_code,
+            retryable=exc.retryable,
+            message=str(exc),
+        )
         detail: str | dict[str, Any] = str(exc)
         if isinstance(exc.response_body, dict):
             detail = _build_scheduler_error_detail(
                 message=str(exc),
-                status_code=exc.status_code or 502,
+                status_code=resolved_status,
                 response_body=exc.response_body,
             )
         emit_audit_event(
@@ -223,11 +234,11 @@ def dispatch_scheduler_tick(
             trace_id=trace_id,
             metadata=_build_scheduler_error_audit_metadata(
                 reason=str(exc),
-                status_code=exc.status_code,
+                status_code=resolved_status,
                 response_body=exc.response_body if isinstance(exc.response_body, dict) else None,
             ),
         )
-        raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
+        raise HTTPException(status_code=resolved_status, detail=detail) from exc
     emit_audit_event(
         action=action,
         decision="allow",
@@ -256,11 +267,16 @@ def dispatch_scheduler_health(
     try:
         result = execution_client.scheduler_health(auth_token=token)
     except RuntimeExecutionClientError as exc:
+        resolved_status = resolve_upstream_status_code(
+            status_code=exc.status_code,
+            retryable=exc.retryable,
+            message=str(exc),
+        )
         detail: str | dict[str, Any] = str(exc)
         if isinstance(exc.response_body, dict):
             detail = _build_scheduler_error_detail(
                 message=str(exc),
-                status_code=exc.status_code or 502,
+                status_code=resolved_status,
                 response_body=exc.response_body,
             )
         emit_audit_event(
@@ -270,11 +286,11 @@ def dispatch_scheduler_health(
             trace_id=trace_id,
             metadata=_build_scheduler_error_audit_metadata(
                 reason=str(exc),
-                status_code=exc.status_code,
+                status_code=resolved_status,
                 response_body=exc.response_body if isinstance(exc.response_body, dict) else None,
             ),
         )
-        raise HTTPException(status_code=exc.status_code or 502, detail=detail) from exc
+        raise HTTPException(status_code=resolved_status, detail=detail) from exc
     emit_audit_event(
         action=action,
         decision="allow",

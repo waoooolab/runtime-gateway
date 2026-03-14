@@ -390,7 +390,7 @@ def test_cancel_run_downstream_error_is_mapped(
     mock_token_exchange.assert_called_once()
 
 
-def test_timeout_run_connection_error_maps_to_502(
+def test_timeout_run_connection_error_maps_to_503(
     mock_execution_client: Mock,
     mock_token_exchange: Mock,
     auth_headers: dict[str, str],
@@ -401,7 +401,7 @@ def test_timeout_run_connection_error_maps_to_502(
     )
     client = TestClient(app)
     response = client.post("/v1/runs/run-timeout-2:timeout", headers=auth_headers)
-    assert response.status_code == 502
+    assert response.status_code == 503
     assert "connection error" in response.text
     mock_token_exchange.assert_called_once()
 
