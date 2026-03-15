@@ -25,7 +25,12 @@ else:
     FASTAPI_STACK_AVAILABLE = True
 
 
-def _event_envelope(event_type: str = "runtime.task.updated", run_id: str | None = None) -> dict:
+def _event_envelope(
+    event_type: str = "runtime.task.updated",
+    run_id: str | None = None,
+    *,
+    session_key: str | None = None,
+) -> dict:
     payload: dict = {
         "task_id": "task-1",
         "status": "leased",
@@ -37,7 +42,8 @@ def _event_envelope(event_type: str = "runtime.task.updated", run_id: str | None
         "event_type": event_type,
         "tenant_id": "t1",
         "app_id": "covernow",
-        "session_key": "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+        "session_key": session_key
+        or "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
         "trace_id": "trace-events-1",
         "correlation_id": "corr-events-1",
         "ts": datetime.now(timezone.utc).isoformat(),
@@ -82,6 +88,7 @@ class EventBusWebsocketTests(unittest.TestCase):
         scope: list[str],
         tenant_id: str | None = "t1",
         app_id: str | None = "covernow",
+        session_key: str | None = None,
         token_use: str | None = "service",
     ) -> str:
         payload = {
@@ -97,6 +104,8 @@ class EventBusWebsocketTests(unittest.TestCase):
             payload["tenant_id"] = tenant_id
         if app_id is not None:
             payload["app_id"] = app_id
+        if session_key is not None:
+            payload["session_key"] = session_key
         return issue_token(payload, ttl_seconds=300)
 
     def test_publish_event_requires_bearer_token(self) -> None:
@@ -269,6 +278,45 @@ class EventBusWebsocketTests(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["event"]["payload"]["run_id"], "run-789")
         self.assertEqual(items[0]["event"]["event_type"], "runtime.run.completed")
+
+    def test_recent_events_can_filter_by_session_key(self) -> None:
+        token = self._token(scope=["runs:write"])
+        session_a = "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm"
+        session_b = "tenant:t1:app:covernow:channel:web:actor:u2:thread:main:agent:pm"
+        self.client.post(
+            "/v1/events/publish",
+            json=_event_envelope("runtime.run.started", run_id="run-session-1", session_key=session_a),
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.client.post(
+            "/v1/events/publish",
+            json=_event_envelope("runtime.run.started", run_id="run-session-2", session_key=session_b),
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.client.post(
+            "/v1/events/publish",
+            json=_event_envelope("runtime.run.completed", run_id="run-session-1", session_key=session_a),
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        filtered = self.client.get(
+            f"/v1/events/recent?session_key={session_a}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(filtered.status_code, 200)
+        items = filtered.json()["items"]
+        self.assertEqual(len(items), 2)
+        self.assertTrue(all(i["event"]["session_key"] == session_a for i in items))
+
+    def test_recent_events_reject_cross_session_override_when_claim_bound(self) -> None:
+        claim_session = "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm"
+        token = self._token(scope=["runs:read"], session_key=claim_session)
+        response = self.client.get(
+            "/v1/events/recent?session_key=tenant:t1:app:covernow:channel:web:actor:u2:thread:main:agent:pm",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("session_key query must match token claim", response.json()["detail"])
 
     def test_recent_events_can_filter_by_since_ts(self) -> None:
         token = self._token(scope=["runs:write"])
@@ -670,6 +718,20 @@ class EventBusWebsocketTests(unittest.TestCase):
             ):
                 pass
 
+    def test_websocket_rejects_cross_session_override_when_claim_bound(self) -> None:
+        ws_token = self._token(
+            scope=["runs:read"],
+            session_key="tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+        )
+        with self.assertRaises(WebSocketDisconnect):
+            with self.client.websocket_connect(
+                (
+                    f"/v1/ws/events?access_token={ws_token}&tenant_id=t1&app_id=covernow"
+                    "&session_key=tenant:t1:app:covernow:channel:web:actor:u2:thread:main:agent:pm"
+                )
+            ):
+                pass
+
     def test_websocket_rejects_missing_scope_claims(self) -> None:
         ws_token = self._token(scope=["runs:read"], tenant_id=None)
         with self.assertRaises(WebSocketDisconnect):
@@ -765,6 +827,41 @@ class EventBusWebsocketTests(unittest.TestCase):
             event = ws.receive_json()
             self.assertEqual(event["event"]["event_type"], "runtime.run.status")
             self.assertEqual(event["event"]["payload"]["run_id"], "run-123")
+
+    def test_websocket_can_filter_by_session_key(self) -> None:
+        ws_token = self._token(scope=["runs:read"])
+        publish_token = self._token(scope=["runs:write"])
+        session_a = "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm"
+        session_b = "tenant:t1:app:covernow:channel:web:actor:u2:thread:main:agent:pm"
+
+        with self.client.websocket_connect(
+            f"/v1/ws/events?access_token={ws_token}&tenant_id=t1&app_id=covernow&session_key={session_a}"
+        ) as ws:
+            ready = ws.receive_json()
+            self.assertEqual(ready["kind"], "ws.ready")
+            self.assertEqual(ready["session_key"], session_a)
+
+            first = self.client.post(
+                "/v1/events/publish",
+                json=_event_envelope(
+                    "runtime.run.status", run_id="run-session-ws-1", session_key=session_b
+                ),
+                headers={"Authorization": f"Bearer {publish_token}"},
+            )
+            self.assertEqual(first.status_code, 200)
+
+            second = self.client.post(
+                "/v1/events/publish",
+                json=_event_envelope(
+                    "runtime.run.status", run_id="run-session-ws-2", session_key=session_a
+                ),
+                headers={"Authorization": f"Bearer {publish_token}"},
+            )
+            self.assertEqual(second.status_code, 200)
+
+            event = ws.receive_json()
+            self.assertEqual(event["event"]["session_key"], session_a)
+            self.assertEqual(event["event"]["payload"]["run_id"], "run-session-ws-2")
 
     def test_websocket_can_replay_durable_source_after_memory_reset(self) -> None:
         ws_token = self._token(scope=["runs:read"])

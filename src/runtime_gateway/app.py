@@ -68,6 +68,24 @@ def _scope_filter_or_forbid(
     return raw_claim
 
 
+def _optional_scope_filter_or_forbid(
+    *,
+    field: str,
+    query_value: str | None,
+    claim_value: str,
+) -> str | None:
+    raw_query = (query_value or "").strip()
+    raw_claim = claim_value.strip()
+    if raw_query and raw_claim and raw_query != raw_claim:
+        raise HTTPException(
+            status_code=403,
+            detail=f"{field} query must match token claim",
+        )
+    if raw_query:
+        return raw_query
+    return None
+
+
 def _claim_or_forbid(*, field: str, claims: dict[str, Any]) -> str:
     value = str(claims.get(field, "")).strip()
     if not value:
@@ -222,6 +240,7 @@ def list_recent_events(
     source: str = Query(default="memory"),
     tenant_id: str | None = None,
     app_id: str | None = None,
+    session_key: str | None = None,
     event_types: str | None = None,
     run_id: str | None = None,
     cursor: int | None = Query(default=None, ge=0),
@@ -239,6 +258,11 @@ def list_recent_events(
         field="app_id",
         query_value=app_id,
         claim_value=str(claims.get("app_id", "")),
+    )
+    effective_session_key = _optional_scope_filter_or_forbid(
+        field="session_key",
+        query_value=session_key,
+        claim_value=str(claims.get("session_key", "")),
     )
     parsed_types = (
         {item.strip() for item in event_types.split(",") if item.strip()}
@@ -262,6 +286,7 @@ def list_recent_events(
                 limit=limit + 1,
                 tenant_id=effective_tenant or None,
                 app_id=effective_app or None,
+                session_key=effective_session_key,
                 event_types=parsed_types,
                 run_id=run_id,
                 since_ts=parsed_since_ts,
@@ -274,6 +299,7 @@ def list_recent_events(
                 cursor=cursor,
                 tenant_id=effective_tenant or None,
                 app_id=effective_app or None,
+                session_key=effective_session_key,
                 event_types=parsed_types,
                 run_id=run_id,
                 since_ts=parsed_since_ts,
@@ -294,6 +320,7 @@ def list_recent_events(
             limit=limit,
             tenant_id=effective_tenant or None,
             app_id=effective_app or None,
+            session_key=effective_session_key,
             event_types=parsed_types,
             run_id=run_id,
             since_ts=parsed_since_ts,

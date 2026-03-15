@@ -45,6 +45,7 @@ def read_event_page(
     limit: int,
     tenant_id: str | None,
     app_id: str | None,
+    session_key: str | None,
     event_types: set[str] | None,
     run_id: str | None,
     since_ts: datetime | None,
@@ -68,6 +69,7 @@ def read_event_page(
             record["event"],
             tenant_id=tenant_id,
             app_id=app_id,
+            session_key=session_key,
             event_types=event_types,
             run_id=run_id,
             since_ts=since_ts,
@@ -136,6 +138,7 @@ def _matches(
     *,
     tenant_id: str | None,
     app_id: str | None,
+    session_key: str | None,
     event_types: set[str] | None,
     run_id: str | None,
     since_ts: datetime | None,
@@ -144,6 +147,8 @@ def _matches(
     if tenant_id and str(event.get("tenant_id")) != tenant_id:
         return False
     if app_id and str(event.get("app_id")) != app_id:
+        return False
+    if session_key and str(event.get("session_key")) != session_key:
         return False
     if event_types and str(event.get("event_type")) not in event_types:
         return False
