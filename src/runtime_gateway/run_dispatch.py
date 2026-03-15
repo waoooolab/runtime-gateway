@@ -466,6 +466,11 @@ def _extract_route_success_metadata(execution_event: Mapping[str, Any]) -> dict[
         "placement_reason",
     ):
         value = route.get(key)
+        if key == "placement_reason_code":
+            normalized_reason_code = normalize_optional_code_term(value)
+            if normalized_reason_code is not None:
+                metadata[key] = normalized_reason_code
+            continue
         if isinstance(value, str) and value.strip():
             metadata[key] = value
 
