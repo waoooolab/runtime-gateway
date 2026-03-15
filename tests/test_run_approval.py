@@ -218,6 +218,38 @@ def test_approve_run_downstream_error_audit_captures_downstream_status(
     assert latest["metadata"]["downstream_status"] == "waiting_approval"
 
 
+def test_reject_run_downstream_error_audit_captures_downstream_status(
+    mock_execution_client: Mock, mock_token_exchange: Mock, auth_headers: dict[str, str]
+) -> None:
+    """When downstream sends a valid envelope, reject audit should include downstream status."""
+    mock_execution_client.reject_run.side_effect = RuntimeExecutionClientError(
+        "HTTP 409 calling reject endpoint",
+        status_code=409,
+        response_body=_run_status_event(run_id="run-322", status="waiting_approval"),
+    )
+
+    client = TestClient(app)
+    response = client.post("/v1/runs/run-322:reject", headers=auth_headers)
+    assert response.status_code == 409
+    detail = response.json().get("detail")
+    assert isinstance(detail, dict)
+    assert detail["status_code"] == 409
+    assert detail["downstream_event_type"] == "runtime.run.status"
+    assert detail["run_id"] == "run-322"
+    assert detail["status"] == "waiting_approval"
+    assert "HTTP 409" in str(detail["message"])
+
+    audit = client.get("/v1/audit/events", headers=auth_headers)
+    assert audit.status_code == 200
+    audit_items = audit.json()["items"]
+    assert len(audit_items) >= 1
+    latest = audit_items[-1]
+    assert latest["action"] == "runs.reject"
+    assert latest["decision"] == "deny"
+    assert latest["metadata"]["downstream_event_type"] == "runtime.run.status"
+    assert latest["metadata"]["downstream_status"] == "waiting_approval"
+
+
 def test_approve_run_downstream_connection_error(
     mock_execution_client: Mock, mock_token_exchange: Mock, auth_headers: dict[str, str]
 ) -> None:
