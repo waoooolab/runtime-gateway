@@ -46,3 +46,26 @@ def test_extract_route_success_metadata_normalizes_placement_reason_code() -> No
     assert metadata["route_target"] == "device-hub"
     assert metadata["placement_reason_code"] == "no_eligible_device"
     assert metadata["placement_event_type"] == "device.route.decided"
+
+
+def test_extract_route_failure_metadata_uses_flat_failure_fields_when_nested_missing() -> None:
+    downstream_event = {
+        "payload": {
+            "status": "failed",
+            "failure_code": "No-Eligible-Device",
+            "failure_classification": "Capacity-Exhausted",
+            "failure_message": "no eligible device",
+            "decision": {
+                "reason_code": "NoEligibleDevice",
+                "placement_event_type": "device.route.rejected",
+            },
+        }
+    }
+
+    metadata = _extract_route_failure_metadata(downstream_event)
+    assert metadata["run_status"] == "failed"
+    assert metadata["failure_code"] == "no_eligible_device"
+    assert metadata["failure_classification"] == "capacity_exhausted"
+    assert metadata["failure_message"] == "no eligible device"
+    assert metadata["placement_reason_code"] == "no_eligible_device"
+    assert metadata["placement_event_type"] == "device.route.rejected"

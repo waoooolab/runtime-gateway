@@ -232,6 +232,20 @@ def _extract_route_failure_metadata(downstream_event: Mapping[str, Any]) -> dict
         if isinstance(failure_message, str) and failure_message.strip():
             metadata["failure_message"] = failure_message
 
+    # Fallback for flattened payloads that do not carry nested `failure` object.
+    if "failure_code" not in metadata:
+        failure_code = normalize_optional_code_term(payload.get("failure_code"))
+        if failure_code is not None:
+            metadata["failure_code"] = failure_code
+    if "failure_classification" not in metadata:
+        failure_classification = normalize_optional_code_term(payload.get("failure_classification"))
+        if failure_classification is not None:
+            metadata["failure_classification"] = failure_classification
+    if "failure_message" not in metadata:
+        failure_message = payload.get("failure_message")
+        if isinstance(failure_message, str) and failure_message.strip():
+            metadata["failure_message"] = failure_message
+
     scheduling_signal = payload.get("scheduling_signal")
     if isinstance(scheduling_signal, dict):
         recommended_poll_after_ms = scheduling_signal.get("recommended_poll_after_ms")
