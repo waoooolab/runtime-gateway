@@ -18,6 +18,15 @@ def test_extract_route_failure_metadata_normalizes_code_terms() -> None:
             "decision": {
                 "reason_code": "NoEligibleDevice",
                 "placement_event_type": "device.route.rejected",
+                "placement_audit": {
+                    "candidate_device_count": 2,
+                    "candidate_execution_sites": ["local", "cloud"],
+                    "selected_device_id": "gpu-node-1",
+                    "selected_execution_site": "cloud",
+                    "fallback_applied": True,
+                    "fallback_reason_code": "Local.Preference.Fallback",
+                    "failure_domain": "Execution.Site",
+                },
             },
         }
     }
@@ -27,6 +36,15 @@ def test_extract_route_failure_metadata_normalizes_code_terms() -> None:
     assert metadata["failure_code"] == "capacity_exhausted"
     assert metadata["failure_classification"] == "capacity_exhausted"
     assert metadata["placement_reason_code"] == "no_eligible_device"
+    assert metadata["placement_audit"] == {
+        "candidate_device_count": 2,
+        "candidate_execution_sites": ["local", "cloud"],
+        "selected_device_id": "gpu-node-1",
+        "selected_execution_site": "cloud",
+        "fallback_applied": True,
+        "fallback_reason_code": "local_preference_fallback",
+        "failure_domain": "execution_site",
+    }
 
 
 def test_extract_route_success_metadata_normalizes_placement_reason_code() -> None:
@@ -37,6 +55,13 @@ def test_extract_route_success_metadata_normalizes_placement_reason_code() -> No
                 "route_target": "device-hub",
                 "placement_reason_code": "NoEligibleDevice",
                 "placement_event_type": "device.route.decided",
+                "placement_audit": {
+                    "candidate_device_count": 1,
+                    "selected_device_id": "gpu-node-2",
+                    "selected_execution_site": "local",
+                    "fallback_applied": False,
+                    "failure_domain": "Capability.Context",
+                },
             }
         }
     }
@@ -46,6 +71,13 @@ def test_extract_route_success_metadata_normalizes_placement_reason_code() -> No
     assert metadata["route_target"] == "device-hub"
     assert metadata["placement_reason_code"] == "no_eligible_device"
     assert metadata["placement_event_type"] == "device.route.decided"
+    assert metadata["placement_audit"] == {
+        "candidate_device_count": 1,
+        "selected_device_id": "gpu-node-2",
+        "selected_execution_site": "local",
+        "fallback_applied": False,
+        "failure_domain": "capability_context",
+    }
 
 
 def test_extract_route_failure_metadata_uses_flat_failure_fields_when_nested_missing() -> None:
@@ -88,6 +120,14 @@ def test_extract_route_failure_metadata_uses_flat_placement_fields_when_decision
                 "tenant_active_leases": 0,
                 "queue_depth": 0,
             },
+            "placement_audit": {
+                "candidate_device_count": 1,
+                "selected_device_id": "gpu-node-3",
+                "selected_execution_site": "cloud",
+                "fallback_applied": True,
+                "fallback_reason_code": "node-pool-fallback",
+                "failure_domain": "Node.Pool",
+            },
         }
     }
 
@@ -105,4 +145,12 @@ def test_extract_route_failure_metadata_uses_flat_placement_fields_when_decision
         "available_slots": 1,
         "tenant_active_leases": 0,
         "tenant_id": "t1",
+    }
+    assert metadata["placement_audit"] == {
+        "candidate_device_count": 1,
+        "selected_device_id": "gpu-node-3",
+        "selected_execution_site": "cloud",
+        "fallback_applied": True,
+        "fallback_reason_code": "node_pool_fallback",
+        "failure_domain": "node_pool",
     }

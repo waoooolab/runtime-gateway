@@ -263,6 +263,9 @@ def _extract_route_failure_metadata(downstream_event: Mapping[str, Any]) -> dict
         snapshot = _filter_resource_snapshot(decision.get("resource_snapshot"))
         if isinstance(snapshot, dict) and snapshot:
             metadata["placement_resource_snapshot"] = snapshot
+        placement_audit = _filter_placement_audit(decision.get("placement_audit"))
+        if isinstance(placement_audit, dict) and placement_audit:
+            metadata["placement_audit"] = placement_audit
 
     # Fallback for flattened placement metadata when `decision` object is absent.
     if "placement_reason_code" not in metadata:
@@ -277,6 +280,10 @@ def _extract_route_failure_metadata(downstream_event: Mapping[str, Any]) -> dict
         snapshot = _filter_resource_snapshot(payload.get("placement_resource_snapshot"))
         if isinstance(snapshot, dict) and snapshot:
             metadata["placement_resource_snapshot"] = snapshot
+    if "placement_audit" not in metadata:
+        placement_audit = _filter_placement_audit(payload.get("placement_audit"))
+        if isinstance(placement_audit, dict) and placement_audit:
+            metadata["placement_audit"] = placement_audit
 
     return metadata
 
@@ -302,6 +309,45 @@ def _filter_resource_snapshot(raw_snapshot: Any) -> dict[str, Any] | None:
     if not snapshot:
         return None
     return snapshot
+
+
+def _filter_placement_audit(raw_audit: Any) -> dict[str, Any] | None:
+    if not isinstance(raw_audit, dict):
+        return None
+    audit: dict[str, Any] = {}
+    candidate_device_count = raw_audit.get("candidate_device_count")
+    if isinstance(candidate_device_count, int) and candidate_device_count >= 0:
+        audit["candidate_device_count"] = candidate_device_count
+    candidate_execution_sites = raw_audit.get("candidate_execution_sites")
+    if isinstance(candidate_execution_sites, list):
+        normalized_sites = [
+            item.strip()
+            for item in candidate_execution_sites
+            if isinstance(item, str) and item.strip()
+        ]
+        if normalized_sites:
+            audit["candidate_execution_sites"] = normalized_sites
+    for key in (
+        "selected_device_id",
+        "selected_execution_site",
+        "selected_region",
+        "selected_node_pool",
+    ):
+        value = raw_audit.get(key)
+        if isinstance(value, str) and value.strip():
+            audit[key] = value.strip()
+    fallback_applied = raw_audit.get("fallback_applied")
+    if isinstance(fallback_applied, bool):
+        audit["fallback_applied"] = fallback_applied
+    fallback_reason_code = normalize_optional_code_term(raw_audit.get("fallback_reason_code"))
+    if fallback_reason_code is not None:
+        audit["fallback_reason_code"] = fallback_reason_code
+    failure_domain = normalize_optional_code_term(raw_audit.get("failure_domain"))
+    if failure_domain is not None:
+        audit["failure_domain"] = failure_domain
+    if not audit:
+        return None
+    return audit
 
 
 def _exchange_runtime_execution_token(
@@ -513,6 +559,9 @@ def _extract_route_success_metadata(execution_event: Mapping[str, Any]) -> dict[
     snapshot = _filter_resource_snapshot(route.get("placement_resource_snapshot"))
     if isinstance(snapshot, dict) and snapshot:
         metadata["placement_resource_snapshot"] = snapshot
+    placement_audit = _filter_placement_audit(route.get("placement_audit"))
+    if isinstance(placement_audit, dict) and placement_audit:
+        metadata["placement_audit"] = placement_audit
     return metadata
 
 
