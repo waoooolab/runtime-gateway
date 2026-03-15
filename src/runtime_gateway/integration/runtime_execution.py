@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 from urllib.parse import urlencode, urljoin, urlparse
 
+from runtime_gateway.code_terms import normalize_optional_code_term
+
 TransportCallable = Callable[..., Any]
 
 
@@ -49,9 +51,10 @@ class RuntimeExecutionClientError(RuntimeError):
                 return detail_retryable
         failure = self.downstream_failure
         if isinstance(failure, dict):
-            if str(failure.get("classification")) == "capacity":
+            normalized_classification = normalize_optional_code_term(failure.get("classification"))
+            if isinstance(normalized_classification, str) and normalized_classification.startswith("capacity"):
                 return True
-            if str(failure.get("classification")) == "policy":
+            if isinstance(normalized_classification, str) and normalized_classification.startswith("policy"):
                 return False
         return self.status_code in {408, 425, 429, 500, 502, 503, 504}
 

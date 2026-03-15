@@ -92,6 +92,34 @@ class RuntimeExecutionClientTests(unittest.TestCase):
         self.assertEqual(exc.downstream_failure.get("code"), "no_eligible_device")
         self.assertTrue(exc.retryable)
 
+    def test_retryable_normalizes_capacity_classification_code_term(self) -> None:
+        exc = RuntimeExecutionClientError(
+            "downstream route failed",
+            status_code=409,
+            response_body={
+                "payload": {
+                    "failure": {
+                        "classification": "Capacity-Exhausted",
+                    }
+                }
+            },
+        )
+        self.assertTrue(exc.retryable)
+
+    def test_retryable_normalizes_policy_classification_code_term(self) -> None:
+        exc = RuntimeExecutionClientError(
+            "downstream route failed",
+            status_code=503,
+            response_body={
+                "payload": {
+                    "failure": {
+                        "classification": "Policy.Rejected",
+                    }
+                }
+            },
+        )
+        self.assertFalse(exc.retryable)
+
     def test_submit_command_http_error_non_json_body_sets_empty_response_body(self) -> None:
         def transport(request, timeout=10.0):
             _ = timeout
