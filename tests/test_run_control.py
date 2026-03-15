@@ -442,6 +442,11 @@ def test_timeout_run_connection_error_maps_to_503(
     assert response.status_code == 503
     assert "connection error" in response.text
     mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "runs.timeout"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["status_code"] == 503
+    assert audit["metadata"]["run_id"] == "run-timeout-2"
 
 
 def test_preempt_run_accepts_requested_by_run_id_alias(
@@ -504,6 +509,94 @@ def test_preempt_run_downstream_error_is_mapped(
     assert response.status_code == 409
     assert "409" in response.text
     mock_token_exchange.assert_called_once()
+
+
+def test_cancel_run_connection_error_maps_to_503(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.cancel_run.side_effect = RuntimeExecutionClientError(
+        "connection error calling cancel endpoint",
+        status_code=None,
+    )
+    client = TestClient(app)
+    response = client.post("/v1/runs/run-cancel-connect:cancel", headers=auth_headers)
+    assert response.status_code == 503
+    assert "connection error" in response.text
+    mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "runs.cancel"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["status_code"] == 503
+    assert audit["metadata"]["run_id"] == "run-cancel-connect"
+
+
+def test_preempt_run_connection_error_maps_to_503(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.preempt_run.side_effect = RuntimeExecutionClientError(
+        "connection error calling preempt endpoint",
+        status_code=None,
+    )
+    client = TestClient(app)
+    response = client.post("/v1/runs/run-preempt-connect:preempt", headers=auth_headers)
+    assert response.status_code == 503
+    assert "connection error" in response.text
+    mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "runs.preempt"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["status_code"] == 503
+    assert audit["metadata"]["run_id"] == "run-preempt-connect"
+
+
+def test_complete_run_connection_error_maps_to_503(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.complete_run.side_effect = RuntimeExecutionClientError(
+        "connection error calling complete endpoint",
+        status_code=None,
+    )
+    client = TestClient(app)
+    response = client.post(
+        "/v1/runs/run-complete-connect:complete",
+        json={"success": True},
+        headers=auth_headers,
+    )
+    assert response.status_code == 503
+    assert "connection error" in response.text
+    mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "runs.complete"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["status_code"] == 503
+    assert audit["metadata"]["run_id"] == "run-complete-connect"
+
+
+def test_lease_renew_connection_error_maps_to_503(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.renew_run_lease.side_effect = RuntimeExecutionClientError(
+        "connection error calling lease renew endpoint",
+        status_code=None,
+    )
+    client = TestClient(app)
+    response = client.post("/v1/runs/run-lease-connect:lease-renew", headers=auth_headers)
+    assert response.status_code == 503
+    assert "connection error" in response.text
+    mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "runs.lease_renew"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["status_code"] == 503
+    assert audit["metadata"]["run_id"] == "run-lease-connect"
 
 
 def test_run_control_rejects_invalid_payload_type(
