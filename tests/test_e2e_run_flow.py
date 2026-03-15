@@ -1651,10 +1651,15 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(failure.get("classification"), "capacity")
         self.assertEqual(detail.get("placement_reason_code"), "tenant_quota_exhausted")
         self.assertEqual(detail.get("placement_event_type"), "device.route.rejected")
-        self.assertEqual(
-            detail.get("placement_resource_snapshot"),
-            {"tenant_id": "t1", "tenant_active_leases": 1, "tenant_limit": 1},
-        )
+        detail_snapshot = detail.get("placement_resource_snapshot")
+        self.assertIsInstance(detail_snapshot, dict)
+        assert isinstance(detail_snapshot, dict)
+        self.assertEqual(detail_snapshot.get("tenant_id"), "t1")
+        self.assertEqual(detail_snapshot.get("tenant_active_leases"), 1)
+        self.assertEqual(detail_snapshot.get("tenant_limit"), 1)
+        self.assertEqual(detail_snapshot.get("eligible_devices"), 1)
+        self.assertEqual(detail_snapshot.get("active_leases"), 1)
+        self.assertEqual(detail_snapshot.get("available_slots"), 0)
         self.assertIn("HTTP 503", str(detail.get("message", "")))
 
         run_ids_after_second = set(execution_app_module._runtime.runs.keys())
@@ -1679,10 +1684,15 @@ class EndToEndRunFlowTests(unittest.TestCase):
         ]
         self.assertGreaterEqual(len(matching), 1)
         self.assertEqual(matching[0]["payload"]["failure"]["classification"], "capacity")
-        self.assertEqual(
-            matching[0]["payload"]["decision"]["resource_snapshot"],
-            {"tenant_id": "t1", "tenant_active_leases": 1, "tenant_limit": 1},
-        )
+        route_snapshot = matching[0]["payload"]["decision"]["resource_snapshot"]
+        self.assertIsInstance(route_snapshot, dict)
+        assert isinstance(route_snapshot, dict)
+        self.assertEqual(route_snapshot.get("tenant_id"), "t1")
+        self.assertEqual(route_snapshot.get("tenant_active_leases"), 1)
+        self.assertEqual(route_snapshot.get("tenant_limit"), 1)
+        self.assertEqual(route_snapshot.get("eligible_devices"), 1)
+        self.assertEqual(route_snapshot.get("active_leases"), 1)
+        self.assertEqual(route_snapshot.get("available_slots"), 0)
 
     def test_gateway_submit_compute_recovers_tenant_quota_when_active_lease_expiry_invalid_e2e(self) -> None:
         if not DEVICE_HUB_AVAILABLE:
@@ -2611,10 +2621,14 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(failure.get("classification"), "capacity")
         self.assertEqual(detail.get("placement_reason_code"), "capacity_exhausted")
         self.assertEqual(detail.get("placement_event_type"), "device.route.rejected")
-        self.assertEqual(
-            detail.get("placement_resource_snapshot"),
-            {"eligible_devices": 1, "active_leases": 1, "available_slots": 0},
-        )
+        detail_snapshot = detail.get("placement_resource_snapshot")
+        self.assertIsInstance(detail_snapshot, dict)
+        assert isinstance(detail_snapshot, dict)
+        self.assertEqual(detail_snapshot.get("eligible_devices"), 1)
+        self.assertEqual(detail_snapshot.get("active_leases"), 1)
+        self.assertEqual(detail_snapshot.get("available_slots"), 0)
+        self.assertEqual(detail_snapshot.get("tenant_id"), "t1")
+        self.assertEqual(detail_snapshot.get("tenant_active_leases"), 1)
 
         run_ids_after_second = set(execution_app_module._runtime.runs.keys())
         rejected_run_ids = run_ids_after_second - run_ids_before_second
@@ -2638,10 +2652,14 @@ class EndToEndRunFlowTests(unittest.TestCase):
         ]
         self.assertGreaterEqual(len(matching), 1)
         self.assertEqual(matching[0]["payload"]["failure"]["classification"], "capacity")
-        self.assertEqual(
-            matching[0]["payload"]["decision"]["resource_snapshot"],
-            {"eligible_devices": 1, "active_leases": 1, "available_slots": 0},
-        )
+        route_snapshot = matching[0]["payload"]["decision"]["resource_snapshot"]
+        self.assertIsInstance(route_snapshot, dict)
+        assert isinstance(route_snapshot, dict)
+        self.assertEqual(route_snapshot.get("eligible_devices"), 1)
+        self.assertEqual(route_snapshot.get("active_leases"), 1)
+        self.assertEqual(route_snapshot.get("available_slots"), 0)
+        self.assertEqual(route_snapshot.get("tenant_id"), "t1")
+        self.assertEqual(route_snapshot.get("tenant_active_leases"), 1)
 
     def test_gateway_compute_capacity_retry_waits_for_free_slot_then_recovers_e2e(self) -> None:
         if not DEVICE_HUB_AVAILABLE:

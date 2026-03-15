@@ -1006,10 +1006,12 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(detail.get("recommended_poll_after_ms"), 1200)
         self.assertEqual(detail.get("placement_reason_code"), "capacity_exhausted")
         self.assertEqual(detail.get("placement_event_type"), "device.route.rejected")
-        self.assertEqual(
-            detail.get("placement_resource_snapshot"),
-            {"eligible_devices": 1, "active_leases": 1, "available_slots": 0},
-        )
+        detail_snapshot = detail.get("placement_resource_snapshot")
+        self.assertIsInstance(detail_snapshot, dict)
+        assert isinstance(detail_snapshot, dict)
+        self.assertEqual(detail_snapshot.get("eligible_devices"), 1)
+        self.assertEqual(detail_snapshot.get("active_leases"), 1)
+        self.assertEqual(detail_snapshot.get("available_slots"), 0)
         self.assertEqual(detail.get("retryable"), True)
         self.assertEqual(
             detail.get("retry_policy"),
@@ -1035,10 +1037,12 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(audit_latest["metadata"]["recommended_poll_after_ms"], 1200)
         self.assertEqual(audit_latest["metadata"]["placement_reason_code"], "capacity_exhausted")
         self.assertEqual(audit_latest["metadata"]["placement_event_type"], "device.route.rejected")
-        self.assertEqual(
-            audit_latest["metadata"]["placement_resource_snapshot"],
-            {"eligible_devices": 1, "active_leases": 1, "available_slots": 0},
-        )
+        audit_snapshot = audit_latest["metadata"]["placement_resource_snapshot"]
+        self.assertIsInstance(audit_snapshot, dict)
+        assert isinstance(audit_snapshot, dict)
+        self.assertEqual(audit_snapshot.get("eligible_devices"), 1)
+        self.assertEqual(audit_snapshot.get("active_leases"), 1)
+        self.assertEqual(audit_snapshot.get("available_slots"), 0)
         self.assertEqual(audit_latest["metadata"]["retryable"], True)
 
     def test_runs_propagates_retryable_capacity_failure_status_and_audit_metadata(self) -> None:
