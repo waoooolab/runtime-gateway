@@ -263,6 +263,37 @@ def test_get_run_status_downstream_error_maps_status(
     assert audit["metadata"]["run_id"] == "run-missing"
 
 
+def test_get_run_status_connection_error_returns_structured_retryable_detail(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    read_auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.get_run_status.side_effect = RuntimeExecutionClientError(
+        "connection error calling run status endpoint",
+        status_code=None,
+    )
+    client = TestClient(app)
+    response = client.get(
+        "/v1/runs/run-status-connect",
+        headers=read_auth_headers,
+    )
+    assert response.status_code == 503
+    detail = response.json().get("detail")
+    assert isinstance(detail, dict)
+    assert detail["status_code"] == 503
+    assert detail["retryable"] is True
+    assert detail["failure_classification"] == "upstream_unavailable"
+    assert "connection error" in str(detail["message"])
+    mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "runs.read"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["run_id"] == "run-status-connect"
+    assert audit["metadata"]["status_code"] == 503
+    assert audit["metadata"]["retryable"] is True
+    assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
+
+
 def test_get_run_status_downstream_error_surfaces_failure_and_route_diagnostics(
     mock_execution_client: Mock,
     mock_token_exchange: Mock,
