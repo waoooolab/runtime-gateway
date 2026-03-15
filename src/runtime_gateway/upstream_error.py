@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .code_terms import normalize_optional_code_term
+
 _RETRYABLE_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
 
 
@@ -30,11 +32,13 @@ def extract_upstream_failure_classification(
 ) -> str:
     if isinstance(detail, dict):
         category = detail.get("category")
-        if isinstance(category, str) and category.strip():
-            return category.strip()
+        normalized_category = normalize_optional_code_term(category)
+        if normalized_category is not None:
+            return normalized_category
         classification = detail.get("classification")
-        if isinstance(classification, str) and classification.strip():
-            return classification.strip()
+        normalized_classification = normalize_optional_code_term(classification)
+        if normalized_classification is not None:
+            return normalized_classification
     lowered = message.strip().lower()
     if "connection error" in lowered or "timeout" in lowered:
         return "upstream_unavailable"
