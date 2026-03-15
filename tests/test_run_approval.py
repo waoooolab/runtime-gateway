@@ -234,6 +234,31 @@ def test_approve_run_downstream_connection_error(
     assert "connection error" in response.text
 
 
+def test_reject_run_downstream_connection_error(
+    mock_execution_client: Mock, mock_token_exchange: Mock, auth_headers: dict[str, str]
+) -> None:
+    """Test reject run with downstream connection error."""
+    mock_execution_client.reject_run.side_effect = RuntimeExecutionClientError(
+        "connection error calling reject endpoint",
+        status_code=None,
+    )
+
+    client = TestClient(app)
+    response = client.post("/v1/runs/run-778:reject", headers=auth_headers)
+
+    assert response.status_code == 503
+    assert "connection error" in response.text
+    audit = client.get("/v1/audit/events", headers=auth_headers)
+    assert audit.status_code == 200
+    audit_items = audit.json()["items"]
+    assert len(audit_items) >= 1
+    latest = audit_items[-1]
+    assert latest["action"] == "runs.reject"
+    assert latest["decision"] == "deny"
+    assert latest["metadata"]["status_code"] == 503
+    assert latest["metadata"]["run_id"] == "run-778"
+
+
 def test_approve_run_missing_auth() -> None:
     """Test approve run without authorization header."""
     client = TestClient(app)
