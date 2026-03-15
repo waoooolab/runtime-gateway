@@ -69,3 +69,40 @@ def test_extract_route_failure_metadata_uses_flat_failure_fields_when_nested_mis
     assert metadata["failure_message"] == "no eligible device"
     assert metadata["placement_reason_code"] == "no_eligible_device"
     assert metadata["placement_event_type"] == "device.route.rejected"
+
+
+def test_extract_route_failure_metadata_uses_flat_placement_fields_when_decision_missing() -> None:
+    downstream_event = {
+        "payload": {
+            "status": "failed",
+            "failure_code": "Route.Unavailable",
+            "failure_classification": "Internal",
+            "failure_message": "unable to select device from eligible route set",
+            "placement_reason_code": "Route.Unavailable",
+            "placement_event_type": "device.route.rejected",
+            "placement_resource_snapshot": {
+                "eligible_devices": 1,
+                "active_leases": 0,
+                "available_slots": 1,
+                "tenant_id": "t1",
+                "tenant_active_leases": 0,
+                "queue_depth": 0,
+            },
+        }
+    }
+
+    metadata = _extract_route_failure_metadata(downstream_event)
+    assert metadata["run_status"] == "failed"
+    assert metadata["failure_code"] == "route_unavailable"
+    assert metadata["failure_classification"] == "internal"
+    assert metadata["failure_message"] == "unable to select device from eligible route set"
+    assert metadata["placement_reason_code"] == "route_unavailable"
+    assert metadata["placement_event_type"] == "device.route.rejected"
+    assert metadata["placement_resource_snapshot"] == {
+        "queue_depth": 0,
+        "eligible_devices": 1,
+        "active_leases": 0,
+        "available_slots": 1,
+        "tenant_active_leases": 0,
+        "tenant_id": "t1",
+    }

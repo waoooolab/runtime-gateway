@@ -264,6 +264,20 @@ def _extract_route_failure_metadata(downstream_event: Mapping[str, Any]) -> dict
         if isinstance(snapshot, dict) and snapshot:
             metadata["placement_resource_snapshot"] = snapshot
 
+    # Fallback for flattened placement metadata when `decision` object is absent.
+    if "placement_reason_code" not in metadata:
+        placement_reason_code = normalize_optional_code_term(payload.get("placement_reason_code"))
+        if placement_reason_code is not None:
+            metadata["placement_reason_code"] = placement_reason_code
+    if "placement_event_type" not in metadata:
+        placement_event_type = payload.get("placement_event_type")
+        if isinstance(placement_event_type, str) and placement_event_type.strip():
+            metadata["placement_event_type"] = placement_event_type
+    if "placement_resource_snapshot" not in metadata:
+        snapshot = _filter_resource_snapshot(payload.get("placement_resource_snapshot"))
+        if isinstance(snapshot, dict) and snapshot:
+            metadata["placement_resource_snapshot"] = snapshot
+
     return metadata
 
 
