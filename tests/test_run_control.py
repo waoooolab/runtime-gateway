@@ -315,6 +315,23 @@ def test_complete_run_rejects_failure_reason_when_success_true(
     assert "only allowed when success=false" in response.json()["detail"]
 
 
+def test_complete_run_rejects_invalid_failure_reason_code_format(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    _ = mock_execution_client, mock_token_exchange
+    client = TestClient(app)
+    response = client.post(
+        "/v1/runs/run-complete-4:complete",
+        json={"success": False, "failure_reason_code": "###"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 422
+    assert "snake_case code term" in response.json()["detail"]
+    mock_execution_client.complete_run.assert_not_called()
+
+
 def test_renew_run_lease_happy_path(
     mock_execution_client: Mock,
     mock_token_exchange: Mock,

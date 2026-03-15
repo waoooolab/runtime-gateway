@@ -426,11 +426,15 @@ def dispatch_complete_run(
 ) -> dict[str, Any]:
     payload = _require_object_payload(body)
     success = _parse_required_bool(payload, key="success")
-    failure_reason_code = normalize_optional_code_term(
-        _parse_optional_str(payload, key="failure_reason_code")
-    )
-    if success and failure_reason_code is not None:
+    raw_failure_reason_code = _parse_optional_str(payload, key="failure_reason_code")
+    failure_reason_code = normalize_optional_code_term(raw_failure_reason_code)
+    if success and raw_failure_reason_code is not None:
         raise HTTPException(status_code=422, detail="failure_reason_code is only allowed when success=false")
+    if raw_failure_reason_code is not None and failure_reason_code is None:
+        raise HTTPException(
+            status_code=422,
+            detail="failure_reason_code must be snake_case code term when present",
+        )
     return _submit_control_action(
         action="runs.complete",
         run_id=run_id,
