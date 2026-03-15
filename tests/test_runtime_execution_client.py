@@ -120,6 +120,24 @@ class RuntimeExecutionClientTests(unittest.TestCase):
         )
         self.assertFalse(exc.retryable)
 
+    def test_retryable_uses_flat_failure_classification_from_detail(self) -> None:
+        exc = RuntimeExecutionClientError(
+            "downstream route failed",
+            status_code=409,
+            detail={"failure_classification": "Capacity-Exhausted"},
+        )
+        self.assertTrue(exc.retryable)
+        self.assertEqual(exc.failure_classification, "capacity_exhausted")
+
+    def test_retryable_uses_flat_failure_classification_from_payload(self) -> None:
+        exc = RuntimeExecutionClientError(
+            "downstream route failed",
+            status_code=409,
+            response_body={"payload": {"failure_classification": "Policy.Rejected"}},
+        )
+        self.assertFalse(exc.retryable)
+        self.assertEqual(exc.failure_classification, "policy_rejected")
+
     def test_submit_command_http_error_non_json_body_sets_empty_response_body(self) -> None:
         def transport(request, timeout=10.0):
             _ = timeout

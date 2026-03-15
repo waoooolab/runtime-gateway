@@ -44,18 +44,40 @@ class RuntimeExecutionClientError(RuntimeError):
         return failure
 
     @property
+    def failure_classification(self) -> str | None:
+        if isinstance(self.detail, dict):
+            detail_failure = self.detail.get("failure")
+            if isinstance(detail_failure, dict):
+                normalized = normalize_optional_code_term(detail_failure.get("classification"))
+                if isinstance(normalized, str):
+                    return normalized
+            normalized = normalize_optional_code_term(self.detail.get("failure_classification"))
+            if isinstance(normalized, str):
+                return normalized
+        failure = self.downstream_failure
+        if isinstance(failure, dict):
+            normalized = normalize_optional_code_term(failure.get("classification"))
+            if isinstance(normalized, str):
+                return normalized
+        if isinstance(self.response_body, dict):
+            payload = self.response_body.get("payload")
+            if isinstance(payload, dict):
+                normalized = normalize_optional_code_term(payload.get("failure_classification"))
+                if isinstance(normalized, str):
+                    return normalized
+        return None
+
+    @property
     def retryable(self) -> bool:
         if isinstance(self.detail, dict):
             detail_retryable = self.detail.get("retryable")
             if isinstance(detail_retryable, bool):
                 return detail_retryable
-        failure = self.downstream_failure
-        if isinstance(failure, dict):
-            normalized_classification = normalize_optional_code_term(failure.get("classification"))
-            if isinstance(normalized_classification, str) and normalized_classification.startswith("capacity"):
-                return True
-            if isinstance(normalized_classification, str) and normalized_classification.startswith("policy"):
-                return False
+        classification = self.failure_classification
+        if isinstance(classification, str) and classification.startswith("capacity"):
+            return True
+        if isinstance(classification, str) and classification.startswith("policy"):
+            return False
         return self.status_code in {408, 425, 429, 500, 502, 503, 504}
 
 
