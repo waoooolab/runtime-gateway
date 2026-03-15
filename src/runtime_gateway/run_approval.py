@@ -10,7 +10,12 @@ from .audit.emitter import emit_audit_event
 from .auth.exchange import ExchangeError, exchange_subject_token
 from .events.validation import validate_event_envelope
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
-from .upstream_error import resolve_upstream_status_code
+from .upstream_error import (
+    build_upstream_error_detail,
+    extract_upstream_failure_classification,
+    resolve_upstream_retryable,
+    resolve_upstream_status_code,
+)
 
 
 def _extract_downstream_status(event: dict[str, Any]) -> str | None:
@@ -125,10 +130,26 @@ def _submit_approval_action(
             retryable=exc.retryable,
             message=str(exc),
         )
+        normalized_retryable = resolve_upstream_retryable(
+            status_code=exc.status_code,
+            retryable=exc.retryable,
+            message=str(exc),
+            detail=exc.detail,
+        )
+        failure_classification = extract_upstream_failure_classification(
+            message=str(exc),
+            detail=exc.detail,
+        )
         downstream_event_type = None
         downstream_status = None
         bus_seq = None
-        detail: str | dict[str, Any] = str(exc)
+        detail: str | dict[str, Any] = build_upstream_error_detail(
+            message=str(exc),
+            status_code=resolved_status,
+            retryable=normalized_retryable,
+            failure_classification=failure_classification,
+            detail=exc.detail,
+        )
         if isinstance(exc.response_body, dict):
             try:
                 validate_event_envelope(exc.response_body)
@@ -158,6 +179,8 @@ def _submit_approval_action(
                 "downstream_event_type": downstream_event_type,
                 "downstream_status": downstream_status,
                 "bus_seq": bus_seq,
+                "retryable": normalized_retryable,
+                "failure_classification": failure_classification,
             },
         )
         raise HTTPException(status_code=resolved_status, detail=detail) from exc

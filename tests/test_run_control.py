@@ -440,13 +440,20 @@ def test_timeout_run_connection_error_maps_to_503(
     client = TestClient(app)
     response = client.post("/v1/runs/run-timeout-2:timeout", headers=auth_headers)
     assert response.status_code == 503
-    assert "connection error" in response.text
+    detail = response.json().get("detail")
+    assert isinstance(detail, dict)
+    assert detail["status_code"] == 503
+    assert detail["retryable"] is True
+    assert detail["failure_classification"] == "upstream_unavailable"
+    assert "connection error" in str(detail["message"])
     mock_token_exchange.assert_called_once()
     audit = get_audit_events(limit=1)[0]
     assert audit["action"] == "runs.timeout"
     assert audit["decision"] == "deny"
     assert audit["metadata"]["status_code"] == 503
     assert audit["metadata"]["run_id"] == "run-timeout-2"
+    assert audit["metadata"]["retryable"] is True
+    assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
 
 
 def test_preempt_run_accepts_requested_by_run_id_alias(
@@ -523,13 +530,20 @@ def test_cancel_run_connection_error_maps_to_503(
     client = TestClient(app)
     response = client.post("/v1/runs/run-cancel-connect:cancel", headers=auth_headers)
     assert response.status_code == 503
-    assert "connection error" in response.text
+    detail = response.json().get("detail")
+    assert isinstance(detail, dict)
+    assert detail["status_code"] == 503
+    assert detail["retryable"] is True
+    assert detail["failure_classification"] == "upstream_unavailable"
+    assert "connection error" in str(detail["message"])
     mock_token_exchange.assert_called_once()
     audit = get_audit_events(limit=1)[0]
     assert audit["action"] == "runs.cancel"
     assert audit["decision"] == "deny"
     assert audit["metadata"]["status_code"] == 503
     assert audit["metadata"]["run_id"] == "run-cancel-connect"
+    assert audit["metadata"]["retryable"] is True
+    assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
 
 
 def test_preempt_run_connection_error_maps_to_503(
@@ -544,13 +558,20 @@ def test_preempt_run_connection_error_maps_to_503(
     client = TestClient(app)
     response = client.post("/v1/runs/run-preempt-connect:preempt", headers=auth_headers)
     assert response.status_code == 503
-    assert "connection error" in response.text
+    detail = response.json().get("detail")
+    assert isinstance(detail, dict)
+    assert detail["status_code"] == 503
+    assert detail["retryable"] is True
+    assert detail["failure_classification"] == "upstream_unavailable"
+    assert "connection error" in str(detail["message"])
     mock_token_exchange.assert_called_once()
     audit = get_audit_events(limit=1)[0]
     assert audit["action"] == "runs.preempt"
     assert audit["decision"] == "deny"
     assert audit["metadata"]["status_code"] == 503
     assert audit["metadata"]["run_id"] == "run-preempt-connect"
+    assert audit["metadata"]["retryable"] is True
+    assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
 
 
 def test_complete_run_connection_error_maps_to_503(
@@ -569,13 +590,20 @@ def test_complete_run_connection_error_maps_to_503(
         headers=auth_headers,
     )
     assert response.status_code == 503
-    assert "connection error" in response.text
+    detail = response.json().get("detail")
+    assert isinstance(detail, dict)
+    assert detail["status_code"] == 503
+    assert detail["retryable"] is True
+    assert detail["failure_classification"] == "upstream_unavailable"
+    assert "connection error" in str(detail["message"])
     mock_token_exchange.assert_called_once()
     audit = get_audit_events(limit=1)[0]
     assert audit["action"] == "runs.complete"
     assert audit["decision"] == "deny"
     assert audit["metadata"]["status_code"] == 503
     assert audit["metadata"]["run_id"] == "run-complete-connect"
+    assert audit["metadata"]["retryable"] is True
+    assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
 
 
 def test_lease_renew_connection_error_maps_to_503(
@@ -590,13 +618,20 @@ def test_lease_renew_connection_error_maps_to_503(
     client = TestClient(app)
     response = client.post("/v1/runs/run-lease-connect:lease-renew", headers=auth_headers)
     assert response.status_code == 503
-    assert "connection error" in response.text
+    detail = response.json().get("detail")
+    assert isinstance(detail, dict)
+    assert detail["status_code"] == 503
+    assert detail["retryable"] is True
+    assert detail["failure_classification"] == "upstream_unavailable"
+    assert "connection error" in str(detail["message"])
     mock_token_exchange.assert_called_once()
     audit = get_audit_events(limit=1)[0]
     assert audit["action"] == "runs.lease_renew"
     assert audit["decision"] == "deny"
     assert audit["metadata"]["status_code"] == 503
     assert audit["metadata"]["run_id"] == "run-lease-connect"
+    assert audit["metadata"]["retryable"] is True
+    assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
 
 
 def test_run_control_rejects_invalid_payload_type(

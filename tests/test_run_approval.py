@@ -263,7 +263,20 @@ def test_approve_run_downstream_connection_error(
     response = client.post("/v1/runs/run-777:approve", headers=auth_headers)
 
     assert response.status_code == 503
-    assert "connection error" in response.text
+    detail = response.json().get("detail")
+    assert isinstance(detail, dict)
+    assert detail["status_code"] == 503
+    assert detail["retryable"] is True
+    assert detail["failure_classification"] == "upstream_unavailable"
+    assert "connection error" in str(detail["message"])
+    audit = client.get("/v1/audit/events", headers=auth_headers)
+    assert audit.status_code == 200
+    latest = audit.json()["items"][-1]
+    assert latest["action"] == "runs.approve"
+    assert latest["decision"] == "deny"
+    assert latest["metadata"]["status_code"] == 503
+    assert latest["metadata"]["retryable"] is True
+    assert latest["metadata"]["failure_classification"] == "upstream_unavailable"
 
 
 def test_reject_run_downstream_connection_error(
@@ -279,7 +292,12 @@ def test_reject_run_downstream_connection_error(
     response = client.post("/v1/runs/run-778:reject", headers=auth_headers)
 
     assert response.status_code == 503
-    assert "connection error" in response.text
+    detail = response.json().get("detail")
+    assert isinstance(detail, dict)
+    assert detail["status_code"] == 503
+    assert detail["retryable"] is True
+    assert detail["failure_classification"] == "upstream_unavailable"
+    assert "connection error" in str(detail["message"])
     audit = client.get("/v1/audit/events", headers=auth_headers)
     assert audit.status_code == 200
     audit_items = audit.json()["items"]
@@ -289,6 +307,8 @@ def test_reject_run_downstream_connection_error(
     assert latest["decision"] == "deny"
     assert latest["metadata"]["status_code"] == 503
     assert latest["metadata"]["run_id"] == "run-778"
+    assert latest["metadata"]["retryable"] is True
+    assert latest["metadata"]["failure_classification"] == "upstream_unavailable"
 
 
 def test_approve_run_missing_auth() -> None:

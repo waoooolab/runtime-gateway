@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+_RETRYABLE_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
+
 
 def resolve_upstream_status_code(
     *,
@@ -18,3 +22,69 @@ def resolve_upstream_status_code(
         return 503
     return 502
 
+
+def extract_upstream_failure_classification(
+    *,
+    message: str,
+    detail: Any,
+) -> str:
+    if isinstance(detail, dict):
+        category = detail.get("category")
+        if isinstance(category, str) and category.strip():
+            return category.strip()
+        classification = detail.get("classification")
+        if isinstance(classification, str) and classification.strip():
+            return classification.strip()
+    lowered = message.strip().lower()
+    if "connection error" in lowered or "timeout" in lowered:
+        return "upstream_unavailable"
+    return "upstream_error"
+
+
+def resolve_upstream_retryable(
+    *,
+    status_code: int | None,
+    retryable: bool,
+    message: str,
+    detail: Any,
+) -> bool:
+    if isinstance(detail, dict):
+        detail_retryable = detail.get("retryable")
+        if isinstance(detail_retryable, bool):
+            return detail_retryable
+    if retryable:
+        return True
+    if isinstance(status_code, int):
+        return status_code in _RETRYABLE_STATUS_CODES
+    lowered = message.strip().lower()
+    if "connection error" in lowered or "timeout" in lowered:
+        return True
+    return False
+
+
+def build_upstream_error_detail(
+    *,
+    message: str,
+    status_code: int,
+    retryable: bool,
+    failure_classification: str,
+    detail: Any,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "message": message,
+        "status_code": status_code,
+        "retryable": retryable,
+        "failure_classification": failure_classification,
+    }
+    if isinstance(detail, dict):
+        payload["upstream_detail"] = detail
+        upstream_category = detail.get("category")
+        if isinstance(upstream_category, str) and upstream_category.strip():
+            payload["upstream_category"] = upstream_category.strip()
+        upstream_code = detail.get("code")
+        if isinstance(upstream_code, str) and upstream_code.strip():
+            payload["upstream_code"] = upstream_code.strip()
+        upstream_message = detail.get("message")
+        if isinstance(upstream_message, str) and upstream_message.strip():
+            payload["upstream_message"] = upstream_message.strip()
+    return payload
