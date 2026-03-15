@@ -430,6 +430,46 @@ def test_complete_run_downstream_error_includes_requested_failure_reason_in_audi
     assert audit["metadata"]["downstream_placement_reason_code"] == "capacity_exhausted"
 
 
+def test_complete_run_downstream_error_uses_flat_failure_reason_code_fallback(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    event = _run_status_event(
+        run_id="run-complete-flat-failure-reason",
+        status="failed",
+        route={
+            "event_type": "runtime.route.decided",
+            "execution_mode": "compute",
+            "route_target": "device-hub",
+        },
+    )
+    payload = event["payload"]
+    assert isinstance(payload, dict)
+    payload["failure_reason_code"] = "Run.Preempted"
+
+    mock_execution_client.complete_run.side_effect = RuntimeExecutionClientError(
+        "HTTP 409 calling complete endpoint",
+        status_code=409,
+        response_body=event,
+    )
+    client = TestClient(app)
+    response = client.post(
+        "/v1/runs/run-complete-flat-failure-reason:complete",
+        json={"success": False, "failure_reason_code": "tool_contract_violation"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 409
+    detail = response.json().get("detail")
+    assert isinstance(detail, dict)
+    assert detail["downstream_failure_reason_code"] == "run_preempted"
+    mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "runs.complete"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["downstream_failure_reason_code"] == "run_preempted"
+
+
 def test_cancel_run_accepts_requested_by_run_id_alias(
     mock_execution_client: Mock,
     mock_token_exchange: Mock,

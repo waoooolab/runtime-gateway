@@ -118,10 +118,12 @@ def _extract_downstream_failure_reason_code(event: dict[str, Any]) -> str | None
     if not isinstance(payload, dict):
         return None
     orchestration = payload.get("orchestration")
-    if not isinstance(orchestration, dict):
-        return None
-    failure_reason_code = orchestration.get("failure_reason_code")
-    return normalize_optional_code_term(failure_reason_code)
+    if isinstance(orchestration, dict):
+        failure_reason_code = normalize_optional_code_term(orchestration.get("failure_reason_code"))
+        if failure_reason_code is not None:
+            return failure_reason_code
+    # Fallback for flattened payload shapes.
+    return normalize_optional_code_term(payload.get("failure_reason_code"))
 
 
 def _extract_downstream_route_metadata(event: dict[str, Any]) -> dict[str, str]:

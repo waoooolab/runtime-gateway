@@ -374,6 +374,40 @@ def test_get_run_status_downstream_error_surfaces_failure_and_route_diagnostics(
     assert audit["metadata"]["downstream_placement_reason_code"] == "capacity_exhausted"
 
 
+def test_get_run_status_downstream_error_uses_flat_failure_reason_code_fallback(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    read_auth_headers: dict[str, str],
+) -> None:
+    event = _run_status_event(
+        run_id="run-status-flat-failure-reason",
+        status="failed",
+    )
+    payload = event["payload"]
+    assert isinstance(payload, dict)
+    payload["failure_reason_code"] = "Run.Preempted"
+
+    mock_execution_client.get_run_status.side_effect = RuntimeExecutionClientError(
+        "HTTP 503 calling run status endpoint",
+        status_code=503,
+        response_body=event,
+    )
+    client = TestClient(app)
+    response = client.get(
+        "/v1/runs/run-status-flat-failure-reason",
+        headers=read_auth_headers,
+    )
+    assert response.status_code == 503
+    detail = response.json().get("detail")
+    assert isinstance(detail, dict)
+    assert detail["downstream_failure_reason_code"] == "run_preempted"
+    mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "runs.read"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["downstream_failure_reason_code"] == "run_preempted"
+
+
 def test_get_run_status_rejects_invalid_event_envelope(
     mock_execution_client: Mock,
     mock_token_exchange: Mock,
