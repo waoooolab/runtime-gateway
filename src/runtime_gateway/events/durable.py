@@ -48,6 +48,7 @@ def read_event_page(
     event_types: set[str] | None,
     run_id: str | None,
     since_ts: datetime | None,
+    until_ts: datetime | None,
     cursor: int | None,
 ) -> dict[str, Any]:
     if limit <= 0:
@@ -70,6 +71,7 @@ def read_event_page(
             event_types=event_types,
             run_id=run_id,
             since_ts=since_ts,
+            until_ts=until_ts,
         )
     ]
 
@@ -137,6 +139,7 @@ def _matches(
     event_types: set[str] | None,
     run_id: str | None,
     since_ts: datetime | None,
+    until_ts: datetime | None,
 ) -> bool:
     if tenant_id and str(event.get("tenant_id")) != tenant_id:
         return False
@@ -153,6 +156,10 @@ def _matches(
     if since_ts is not None:
         event_ts = _parse_event_ts(event.get("ts"))
         if event_ts is None or event_ts < since_ts:
+            return False
+    if until_ts is not None:
+        event_ts = _parse_event_ts(event.get("ts"))
+        if event_ts is None or event_ts > until_ts:
             return False
     return True
 

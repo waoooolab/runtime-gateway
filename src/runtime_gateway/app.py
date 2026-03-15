@@ -90,16 +90,19 @@ def _normalize_next_cursor(*, requested_cursor: int | None, resolved_next_cursor
     return max(int(requested_cursor), normalized)
 
 
-def _parse_since_ts_or_raise(raw_since_ts: str | None) -> datetime | None:
-    if raw_since_ts is None:
+def _parse_optional_ts_or_raise(raw_ts: str | None, *, field_name: str) -> datetime | None:
+    if raw_ts is None:
         return None
-    normalized = raw_since_ts.strip()
+    normalized = raw_ts.strip()
     if not normalized:
         return None
     try:
         parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail="since_ts must be valid ISO-8601 date-time") from exc
+        raise HTTPException(
+            status_code=422,
+            detail=f"{field_name} must be valid ISO-8601 date-time",
+        ) from exc
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed
@@ -223,6 +226,7 @@ def list_recent_events(
     run_id: str | None = None,
     cursor: int | None = Query(default=None, ge=0),
     since_ts: str | None = Query(default=None),
+    until_ts: str | None = Query(default=None),
     auth_context: AuthContext = Depends(require_events_read_context),
 ) -> dict:
     claims = auth_context.claims
@@ -244,7 +248,14 @@ def list_recent_events(
     source_value = source.strip().lower()
     if source_value not in {"memory", "durable"}:
         raise HTTPException(status_code=422, detail="source must be one of: memory, durable")
-    parsed_since_ts = _parse_since_ts_or_raise(since_ts)
+    parsed_since_ts = _parse_optional_ts_or_raise(since_ts, field_name="since_ts")
+    parsed_until_ts = _parse_optional_ts_or_raise(until_ts, field_name="until_ts")
+    if (
+        parsed_since_ts is not None
+        and parsed_until_ts is not None
+        and parsed_since_ts > parsed_until_ts
+    ):
+        raise HTTPException(status_code=422, detail="since_ts must be <= until_ts")
     if source_value == "memory":
         if cursor is None:
             window = _event_bus.recent(
@@ -254,6 +265,7 @@ def list_recent_events(
                 event_types=parsed_types,
                 run_id=run_id,
                 since_ts=parsed_since_ts,
+                until_ts=parsed_until_ts,
             )
             has_more = len(window) > limit
             items = window[-limit:]
@@ -265,6 +277,7 @@ def list_recent_events(
                 event_types=parsed_types,
                 run_id=run_id,
                 since_ts=parsed_since_ts,
+                until_ts=parsed_until_ts,
             )[: limit + 1]
             has_more = len(window) > limit
             items = window[:limit]
@@ -284,6 +297,7 @@ def list_recent_events(
             event_types=parsed_types,
             run_id=run_id,
             since_ts=parsed_since_ts,
+            until_ts=parsed_until_ts,
             cursor=cursor,
         )
         items = durable_page["items"]

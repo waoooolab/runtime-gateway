@@ -43,6 +43,7 @@ class InMemoryEventBus:
         event_types: set[str] | None = None,
         run_id: str | None = None,
         since_ts: datetime | None = None,
+        until_ts: datetime | None = None,
     ) -> list[dict[str, Any]]:
         with self._lock:
             snapshot = list(self._records)
@@ -56,6 +57,7 @@ class InMemoryEventBus:
                 event_types=event_types,
                 run_id=run_id,
                 since_ts=since_ts,
+                until_ts=until_ts,
             )
         ]
         if limit <= 0:
@@ -71,6 +73,7 @@ class InMemoryEventBus:
         event_types: set[str] | None = None,
         run_id: str | None = None,
         since_ts: datetime | None = None,
+        until_ts: datetime | None = None,
     ) -> list[dict[str, Any]]:
         with self._lock:
             snapshot = list(self._records)
@@ -85,6 +88,7 @@ class InMemoryEventBus:
                 event_types=event_types,
                 run_id=run_id,
                 since_ts=since_ts,
+                until_ts=until_ts,
             )
         ]
 
@@ -115,6 +119,7 @@ def _matches(
     event_types: set[str] | None,
     run_id: str | None,
     since_ts: datetime | None,
+    until_ts: datetime | None,
 ) -> bool:
     if tenant_id and str(event.get("tenant_id")) != tenant_id:
         return False
@@ -134,6 +139,12 @@ def _matches(
         if event_ts is None:
             return False
         if event_ts < since_ts:
+            return False
+    if until_ts is not None:
+        event_ts = _parse_event_ts(event.get("ts"))
+        if event_ts is None:
+            return False
+        if event_ts > until_ts:
             return False
     return True
 

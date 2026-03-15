@@ -297,6 +297,33 @@ class EventBusWebsocketTests(unittest.TestCase):
         self.assertEqual(items[0]["event"]["event_type"], "runtime.run.completed")
         self.assertEqual(items[0]["event"]["payload"]["run_id"], "run-since-1")
 
+    def test_recent_events_can_filter_by_until_ts(self) -> None:
+        token = self._token(scope=["runs:write"])
+        old_event = _event_envelope("runtime.run.started", run_id="run-until-1")
+        old_event["ts"] = "2026-03-12T00:00:00Z"
+        new_event = _event_envelope("runtime.run.completed", run_id="run-until-1")
+        new_event["ts"] = "2026-03-12T00:10:00Z"
+        self.client.post(
+            "/v1/events/publish",
+            json=old_event,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.client.post(
+            "/v1/events/publish",
+            json=new_event,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        filtered = self.client.get(
+            "/v1/events/recent?run_id=run-until-1&until_ts=2026-03-12T00:05:00Z",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(filtered.status_code, 200)
+        items = filtered.json()["items"]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["event"]["event_type"], "runtime.run.started")
+        self.assertEqual(items[0]["event"]["payload"]["run_id"], "run-until-1")
+
     def test_recent_events_reject_invalid_since_ts(self) -> None:
         token = self._token(scope=["runs:read"])
         response = self.client.get(
@@ -305,6 +332,24 @@ class EventBusWebsocketTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 422)
         self.assertIn("since_ts must be valid ISO-8601 date-time", response.json()["detail"])
+
+    def test_recent_events_reject_invalid_until_ts(self) -> None:
+        token = self._token(scope=["runs:read"])
+        response = self.client.get(
+            "/v1/events/recent?until_ts=not-a-time",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("until_ts must be valid ISO-8601 date-time", response.json()["detail"])
+
+    def test_recent_events_reject_since_after_until(self) -> None:
+        token = self._token(scope=["runs:read"])
+        response = self.client.get(
+            "/v1/events/recent?since_ts=2026-03-12T00:10:00Z&until_ts=2026-03-12T00:05:00Z",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("since_ts must be <= until_ts", response.json()["detail"])
 
     def test_recent_events_accepts_naive_since_ts_as_utc(self) -> None:
         token = self._token(scope=["runs:write"])
@@ -657,6 +702,25 @@ class EventBusWebsocketTests(unittest.TestCase):
             ):
                 pass
 
+    def test_websocket_rejects_invalid_until_ts(self) -> None:
+        ws_token = self._token(scope=["runs:read"])
+        with self.assertRaises(WebSocketDisconnect):
+            with self.client.websocket_connect(
+                f"/v1/ws/events?access_token={ws_token}&tenant_id=t1&app_id=covernow&until_ts=not-a-time"
+            ):
+                pass
+
+    def test_websocket_rejects_since_after_until(self) -> None:
+        ws_token = self._token(scope=["runs:read"])
+        with self.assertRaises(WebSocketDisconnect):
+            with self.client.websocket_connect(
+                (
+                    f"/v1/ws/events?access_token={ws_token}&tenant_id=t1&app_id=covernow"
+                    "&since_ts=2026-03-12T00:10:00Z&until_ts=2026-03-12T00:05:00Z"
+                )
+            ):
+                pass
+
     def test_websocket_can_filter_by_run_id(self) -> None:
         ws_token = self._token(scope=["runs:read"])
         publish_token = self._token(scope=["runs:write"])
@@ -745,6 +809,34 @@ class EventBusWebsocketTests(unittest.TestCase):
             self.assertEqual(event["event"]["event_type"], "runtime.run.completed")
             self.assertEqual(event["event"]["payload"]["run_id"], "run-ws-since-memory")
 
+    def test_websocket_memory_source_applies_until_ts_filter(self) -> None:
+        ws_token = self._token(scope=["runs:read"])
+        publish_token = self._token(scope=["runs:write"])
+        old_event = _event_envelope("runtime.run.started", run_id="run-ws-until-memory")
+        old_event["ts"] = "2026-03-12T00:00:00Z"
+        new_event = _event_envelope("runtime.run.completed", run_id="run-ws-until-memory")
+        new_event["ts"] = "2026-03-12T00:10:00Z"
+        self.client.post(
+            "/v1/events/publish",
+            json=old_event,
+            headers={"Authorization": f"Bearer {publish_token}"},
+        )
+        self.client.post(
+            "/v1/events/publish",
+            json=new_event,
+            headers={"Authorization": f"Bearer {publish_token}"},
+        )
+
+        with self.client.websocket_connect(
+            f"/v1/ws/events?access_token={ws_token}&tenant_id=t1&app_id=covernow&run_id=run-ws-until-memory&until_ts=2026-03-12T00:05:00Z"
+        ) as ws:
+            ready = ws.receive_json()
+            self.assertEqual(ready["kind"], "ws.ready")
+            self.assertIn("until_ts", ready)
+            event = ws.receive_json()
+            self.assertEqual(event["event"]["event_type"], "runtime.run.started")
+            self.assertEqual(event["event"]["payload"]["run_id"], "run-ws-until-memory")
+
     def test_websocket_durable_source_applies_since_ts_filter(self) -> None:
         ws_token = self._token(scope=["runs:read"])
         publish_token = self._token(scope=["runs:write"])
@@ -778,6 +870,43 @@ class EventBusWebsocketTests(unittest.TestCase):
                 event = ws.receive_json()
                 self.assertEqual(event["event"]["event_type"], "runtime.run.completed")
                 self.assertEqual(event["event"]["payload"]["run_id"], "run-ws-since-durable")
+
+    def test_websocket_durable_source_applies_until_ts_filter(self) -> None:
+        ws_token = self._token(scope=["runs:read"])
+        publish_token = self._token(scope=["runs:write"])
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["RUNTIME_GATEWAY_EVENT_LOG_PATH"] = os.path.join(
+                tmp, "events", "runtime-events.ndjson"
+            )
+            old_event = _event_envelope("runtime.run.started", run_id="run-ws-until-durable")
+            old_event["ts"] = "2026-03-12T00:00:00Z"
+            new_event = _event_envelope("runtime.run.completed", run_id="run-ws-until-durable")
+            new_event["ts"] = "2026-03-12T00:10:00Z"
+            self.client.post(
+                "/v1/events/publish",
+                json=old_event,
+                headers={"Authorization": f"Bearer {publish_token}"},
+            )
+            self.client.post(
+                "/v1/events/publish",
+                json=new_event,
+                headers={"Authorization": f"Bearer {publish_token}"},
+            )
+            gateway_app_module._event_bus.clear()
+
+            with self.client.websocket_connect(
+                (
+                    f"/v1/ws/events?access_token={ws_token}&tenant_id=t1&app_id=covernow"
+                    "&source=durable&run_id=run-ws-until-durable&until_ts=2026-03-12T00:05:00Z&cursor=0"
+                )
+            ) as ws:
+                ready = ws.receive_json()
+                self.assertEqual(ready["kind"], "ws.ready")
+                self.assertEqual(ready["source"], "durable")
+                self.assertIn("until_ts", ready)
+                event = ws.receive_json()
+                self.assertEqual(event["event"]["event_type"], "runtime.run.started")
+                self.assertEqual(event["event"]["payload"]["run_id"], "run-ws-until-durable")
 
 
 if __name__ == "__main__":
