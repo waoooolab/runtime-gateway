@@ -69,6 +69,7 @@ def build_upstream_error_detail(
     retryable: bool,
     failure_classification: str,
     detail: Any,
+    retry_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "message": message,
@@ -76,6 +77,8 @@ def build_upstream_error_detail(
         "retryable": retryable,
         "failure_classification": failure_classification,
     }
+    if isinstance(retry_policy, dict) and retry_policy:
+        payload["retry_policy"] = dict(retry_policy)
     if isinstance(detail, dict):
         payload["upstream_detail"] = detail
         upstream_category = detail.get("category")

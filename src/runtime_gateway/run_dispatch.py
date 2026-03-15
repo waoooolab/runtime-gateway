@@ -20,8 +20,12 @@ from .contracts.validation import (
 from .executor_profiles import validate_executor_profile
 from .events.validation import validate_event_envelope
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
-
-_TERMINAL_RUN_STATUSES = {"succeeded", "failed", "canceled", "timed_out", "rejected"}
+from .run_status_terms import is_terminal_run_status
+from .upstream_error import (
+    build_upstream_error_detail,
+    extract_upstream_failure_classification,
+    resolve_upstream_status_code,
+)
 
 
 def _resolve_trace_id(claims: Mapping[str, Any]) -> str:
@@ -163,53 +167,6 @@ def _build_downstream_error_detail(
     return detail
 
 
-def _resolve_gateway_error_status(
-    *,
-    status_code: int | None,
-    retryable: bool,
-) -> int:
-    if isinstance(status_code, int):
-        return status_code
-    return 503 if retryable else 502
-
-
-def _extract_gateway_failure_classification(
-    *,
-    message: str,
-    detail: Any,
-) -> str:
-    if isinstance(detail, dict):
-        category = detail.get("category")
-        if isinstance(category, str) and category.strip():
-            return category
-        classification = detail.get("classification")
-        if isinstance(classification, str) and classification.strip():
-            return classification
-    lowered = message.strip().lower()
-    if "connection error" in lowered or "timeout" in lowered:
-        return "upstream_unavailable"
-    return "upstream_error"
-
-
-def _build_upstream_error_detail(
-    *,
-    message: str,
-    status_code: int,
-    retryable: bool,
-    failure_classification: str,
-    retry_policy: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    detail: dict[str, Any] = {
-        "message": message,
-        "status_code": status_code,
-        "retryable": retryable,
-        "failure_classification": failure_classification,
-    }
-    if isinstance(retry_policy, dict) and retry_policy:
-        detail["retry_policy"] = dict(retry_policy)
-    return detail
-
-
 def _extract_retry_policy_metadata(command: Mapping[str, Any]) -> dict[str, Any]:
     retry_policy = command.get("retry_policy")
     if not isinstance(retry_policy, dict):
@@ -246,8 +203,8 @@ def _resolve_effective_retryable(
     run_status = payload.get("status")
     if not isinstance(run_status, str):
         return fallback_retryable
-    normalized = run_status.strip().lower()
-    if normalized in _TERMINAL_RUN_STATUSES:
+    normalized = run_status.strip()
+    if is_terminal_run_status(normalized):
         return False
     return fallback_retryable
 
@@ -364,20 +321,22 @@ def _submit_command(
         downstream_event_type = None
         bus_seq = None
         route_failure_metadata: dict[str, Any] = {}
-        failure_classification = _extract_gateway_failure_classification(
+        failure_classification = extract_upstream_failure_classification(
             message=str(exc),
             detail=exc.detail,
         )
         effective_retryable = exc.retryable
-        effective_status_code = _resolve_gateway_error_status(
+        effective_status_code = resolve_upstream_status_code(
             status_code=exc.status_code,
             retryable=effective_retryable,
+            message=str(exc),
         )
-        detail: str | dict[str, Any] = _build_upstream_error_detail(
+        detail: str | dict[str, Any] = build_upstream_error_detail(
             message=str(exc),
             status_code=effective_status_code,
             retryable=effective_retryable,
             failure_classification=failure_classification,
+            detail=exc.detail,
             retry_policy=retry_policy_metadata.get("retry_policy")
             if isinstance(retry_policy_metadata.get("retry_policy"), dict)
             else None,

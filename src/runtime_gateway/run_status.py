@@ -10,14 +10,13 @@ from .audit.emitter import emit_audit_event
 from .auth.exchange import ExchangeError, exchange_subject_token
 from .events.validation import validate_event_envelope
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
+from .run_status_terms import recommended_poll_after_ms_for_run_status
 from .upstream_error import (
     build_upstream_error_detail,
     extract_upstream_failure_classification,
     resolve_upstream_retryable,
     resolve_upstream_status_code,
 )
-
-_TERMINAL_RUN_STATUSES = {"succeeded", "failed", "canceled", "timed_out", "rejected"}
 
 
 def _extract_downstream_status(event: dict[str, Any]) -> str | None:
@@ -77,17 +76,6 @@ def _extract_downstream_route_metadata(event: dict[str, Any]) -> dict[str, str]:
         if isinstance(raw_value, str) and raw_value.strip():
             metadata[target] = raw_value.strip()
     return metadata
-
-
-def _recommended_poll_after_ms_for_run_status(status: str | None) -> int:
-    normalized = (status or "").strip().lower()
-    if normalized in _TERMINAL_RUN_STATUSES:
-        return 10000
-    if normalized in {"running", "dispatching", "retrying"}:
-        return 1000
-    if normalized in {"requested", "queued"}:
-        return 1500
-    return 3000
 
 
 def _build_downstream_error_detail(
@@ -262,7 +250,7 @@ def dispatch_get_run_status(
     downstream_status = _extract_downstream_status(result)
     downstream_failure_reason_code = _extract_downstream_failure_reason_code(result)
     downstream_route_metadata = _extract_downstream_route_metadata(result)
-    recommended_poll_after_ms = _recommended_poll_after_ms_for_run_status(downstream_status)
+    recommended_poll_after_ms = recommended_poll_after_ms_for_run_status(downstream_status)
     response_payload = dict(result)
     response_payload["recommended_poll_after_ms"] = recommended_poll_after_ms
 
