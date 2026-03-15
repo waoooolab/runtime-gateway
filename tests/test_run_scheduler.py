@@ -171,6 +171,94 @@ def test_scheduler_tick_downstream_4xx_error_is_structured(
     assert audit["metadata"]["max_items"] == 0
 
 
+def test_scheduler_enqueue_downstream_connection_error(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    _ = mock_token_exchange
+    mock_execution_client.scheduler_enqueue.side_effect = RuntimeExecutionClientError(
+        "connection error calling scheduler enqueue endpoint",
+        status_code=None,
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        "/v1/orchestration/scheduler:enqueue",
+        json={"run_id": "run-connect"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 503
+    detail = response.json().get("detail")
+    assert isinstance(detail, dict)
+    assert detail["status_code"] == 503
+    assert detail["retryable"] is True
+    assert detail["failure_classification"] == "upstream_unavailable"
+    assert "connection error" in str(detail["message"])
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "orchestration.scheduler_enqueue"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["status_code"] == 503
+    assert audit["metadata"]["retryable"] is True
+    assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
+
+
+def test_scheduler_tick_downstream_connection_error(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    _ = mock_token_exchange
+    mock_execution_client.scheduler_tick.side_effect = RuntimeExecutionClientError(
+        "connection error calling scheduler tick endpoint",
+        status_code=None,
+    )
+
+    client = TestClient(app)
+    response = client.post("/v1/orchestration/scheduler:tick", headers=auth_headers)
+    assert response.status_code == 503
+    detail = response.json().get("detail")
+    assert isinstance(detail, dict)
+    assert detail["status_code"] == 503
+    assert detail["retryable"] is True
+    assert detail["failure_classification"] == "upstream_unavailable"
+    assert "connection error" in str(detail["message"])
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "orchestration.scheduler_tick"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["status_code"] == 503
+    assert audit["metadata"]["retryable"] is True
+    assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
+
+
+def test_scheduler_health_downstream_connection_error(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    read_auth_headers: dict[str, str],
+) -> None:
+    _ = mock_token_exchange
+    mock_execution_client.scheduler_health.side_effect = RuntimeExecutionClientError(
+        "connection error calling scheduler health endpoint",
+        status_code=None,
+    )
+
+    client = TestClient(app)
+    response = client.get("/v1/orchestration/scheduler:health", headers=read_auth_headers)
+    assert response.status_code == 503
+    detail = response.json().get("detail")
+    assert isinstance(detail, dict)
+    assert detail["status_code"] == 503
+    assert detail["retryable"] is True
+    assert detail["failure_classification"] == "upstream_unavailable"
+    assert "connection error" in str(detail["message"])
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "orchestration.scheduler_health"
+    assert audit["decision"] == "deny"
+    assert audit["metadata"]["status_code"] == 503
+    assert audit["metadata"]["retryable"] is True
+    assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
+
+
 def test_scheduler_endpoints_require_bearer_token() -> None:
     client = TestClient(app)
     assert client.post("/v1/orchestration/scheduler:enqueue", json={"run_id": "run-1"}).status_code == 401

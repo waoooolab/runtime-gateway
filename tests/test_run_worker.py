@@ -473,11 +473,18 @@ def test_worker_tick_downstream_connection_error(
     response = client.post("/v1/orchestration/worker:tick", headers=auth_headers)
 
     assert response.status_code == 503
-    assert "connection error" in response.text
+    detail = response.json().get("detail")
+    assert isinstance(detail, dict)
+    assert detail["status_code"] == 503
+    assert detail["retryable"] is True
+    assert detail["failure_classification"] == "upstream_unavailable"
+    assert "connection error" in str(detail["message"])
     audit = get_audit_events(limit=1)[0]
     assert audit["action"] == "orchestration.worker_tick"
     assert audit["decision"] == "deny"
     assert audit["metadata"]["status_code"] == 503
+    assert audit["metadata"]["retryable"] is True
+    assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
     assert "connection error" in audit["metadata"]["reason"]
     assert "downstream_detail" not in audit["metadata"]
 
@@ -541,11 +548,18 @@ def test_worker_health_downstream_connection_error(
     response = client.get("/v1/orchestration/worker:health", headers=read_auth_headers)
 
     assert response.status_code == 503
-    assert "connection error" in response.text
+    detail = response.json().get("detail")
+    assert isinstance(detail, dict)
+    assert detail["status_code"] == 503
+    assert detail["retryable"] is True
+    assert detail["failure_classification"] == "upstream_unavailable"
+    assert "connection error" in str(detail["message"])
     audit = get_audit_events(limit=1)[0]
     assert audit["action"] == "orchestration.worker_health"
     assert audit["decision"] == "deny"
     assert audit["metadata"]["status_code"] == 503
+    assert audit["metadata"]["retryable"] is True
+    assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
     assert "connection error" in audit["metadata"]["reason"]
     assert "downstream_detail" not in audit["metadata"]
 
@@ -563,11 +577,18 @@ def test_worker_drain_downstream_connection_error(
     response = client.post("/v1/orchestration/worker:drain", headers=auth_headers)
 
     assert response.status_code == 503
-    assert "connection error" in response.text
+    detail = response.json().get("detail")
+    assert isinstance(detail, dict)
+    assert detail["status_code"] == 503
+    assert detail["retryable"] is True
+    assert detail["failure_classification"] == "upstream_unavailable"
+    assert "connection error" in str(detail["message"])
     audit = get_audit_events(limit=1)[0]
     assert audit["action"] == "orchestration.worker_drain"
     assert audit["decision"] == "deny"
     assert audit["metadata"]["status_code"] == 503
+    assert audit["metadata"]["retryable"] is True
+    assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
     assert "connection error" in audit["metadata"]["reason"]
     assert "downstream_detail" not in audit["metadata"]
 

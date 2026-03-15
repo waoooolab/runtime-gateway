@@ -9,7 +9,12 @@ from fastapi import HTTPException
 from .audit.emitter import emit_audit_event
 from .auth.exchange import ExchangeError, exchange_subject_token
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
-from .upstream_error import resolve_upstream_status_code
+from .upstream_error import (
+    build_upstream_error_detail,
+    extract_upstream_failure_classification,
+    resolve_upstream_retryable,
+    resolve_upstream_status_code,
+)
 
 
 def _exchange_runtime_execution_token(
@@ -87,11 +92,15 @@ def _build_scheduler_error_audit_metadata(
     *,
     reason: str,
     status_code: int | None,
+    retryable: bool,
+    failure_classification: str,
     response_body: dict[str, Any] | None,
 ) -> dict[str, Any]:
     metadata: dict[str, Any] = {
         "reason": reason,
         "status_code": status_code,
+        "retryable": retryable,
+        "failure_classification": failure_classification,
     }
     if not isinstance(response_body, dict):
         return metadata
@@ -125,6 +134,49 @@ def _build_scheduler_error_audit_metadata(
         if value is not None:
             metadata[key] = value
     return metadata
+
+
+def _resolve_scheduler_error_context(
+    exc: RuntimeExecutionClientError,
+) -> tuple[int, str | dict[str, Any], dict[str, Any]]:
+    message = str(exc)
+    resolved_status = resolve_upstream_status_code(
+        status_code=exc.status_code,
+        retryable=exc.retryable,
+        message=message,
+    )
+    normalized_retryable = resolve_upstream_retryable(
+        status_code=exc.status_code,
+        retryable=exc.retryable,
+        message=message,
+        detail=exc.detail,
+    )
+    failure_classification = extract_upstream_failure_classification(
+        message=message,
+        detail=exc.detail,
+    )
+    detail: str | dict[str, Any] = build_upstream_error_detail(
+        message=message,
+        status_code=resolved_status,
+        retryable=normalized_retryable,
+        failure_classification=failure_classification,
+        detail=exc.detail,
+    )
+    response_body = exc.response_body if isinstance(exc.response_body, dict) else None
+    if response_body is not None:
+        detail = _build_scheduler_error_detail(
+            message=message,
+            status_code=resolved_status,
+            response_body=response_body,
+        )
+    metadata = _build_scheduler_error_audit_metadata(
+        reason=message,
+        status_code=resolved_status,
+        retryable=normalized_retryable,
+        failure_classification=failure_classification,
+        response_body=response_body,
+    )
+    return resolved_status, detail, metadata
 
 
 def dispatch_scheduler_enqueue(
@@ -161,28 +213,13 @@ def dispatch_scheduler_enqueue(
             cron_interval_ms=cron_interval_ms,
         )
     except RuntimeExecutionClientError as exc:
-        resolved_status = resolve_upstream_status_code(
-            status_code=exc.status_code,
-            retryable=exc.retryable,
-            message=str(exc),
-        )
-        detail: str | dict[str, Any] = str(exc)
-        if isinstance(exc.response_body, dict):
-            detail = _build_scheduler_error_detail(
-                message=str(exc),
-                status_code=resolved_status,
-                response_body=exc.response_body,
-            )
+        resolved_status, detail, metadata = _resolve_scheduler_error_context(exc)
         emit_audit_event(
             action=action,
             decision="deny",
             actor_id=actor_id,
             trace_id=trace_id,
-            metadata=_build_scheduler_error_audit_metadata(
-                reason=str(exc),
-                status_code=resolved_status,
-                response_body=exc.response_body if isinstance(exc.response_body, dict) else None,
-            ),
+            metadata=metadata,
         )
         raise HTTPException(status_code=resolved_status, detail=detail) from exc
     emit_audit_event(
@@ -215,28 +252,13 @@ def dispatch_scheduler_tick(
     try:
         result = execution_client.scheduler_tick(auth_token=token, max_items=max_items, fair=fair)
     except RuntimeExecutionClientError as exc:
-        resolved_status = resolve_upstream_status_code(
-            status_code=exc.status_code,
-            retryable=exc.retryable,
-            message=str(exc),
-        )
-        detail: str | dict[str, Any] = str(exc)
-        if isinstance(exc.response_body, dict):
-            detail = _build_scheduler_error_detail(
-                message=str(exc),
-                status_code=resolved_status,
-                response_body=exc.response_body,
-            )
+        resolved_status, detail, metadata = _resolve_scheduler_error_context(exc)
         emit_audit_event(
             action=action,
             decision="deny",
             actor_id=actor_id,
             trace_id=trace_id,
-            metadata=_build_scheduler_error_audit_metadata(
-                reason=str(exc),
-                status_code=resolved_status,
-                response_body=exc.response_body if isinstance(exc.response_body, dict) else None,
-            ),
+            metadata=metadata,
         )
         raise HTTPException(status_code=resolved_status, detail=detail) from exc
     emit_audit_event(
@@ -267,28 +289,13 @@ def dispatch_scheduler_health(
     try:
         result = execution_client.scheduler_health(auth_token=token)
     except RuntimeExecutionClientError as exc:
-        resolved_status = resolve_upstream_status_code(
-            status_code=exc.status_code,
-            retryable=exc.retryable,
-            message=str(exc),
-        )
-        detail: str | dict[str, Any] = str(exc)
-        if isinstance(exc.response_body, dict):
-            detail = _build_scheduler_error_detail(
-                message=str(exc),
-                status_code=resolved_status,
-                response_body=exc.response_body,
-            )
+        resolved_status, detail, metadata = _resolve_scheduler_error_context(exc)
         emit_audit_event(
             action=action,
             decision="deny",
             actor_id=actor_id,
             trace_id=trace_id,
-            metadata=_build_scheduler_error_audit_metadata(
-                reason=str(exc),
-                status_code=resolved_status,
-                response_body=exc.response_body if isinstance(exc.response_body, dict) else None,
-            ),
+            metadata=metadata,
         )
         raise HTTPException(status_code=resolved_status, detail=detail) from exc
     emit_audit_event(
