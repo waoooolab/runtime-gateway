@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import os
+import urllib.error
 import unittest
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -342,6 +344,24 @@ class _FakeExecutionClientTransportUnavailable:
         )
 
 
+@dataclass
+class _FakeHealthResponse:
+    status_code: int
+    payload: bytes = b"{}"
+
+    def __enter__(self) -> "_FakeHealthResponse":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        _ = exc_type, exc, tb
+
+    def getcode(self) -> int:
+        return self.status_code
+
+    def read(self) -> bytes:
+        return self.payload
+
+
 @unittest.skipUnless(FASTAPI_STACK_AVAILABLE, "fastapi stack not installed")
 class AppIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -397,6 +417,78 @@ class AppIntegrationTests(unittest.TestCase):
             headers={"Authorization": f"Bearer {token}"},
         )
         self.assertEqual(response.status_code, 403)
+
+    @patch("runtime_gateway.app.urllib.request.urlopen")
+    def test_readyz_reports_runtime_execution_dependency_ok(self, mock_urlopen) -> None:
+        with patch.dict(
+            os.environ,
+            {"RUNTIME_EXECUTION_BASE_URL": "http://runtime-execution.internal:8003"},
+            clear=False,
+        ):
+            mock_urlopen.return_value = _FakeHealthResponse(
+                status_code=200,
+                payload=b'{"status":"ok","service":"runtime-execution"}',
+            )
+            response = self.client.get("/readyz")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["service"], "runtime-gateway")
+        self.assertEqual(len(payload["dependencies"]), 1)
+        dependency = payload["dependencies"][0]
+        self.assertEqual(dependency["name"], "runtime-execution")
+        self.assertEqual(dependency["status"], "ok")
+        self.assertEqual(dependency["http_status"], 200)
+        self.assertEqual(
+            dependency["target"],
+            "http://runtime-execution.internal:8003/healthz",
+        )
+
+    @patch("runtime_gateway.app.urllib.request.urlopen")
+    def test_readyz_returns_503_when_runtime_execution_unreachable(self, mock_urlopen) -> None:
+        with patch.dict(
+            os.environ,
+            {"RUNTIME_EXECUTION_BASE_URL": "http://runtime-execution.internal:8003"},
+            clear=False,
+        ):
+            mock_urlopen.side_effect = urllib.error.URLError("connection refused")
+            response = self.client.get("/readyz")
+        self.assertEqual(response.status_code, 503)
+        payload = response.json()
+        self.assertEqual(payload["status"], "not_ready")
+        self.assertEqual(payload["service"], "runtime-gateway")
+        self.assertEqual(len(payload["dependencies"]), 1)
+        dependency = payload["dependencies"][0]
+        self.assertEqual(dependency["name"], "runtime-execution")
+        self.assertEqual(dependency["status"], "down")
+        self.assertEqual(dependency["reason"], "unreachable")
+
+    @patch("runtime_gateway.app.urllib.request.urlopen")
+    def test_readyz_returns_503_when_runtime_execution_unhealthy(self, mock_urlopen) -> None:
+        with patch.dict(
+            os.environ,
+            {"RUNTIME_EXECUTION_BASE_URL": "http://runtime-execution.internal:8003"},
+            clear=False,
+        ):
+            mock_urlopen.side_effect = urllib.error.HTTPError(
+                url="http://runtime-execution.internal:8003/healthz",
+                code=503,
+                msg="service unavailable",
+                hdrs=None,
+                fp=io.BytesIO(b'{"status":"degraded"}'),
+            )
+            response = self.client.get("/readyz")
+        self.assertEqual(response.status_code, 503)
+        payload = response.json()
+        self.assertEqual(payload["status"], "not_ready")
+        self.assertEqual(payload["service"], "runtime-gateway")
+        self.assertEqual(len(payload["dependencies"]), 1)
+        dependency = payload["dependencies"][0]
+        self.assertEqual(dependency["name"], "runtime-execution")
+        self.assertEqual(dependency["status"], "down")
+        self.assertEqual(dependency["reason"], "upstream_unhealthy")
+        self.assertEqual(dependency["http_status"], 503)
+        self.assertEqual(dependency["upstream_status"], "degraded")
 
     def test_executor_profiles_requires_runs_read_scope(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["runs:write"])

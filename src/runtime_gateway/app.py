@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import json
+import os
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
+from fastapi.responses import JSONResponse
 
 from .api.schemas import TokenExchangeRequest, TokenExchangeResponse
 from .audit.emitter import emit_audit_event, get_audit_events, read_audit_log
@@ -100,9 +105,105 @@ def _parse_since_ts_or_raise(raw_since_ts: str | None) -> datetime | None:
     return parsed
 
 
+def _runtime_execution_health_target() -> str:
+    candidate = str(getattr(_execution_client, "base_url", "")).strip()
+    if not candidate:
+        candidate = str(os.environ.get("RUNTIME_EXECUTION_BASE_URL", "http://localhost:8003")).strip()
+    if not candidate:
+        candidate = "http://localhost:8003"
+    return f"{candidate.rstrip('/')}/healthz"
+
+
+def _decode_json_object(raw: bytes) -> dict[str, Any] | None:
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw.decode("utf-8", errors="replace"))
+    except json.JSONDecodeError:
+        return None
+    if isinstance(parsed, dict):
+        return parsed
+    return None
+
+
+def _probe_runtime_execution_ready(*, timeout_seconds: float) -> tuple[bool, dict[str, Any]]:
+    target = _runtime_execution_health_target()
+    dependency: dict[str, Any] = {
+        "name": "runtime-execution",
+        "target": target,
+    }
+    request = urllib.request.Request(url=target, method="GET", headers={"Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            status = int(response.getcode())
+            raw = response.read()
+    except urllib.error.HTTPError as exc:
+        response_payload = _decode_json_object(exc.read())
+        dependency |= {
+            "status": "down",
+            "reason": "upstream_unhealthy",
+            "http_status": int(exc.code),
+        }
+        if isinstance(response_payload, dict):
+            upstream_status = response_payload.get("status")
+            if isinstance(upstream_status, str) and upstream_status.strip():
+                dependency["upstream_status"] = upstream_status
+        return False, dependency
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+        dependency |= {
+            "status": "down",
+            "reason": "unreachable",
+            "error": str(exc),
+        }
+        return False, dependency
+
+    response_payload = _decode_json_object(raw)
+    if status != 200:
+        dependency |= {
+            "status": "down",
+            "reason": "upstream_unhealthy",
+            "http_status": status,
+        }
+        if isinstance(response_payload, dict):
+            upstream_status = response_payload.get("status")
+            if isinstance(upstream_status, str) and upstream_status.strip():
+                dependency["upstream_status"] = upstream_status
+        return False, dependency
+
+    dependency |= {
+        "status": "ok",
+        "http_status": status,
+    }
+    if isinstance(response_payload, dict):
+        upstream_status = response_payload.get("status")
+        if isinstance(upstream_status, str) and upstream_status.strip():
+            dependency["upstream_status"] = upstream_status
+    return True, dependency
+
+
 @app.get("/healthz")
 def healthz() -> dict:
     return {"status": "ok", "service": "runtime-gateway"}
+
+
+@app.get("/readyz", response_model=None)
+def readyz() -> Any:
+    timeout_seconds = float(os.environ.get("RUNTIME_GATEWAY_READY_TIMEOUT_SECONDS", "1.5"))
+    ready, dependency = _probe_runtime_execution_ready(timeout_seconds=timeout_seconds)
+    if not ready:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "not_ready",
+                "service": "runtime-gateway",
+                "dependencies": [dependency],
+            },
+        )
+    return {
+        "status": "ok",
+        "service": "runtime-gateway",
+        "dependencies": [dependency],
+    }
 
 
 @app.get("/v1/audit/events")
