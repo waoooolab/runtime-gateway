@@ -1,0 +1,768 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://waoooolab.dev/contracts/runtime/runtime-route-event.v1.json",
+  "title": "RuntimeRouteEventV1",
+  "description": "Route decision and validation failure events emitted by runtime-execution.",
+  "type": "object",
+  "required": [
+    "event_id",
+    "event_type",
+    "tenant_id",
+    "app_id",
+    "session_key",
+    "trace_id",
+    "correlation_id",
+    "ts",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "runtime.route.decided",
+        "runtime.route.failed"
+      ]
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "app_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "session_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "trace_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "correlation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "run_id",
+        "task_id",
+        "execution_profile",
+        "decision"
+      ],
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "task_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "requested",
+            "queued",
+            "dispatching",
+            "running",
+            "waiting_approval",
+            "retrying",
+            "succeeded",
+            "failed",
+            "canceled",
+            "timed_out"
+          ]
+        },
+        "execution_profile": {
+          "type": "object",
+          "required": [
+            "execution_mode",
+            "inference_target",
+            "resource_class"
+          ],
+          "properties": {
+            "execution_mode": {
+              "type": "string",
+              "enum": [
+                "control",
+                "compute"
+              ]
+            },
+            "inference_target": {
+              "type": "string",
+              "enum": [
+                "hosted_api",
+                "local_endpoint",
+                "none"
+              ]
+            },
+            "resource_class": {
+              "type": "string",
+              "enum": [
+                "cpu",
+                "llm_api",
+                "gpu"
+              ]
+            },
+            "placement_constraints": {
+              "type": "object",
+              "properties": {
+                "tenant_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "app_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "region": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "cost_tier": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "balanced",
+                    "high"
+                  ]
+                },
+                "prefer_local": {
+                  "type": "boolean"
+                },
+                "max_cost_usd_hard": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "node_pool": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "required_capabilities": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "uniqueItems": true
+                },
+                "avoid_capabilities": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "uniqueItems": true
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "execution_mode": {
+                    "const": "compute"
+                  }
+                },
+                "required": [
+                  "execution_mode"
+                ]
+              },
+              "then": {
+                "required": [
+                  "placement_constraints"
+                ],
+                "properties": {
+                  "resource_class": {
+                    "const": "gpu"
+                  },
+                  "inference_target": {
+                    "enum": [
+                      "none",
+                      "local_endpoint"
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "resource_class": {
+                    "const": "cpu"
+                  }
+                },
+                "required": [
+                  "resource_class"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "inference_target": {
+                    "const": "none"
+                  },
+                  "execution_mode": {
+                    "const": "control"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "resource_class": {
+                    "const": "llm_api"
+                  }
+                },
+                "required": [
+                  "resource_class"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "inference_target": {
+                    "enum": [
+                      "hosted_api",
+                      "local_endpoint"
+                    ]
+                  },
+                  "execution_mode": {
+                    "const": "control"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "inference_target": {
+                    "const": "hosted_api"
+                  }
+                },
+                "required": [
+                  "inference_target"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "resource_class": {
+                    "const": "llm_api"
+                  },
+                  "execution_mode": {
+                    "const": "control"
+                  }
+                }
+              }
+            }
+          ],
+          "additionalProperties": false
+        },
+        "execution_context": {
+          "type": "object",
+          "required": [
+            "task_plane"
+          ],
+          "properties": {
+            "task_plane": {
+              "type": "string",
+              "enum": [
+                "agent_work",
+                "workflow_work",
+                "runtime_workload"
+              ]
+            },
+            "workflow_kind": {
+              "type": "string",
+              "enum": [
+                "coding",
+                "content",
+                "ops",
+                "compute_pipeline",
+                "integration"
+              ]
+            },
+            "executor": {
+              "type": "object",
+              "required": [
+                "family",
+                "engine",
+                "adapter"
+              ],
+              "properties": {
+                "family": {
+                  "type": "string",
+                  "enum": [
+                    "native_agent",
+                    "acp",
+                    "workflow_runtime",
+                    "compute_runtime"
+                  ]
+                },
+                "engine": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "adapter": {
+                  "type": "string",
+                  "enum": [
+                    "orchestrator",
+                    "ccb",
+                    "runtime_api",
+                    "native"
+                  ]
+                },
+                "access_mode": {
+                  "type": "string",
+                  "enum": [
+                    "direct",
+                    "api"
+                  ]
+                },
+                "window_mode": {
+                  "type": "string",
+                  "enum": [
+                    "inline",
+                    "terminal_mux"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "runtime": {
+              "type": "object",
+              "required": [
+                "execution_mode"
+              ],
+              "properties": {
+                "execution_mode": {
+                  "type": "string",
+                  "enum": [
+                    "control",
+                    "compute"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "task_plane": {
+                    "const": "runtime_workload"
+                  }
+                },
+                "required": [
+                  "task_plane"
+                ]
+              },
+              "then": {
+                "required": [
+                  "runtime"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "executor"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "workflow_kind"
+                      ]
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "task_plane": {
+                    "const": "agent_work"
+                  }
+                },
+                "required": [
+                  "task_plane"
+                ]
+              },
+              "then": {
+                "required": [
+                  "executor"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "runtime"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "workflow_kind"
+                      ]
+                    }
+                  ]
+                },
+                "properties": {
+                  "executor": {
+                    "properties": {
+                      "family": {
+                        "not": {
+                          "const": "workflow_runtime"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "task_plane": {
+                    "const": "workflow_work"
+                  }
+                },
+                "required": [
+                  "task_plane"
+                ]
+              },
+              "then": {
+                "required": [
+                  "executor",
+                  "workflow_kind"
+                ],
+                "not": {
+                  "required": [
+                    "runtime"
+                  ]
+                },
+                "properties": {
+                  "executor": {
+                    "properties": {
+                      "family": {
+                        "not": {
+                          "const": "compute_runtime"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "additionalProperties": false
+        },
+        "decision": {
+          "type": "object",
+          "required": [
+            "outcome",
+            "route_target"
+          ],
+          "properties": {
+            "outcome": {
+              "type": "string",
+              "enum": [
+                "control",
+                "compute",
+                "rejected"
+              ]
+            },
+            "route_target": {
+              "type": "string",
+              "enum": [
+                "langgraph-core",
+                "device-hub",
+                "none"
+              ]
+            },
+            "policy_version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            },
+            "reason_code": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$"
+            },
+            "placement_event_type": {
+              "type": "string",
+              "enum": [
+                "device.route.rejected",
+                "device.lease.acquired"
+              ]
+            },
+            "resource_snapshot": {
+              "type": "object",
+              "properties": {
+                "queue_depth": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "eligible_devices": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "active_leases": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "available_slots": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "tenant_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "tenant_active_leases": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "tenant_limit": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "scheduling_signal": {
+          "type": "object",
+          "required": [
+            "queue_score",
+            "dispatch_min_score"
+          ],
+          "properties": {
+            "queue_score": {
+              "type": "number"
+            },
+            "dispatch_min_score": {
+              "type": "number"
+            },
+            "recommended_poll_after_ms": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "compute_capacity": {
+              "type": "object",
+              "required": [
+                "source",
+                "status",
+                "available_slots",
+                "lease_utilization",
+                "penalty"
+              ],
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "device_hub"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "capacity_exhausted",
+                    "utilization_high",
+                    "utilization_elevated",
+                    "healthy"
+                  ]
+                },
+                "available_slots": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "lease_utilization": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "penalty": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "failure": {
+          "type": "object",
+          "required": [
+            "code",
+            "message",
+            "classification"
+          ],
+          "properties": {
+            "code": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$"
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            },
+            "classification": {
+              "type": "string",
+              "enum": [
+                "validation",
+                "policy",
+                "capacity",
+                "internal"
+              ]
+            },
+            "details": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "orchestration": {
+          "type": "object",
+          "required": [
+            "run_depth",
+            "child_run_ids"
+          ],
+          "properties": {
+            "parent_run_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "parent_task_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "run_depth": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "child_run_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            },
+            "canceled_by_run_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "cancellation_reason": {
+              "type": "string",
+              "minLength": 1
+            },
+            "failure_reason_code": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "runtime.route.decided"
+          }
+        },
+        "required": [
+          "event_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "properties": {
+              "decision": {
+                "properties": {
+                  "outcome": {
+                    "enum": [
+                      "control",
+                      "compute"
+                    ]
+                  },
+                  "route_target": {
+                    "enum": [
+                      "langgraph-core",
+                      "device-hub"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "runtime.route.failed"
+          }
+        },
+        "required": [
+          "event_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "required": [
+              "failure"
+            ],
+            "properties": {
+              "decision": {
+                "properties": {
+                  "outcome": {
+                    "const": "rejected"
+                  },
+                  "route_target": {
+                    "const": "none"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false
+}

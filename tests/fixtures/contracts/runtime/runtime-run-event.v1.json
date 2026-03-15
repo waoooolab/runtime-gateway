@@ -1,0 +1,565 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://waoooolab.dev/contracts/runtime/runtime-run-event.v1.json",
+  "title": "RuntimeRunEventV1",
+  "description": "Run requested/status events emitted by runtime-execution.",
+  "type": "object",
+  "required": [
+    "event_id",
+    "event_type",
+    "tenant_id",
+    "app_id",
+    "session_key",
+    "trace_id",
+    "correlation_id",
+    "ts",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "runtime.run.requested",
+        "runtime.run.status"
+      ]
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "app_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "session_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "trace_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "correlation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "run_id",
+        "status",
+        "retry_attempts"
+      ],
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "requested",
+            "queued",
+            "dispatching",
+            "running",
+            "waiting_approval",
+            "retrying",
+            "succeeded",
+            "failed",
+            "canceled",
+            "timed_out"
+          ]
+        },
+        "retry_attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "route": {
+          "type": "object",
+          "required": [
+            "event_type",
+            "execution_mode",
+            "route_target"
+          ],
+          "properties": {
+            "event_type": {
+              "type": "string",
+              "enum": [
+                "runtime.route.decided"
+              ]
+            },
+            "execution_mode": {
+              "type": "string",
+              "enum": [
+                "control",
+                "compute"
+              ]
+            },
+            "route_target": {
+              "type": "string",
+              "enum": [
+                "langgraph-core",
+                "device-hub"
+              ]
+            },
+            "placement_event_type": {
+              "type": "string",
+              "enum": [
+                "device.lease.acquired"
+              ]
+            },
+            "device_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "lease_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "placement_reason_code": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$"
+            },
+            "placement_reason": {
+              "type": "string",
+              "minLength": 1
+            },
+            "placement_score": {
+              "type": "number",
+              "minimum": 0
+            },
+            "placement_queue_depth": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "placement_resource_snapshot": {
+              "type": "object",
+              "properties": {
+                "queue_depth": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "eligible_devices": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "active_leases": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "available_slots": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "tenant_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "tenant_active_leases": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "tenant_limit": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "additionalProperties": false
+            },
+            "scheduling_signal": {
+              "type": "object",
+              "required": [
+                "queue_score",
+                "dispatch_min_score"
+              ],
+              "properties": {
+                "queue_score": {
+                  "type": "number"
+                },
+                "dispatch_min_score": {
+                  "type": "number"
+                },
+                "compute_capacity": {
+                  "type": "object",
+                  "required": [
+                    "source",
+                    "status",
+                    "available_slots",
+                    "lease_utilization",
+                    "penalty"
+                  ],
+                  "properties": {
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "device_hub"
+                      ]
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "capacity_exhausted",
+                        "utilization_high",
+                        "utilization_elevated",
+                        "healthy"
+                      ]
+                    },
+                    "available_slots": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "lease_utilization": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "penalty": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "scheduling_signal": {
+          "type": "object",
+          "required": [
+            "queue_score",
+            "dispatch_min_score"
+          ],
+          "properties": {
+            "queue_score": {
+              "type": "number"
+            },
+            "dispatch_min_score": {
+              "type": "number"
+            },
+            "compute_capacity": {
+              "type": "object",
+              "required": [
+                "source",
+                "status",
+                "available_slots",
+                "lease_utilization",
+                "penalty"
+              ],
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "device_hub"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "capacity_exhausted",
+                    "utilization_high",
+                    "utilization_elevated",
+                    "healthy"
+                  ]
+                },
+                "available_slots": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "lease_utilization": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "penalty": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "execution_context": {
+          "type": "object",
+          "required": [
+            "task_plane"
+          ],
+          "properties": {
+            "task_plane": {
+              "type": "string",
+              "enum": [
+                "agent_work",
+                "workflow_work",
+                "runtime_workload"
+              ]
+            },
+            "workflow_kind": {
+              "type": "string",
+              "enum": [
+                "coding",
+                "content",
+                "ops",
+                "compute_pipeline",
+                "integration"
+              ]
+            },
+            "executor": {
+              "type": "object",
+              "required": [
+                "family",
+                "engine",
+                "adapter"
+              ],
+              "properties": {
+                "family": {
+                  "type": "string",
+                  "enum": [
+                    "native_agent",
+                    "acp",
+                    "workflow_runtime",
+                    "compute_runtime"
+                  ]
+                },
+                "engine": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "adapter": {
+                  "type": "string",
+                  "enum": [
+                    "orchestrator",
+                    "ccb",
+                    "runtime_api",
+                    "native"
+                  ]
+                },
+                "access_mode": {
+                  "type": "string",
+                  "enum": [
+                    "direct",
+                    "api"
+                  ]
+                },
+                "window_mode": {
+                  "type": "string",
+                  "enum": [
+                    "inline",
+                    "terminal_mux"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "runtime": {
+              "type": "object",
+              "required": [
+                "execution_mode"
+              ],
+              "properties": {
+                "execution_mode": {
+                  "type": "string",
+                  "enum": [
+                    "control",
+                    "compute"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "task_plane": {
+                    "const": "runtime_workload"
+                  }
+                },
+                "required": [
+                  "task_plane"
+                ]
+              },
+              "then": {
+                "required": [
+                  "runtime"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "executor"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "workflow_kind"
+                      ]
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "task_plane": {
+                    "const": "agent_work"
+                  }
+                },
+                "required": [
+                  "task_plane"
+                ]
+              },
+              "then": {
+                "required": [
+                  "executor"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "runtime"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "workflow_kind"
+                      ]
+                    }
+                  ]
+                },
+                "properties": {
+                  "executor": {
+                    "properties": {
+                      "family": {
+                        "not": {
+                          "const": "workflow_runtime"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "task_plane": {
+                    "const": "workflow_work"
+                  }
+                },
+                "required": [
+                  "task_plane"
+                ]
+              },
+              "then": {
+                "required": [
+                  "executor",
+                  "workflow_kind"
+                ],
+                "not": {
+                  "required": [
+                    "runtime"
+                  ]
+                },
+                "properties": {
+                  "executor": {
+                    "properties": {
+                      "family": {
+                        "not": {
+                          "const": "compute_runtime"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "additionalProperties": false
+        },
+        "orchestration": {
+          "type": "object",
+          "required": [
+            "run_depth",
+            "child_run_ids"
+          ],
+          "properties": {
+            "parent_run_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "parent_task_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "run_depth": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "child_run_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            },
+            "canceled_by_run_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "cancellation_reason": {
+              "type": "string",
+              "minLength": 1
+            },
+            "failure_reason_code": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "runtime.run.requested"
+          }
+        },
+        "required": [
+          "event_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "required": [
+              "route"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false
+}
