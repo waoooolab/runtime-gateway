@@ -56,7 +56,7 @@ def _extract_downstream_failure_reason_code(event: dict[str, Any]) -> str | None
     return normalize_optional_code_term(payload.get("failure_reason_code"))
 
 
-def _extract_downstream_route_metadata(event: dict[str, Any]) -> dict[str, str]:
+def _extract_downstream_route_metadata(event: dict[str, Any]) -> dict[str, Any]:
     payload = event.get("payload")
     if not isinstance(payload, dict):
         return {}
@@ -64,11 +64,12 @@ def _extract_downstream_route_metadata(event: dict[str, Any]) -> dict[str, str]:
     if not isinstance(route, dict):
         return {}
 
-    metadata: dict[str, str] = {}
+    metadata: dict[str, Any] = {}
     scalar_fields: tuple[tuple[str, str], ...] = (
         ("event_type", "downstream_route_event_type"),
         ("execution_mode", "downstream_execution_mode"),
         ("route_target", "downstream_route_target"),
+        ("placement_event_type", "downstream_placement_event_type"),
         ("placement_reason_code", "downstream_placement_reason_code"),
     )
     for source, target in scalar_fields:
@@ -80,6 +81,9 @@ def _extract_downstream_route_metadata(event: dict[str, Any]) -> dict[str, str]:
                     metadata[target] = normalized_code
                 continue
             metadata[target] = raw_value.strip()
+    placement_resource_snapshot = route.get("placement_resource_snapshot")
+    if isinstance(placement_resource_snapshot, dict) and placement_resource_snapshot:
+        metadata["downstream_placement_resource_snapshot"] = dict(placement_resource_snapshot)
     return metadata
 
 
@@ -201,7 +205,7 @@ def dispatch_get_run_status(
         downstream_status = None
         downstream_run_id = None
         downstream_failure_reason_code = None
-        downstream_route_metadata: dict[str, str] = {}
+        downstream_route_metadata: dict[str, Any] = {}
         if isinstance(exc.response_body, dict):
             downstream_event_type_raw = exc.response_body.get("event_type")
             if isinstance(downstream_event_type_raw, str) and downstream_event_type_raw.strip():

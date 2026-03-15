@@ -168,6 +168,13 @@ def test_get_run_status_preserves_route_metadata(
             "placement_event_type": "device.lease.acquired",
             "device_id": "gpu-node-test",
             "lease_id": "lease-test",
+            "placement_resource_snapshot": {
+                "queue_depth": 0,
+                "eligible_devices": 1,
+                "active_leases": 0,
+                "available_slots": 1,
+                "tenant_active_leases": 0,
+            },
         },
     )
     client = TestClient(app)
@@ -193,6 +200,14 @@ def test_get_run_status_preserves_route_metadata(
     assert audit["metadata"]["downstream_route_event_type"] == "runtime.route.decided"
     assert audit["metadata"]["downstream_execution_mode"] == "compute"
     assert audit["metadata"]["downstream_route_target"] == "device-hub"
+    assert audit["metadata"]["downstream_placement_event_type"] == "device.lease.acquired"
+    assert audit["metadata"]["downstream_placement_resource_snapshot"] == {
+        "queue_depth": 0,
+        "eligible_devices": 1,
+        "active_leases": 0,
+        "available_slots": 1,
+        "tenant_active_leases": 0,
+    }
     assert audit["metadata"]["downstream_failure_reason_code"] is None
 
 
@@ -210,6 +225,14 @@ def test_get_run_status_terminal_failure_emits_failure_reason_metadata(
             "execution_mode": "compute",
             "route_target": "device-hub",
             "placement_reason_code": "capacity_exhausted",
+            "placement_resource_snapshot": {
+                "queue_depth": 0,
+                "eligible_devices": 1,
+                "active_leases": 1,
+                "available_slots": 0,
+                "tenant_active_leases": 1,
+                "tenant_id": "t1",
+            },
         },
     )
     client = TestClient(app)
@@ -232,6 +255,14 @@ def test_get_run_status_terminal_failure_emits_failure_reason_metadata(
     assert audit["metadata"]["downstream_execution_mode"] == "compute"
     assert audit["metadata"]["downstream_route_target"] == "device-hub"
     assert audit["metadata"]["downstream_placement_reason_code"] == "capacity_exhausted"
+    assert audit["metadata"]["downstream_placement_resource_snapshot"] == {
+        "queue_depth": 0,
+        "eligible_devices": 1,
+        "active_leases": 1,
+        "available_slots": 0,
+        "tenant_active_leases": 1,
+        "tenant_id": "t1",
+    }
 
 
 def test_get_run_status_normalizes_failure_reason_and_route_reason_codes(
@@ -342,6 +373,14 @@ def test_get_run_status_downstream_error_surfaces_failure_and_route_diagnostics(
                 "execution_mode": "compute",
                 "route_target": "device-hub",
                 "placement_reason_code": "capacity_exhausted",
+                "placement_resource_snapshot": {
+                    "queue_depth": 0,
+                    "eligible_devices": 1,
+                    "active_leases": 1,
+                    "available_slots": 0,
+                    "tenant_active_leases": 1,
+                    "tenant_id": "t1",
+                },
             },
         ),
     )
@@ -361,6 +400,14 @@ def test_get_run_status_downstream_error_surfaces_failure_and_route_diagnostics(
     assert detail["downstream_execution_mode"] == "compute"
     assert detail["downstream_route_target"] == "device-hub"
     assert detail["downstream_placement_reason_code"] == "capacity_exhausted"
+    assert detail["downstream_placement_resource_snapshot"] == {
+        "queue_depth": 0,
+        "eligible_devices": 1,
+        "active_leases": 1,
+        "available_slots": 0,
+        "tenant_active_leases": 1,
+        "tenant_id": "t1",
+    }
     mock_token_exchange.assert_called_once()
     audit = get_audit_events(limit=1)[0]
     assert audit["action"] == "runs.read"
@@ -372,6 +419,14 @@ def test_get_run_status_downstream_error_surfaces_failure_and_route_diagnostics(
     assert audit["metadata"]["downstream_execution_mode"] == "compute"
     assert audit["metadata"]["downstream_route_target"] == "device-hub"
     assert audit["metadata"]["downstream_placement_reason_code"] == "capacity_exhausted"
+    assert audit["metadata"]["downstream_placement_resource_snapshot"] == {
+        "queue_depth": 0,
+        "eligible_devices": 1,
+        "active_leases": 1,
+        "available_slots": 0,
+        "tenant_active_leases": 1,
+        "tenant_id": "t1",
+    }
 
 
 def test_get_run_status_downstream_error_uses_flat_failure_reason_code_fallback(
