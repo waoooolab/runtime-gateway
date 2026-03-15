@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from .api.schemas import CreateRunRequest, CreateRunResponse
 from .audit.emitter import emit_audit_event
 from .auth.exchange import ExchangeError, exchange_subject_token
+from .code_terms import normalize_optional_code_term
 from .contracts.validation import (
     ContractValidationError,
     validate_command_envelope_contract,
@@ -221,8 +222,8 @@ def _extract_route_failure_metadata(downstream_event: Mapping[str, Any]) -> dict
 
     failure = payload.get("failure")
     if isinstance(failure, dict):
-        failure_code = failure.get("code")
-        if isinstance(failure_code, str) and failure_code.strip():
+        failure_code = normalize_optional_code_term(failure.get("code"))
+        if failure_code is not None:
             metadata["failure_code"] = failure_code
         failure_classification = failure.get("classification")
         if isinstance(failure_classification, str) and failure_classification.strip():
@@ -239,8 +240,8 @@ def _extract_route_failure_metadata(downstream_event: Mapping[str, Any]) -> dict
 
     decision = payload.get("decision")
     if isinstance(decision, dict):
-        placement_reason_code = decision.get("reason_code")
-        if isinstance(placement_reason_code, str) and placement_reason_code.strip():
+        placement_reason_code = normalize_optional_code_term(decision.get("reason_code"))
+        if placement_reason_code is not None:
             metadata["placement_reason_code"] = placement_reason_code
         placement_event_type = decision.get("placement_event_type")
         if isinstance(placement_event_type, str) and placement_event_type.strip():

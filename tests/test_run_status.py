@@ -234,6 +234,37 @@ def test_get_run_status_terminal_failure_emits_failure_reason_metadata(
     assert audit["metadata"]["downstream_placement_reason_code"] == "capacity_exhausted"
 
 
+def test_get_run_status_normalizes_failure_reason_and_route_reason_codes(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    read_auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.get_run_status.return_value = _run_status_event(
+        run_id="run-status-failed-mixed",
+        status="failed",
+        failure_reason_code="Run-Preempted",
+        route={
+            "event_type": "runtime.route.decided",
+            "execution_mode": "compute",
+            "route_target": "device-hub",
+            "placement_reason_code": "NoEligibleDevice",
+        },
+    )
+    client = TestClient(app)
+    response = client.get(
+        "/v1/runs/run-status-failed-mixed",
+        headers=read_auth_headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["payload"]["orchestration"]["failure_reason_code"] == "Run-Preempted"
+    assert payload["payload"]["route"]["placement_reason_code"] == "NoEligibleDevice"
+    mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["metadata"]["downstream_failure_reason_code"] == "run_preempted"
+    assert audit["metadata"]["downstream_placement_reason_code"] == "no_eligible_device"
+
+
 def test_get_run_status_downstream_error_maps_status(
     mock_execution_client: Mock,
     mock_token_exchange: Mock,

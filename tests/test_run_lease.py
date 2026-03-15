@@ -156,6 +156,35 @@ def test_get_run_lease_terminal_exposes_expire_reason_code_in_audit(
     assert audit["metadata"]["expire_reason_code"] == "run_preempted"
 
 
+def test_get_run_lease_normalizes_expire_reason_code_in_audit(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    read_auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.get_run_lease.return_value = {
+        "run_id": "run-lease-mixed-reason",
+        "lease": {"lease_id": "lease-mixed", "task_id": "run-lease-mixed-reason:root", "state": "expired"},
+        "device_hub": {
+            "status": "ok",
+            "snapshot": {
+                "status": "expired",
+                "expire_reason_code": "Run-Preempted",
+            },
+        },
+    }
+    client = TestClient(app)
+    response = client.get(
+        "/v1/runs/run-lease-mixed-reason/lease",
+        headers=read_auth_headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["device_hub"]["snapshot"]["expire_reason_code"] == "Run-Preempted"
+    mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["metadata"]["expire_reason_code"] == "run_preempted"
+
+
 def test_get_run_lease_downstream_error_maps_status(
     mock_execution_client: Mock,
     mock_token_exchange: Mock,

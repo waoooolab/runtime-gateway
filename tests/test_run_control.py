@@ -271,6 +271,34 @@ def test_complete_run_forwards_custom_failure_reason(
     assert audit["metadata"]["downstream_status"] == "failed"
 
 
+def test_complete_run_normalizes_requested_failure_reason_code(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    mock_execution_client.complete_run.return_value = _run_status_event(
+        run_id="run-complete-failed-2",
+        status="failed",
+    )
+    client = TestClient(app)
+    response = client.post(
+        "/v1/runs/run-complete-failed-2:complete",
+        json={"success": False, "failure_reason_code": "Tool-ContractViolation"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["payload"]["status"] == "failed"
+    mock_execution_client.complete_run.assert_called_once_with(
+        run_id="run-complete-failed-2",
+        auth_token="delegated-token",
+        success=False,
+        failure_reason_code="tool_contract_violation",
+    )
+    mock_token_exchange.assert_called_once()
+    audit = get_audit_events(limit=1)[0]
+    assert audit["metadata"]["requested_failure_reason_code"] == "tool_contract_violation"
+
+
 def test_complete_run_rejects_failure_reason_when_success_true(
     mock_execution_client: Mock,
     mock_token_exchange: Mock,

@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from .audit.emitter import emit_audit_event
 from .auth.exchange import ExchangeError, exchange_subject_token
+from .code_terms import normalize_optional_code_term
 from .contracts import ContractValidationError, validate_runtime_run_lease_contract
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
 from .upstream_error import resolve_upstream_status_code
@@ -51,10 +52,7 @@ def _extract_device_hub_expire_reason_code(payload: dict[str, Any]) -> str | Non
     snapshot = device_hub.get("snapshot")
     if not isinstance(snapshot, dict):
         return None
-    reason_code = snapshot.get("expire_reason_code")
-    if isinstance(reason_code, str) and reason_code.strip():
-        return reason_code.strip()
-    return None
+    return normalize_optional_code_term(snapshot.get("expire_reason_code"))
 
 
 def _extract_run_id(payload: dict[str, Any]) -> str | None:

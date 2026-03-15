@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from .audit.emitter import emit_audit_event
 from .auth.exchange import ExchangeError, exchange_subject_token
+from .code_terms import normalize_optional_code_term
 from .events.validation import validate_event_envelope
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
 from .run_status_terms import recommended_poll_after_ms_for_run_status
@@ -50,10 +51,7 @@ def _extract_downstream_failure_reason_code(event: dict[str, Any]) -> str | None
     if not isinstance(orchestration, dict):
         return None
     failure_reason_code = orchestration.get("failure_reason_code")
-    if not isinstance(failure_reason_code, str):
-        return None
-    normalized = failure_reason_code.strip()
-    return normalized or None
+    return normalize_optional_code_term(failure_reason_code)
 
 
 def _extract_downstream_route_metadata(event: dict[str, Any]) -> dict[str, str]:
@@ -74,6 +72,11 @@ def _extract_downstream_route_metadata(event: dict[str, Any]) -> dict[str, str]:
     for source, target in scalar_fields:
         raw_value = route.get(source)
         if isinstance(raw_value, str) and raw_value.strip():
+            if source == "placement_reason_code":
+                normalized_code = normalize_optional_code_term(raw_value)
+                if normalized_code is not None:
+                    metadata[target] = normalized_code
+                continue
             metadata[target] = raw_value.strip()
     return metadata
 
