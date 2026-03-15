@@ -46,9 +46,15 @@ def _extract_device_hub_status(payload: dict[str, Any]) -> str | None:
 
 
 def _extract_device_hub_expire_reason_code(payload: dict[str, Any]) -> str | None:
+    direct_expire_reason_code = normalize_optional_code_term(payload.get("expire_reason_code"))
+    if direct_expire_reason_code is not None:
+        return direct_expire_reason_code
     device_hub = payload.get("device_hub")
     if not isinstance(device_hub, dict):
         return None
+    device_hub_expire_reason_code = normalize_optional_code_term(device_hub.get("expire_reason_code"))
+    if device_hub_expire_reason_code is not None:
+        return device_hub_expire_reason_code
     snapshot = device_hub.get("snapshot")
     if not isinstance(snapshot, dict):
         return None
