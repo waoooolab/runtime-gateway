@@ -694,6 +694,22 @@ class EventBusWebsocketTests(unittest.TestCase):
             ):
                 pass
 
+    def test_websocket_rejects_invalid_cursor(self) -> None:
+        ws_token = self._token(scope=["runs:read"])
+        with self.assertRaises(WebSocketDisconnect):
+            with self.client.websocket_connect(
+                f"/v1/ws/events?access_token={ws_token}&tenant_id=t1&app_id=covernow&cursor=not-an-int"
+            ):
+                pass
+
+    def test_websocket_rejects_negative_cursor(self) -> None:
+        ws_token = self._token(scope=["runs:read"])
+        with self.assertRaises(WebSocketDisconnect):
+            with self.client.websocket_connect(
+                f"/v1/ws/events?access_token={ws_token}&tenant_id=t1&app_id=covernow&cursor=-1"
+            ):
+                pass
+
     def test_websocket_rejects_invalid_since_ts(self) -> None:
         ws_token = self._token(scope=["runs:read"])
         with self.assertRaises(WebSocketDisconnect):

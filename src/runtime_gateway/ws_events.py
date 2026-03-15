@@ -37,11 +37,17 @@ def _parse_optional_str(raw: str | None) -> str | None:
     return value if value else None
 
 
-def _parse_cursor(raw: str) -> int:
-    try:
-        return max(0, int(raw))
-    except ValueError:
+def _parse_cursor(raw: str | None) -> int:
+    value = (raw or "").strip()
+    if not value:
         return 0
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ValueError("cursor must be integer >= 0") from exc
+    if parsed < 0:
+        raise ValueError("cursor must be integer >= 0")
+    return parsed
 
 
 def _parse_source(raw: str | None) -> str:
@@ -96,7 +102,7 @@ def _websocket_filters(
     )
     event_types = _parse_event_types(websocket.query_params.get("event_types"))
     run_id = _parse_optional_str(websocket.query_params.get("run_id"))
-    cursor = _parse_cursor(websocket.query_params.get("cursor", "0"))
+    cursor = _parse_cursor(websocket.query_params.get("cursor"))
     source = _parse_source(websocket.query_params.get("source"))
     since_ts = _parse_optional_ts(websocket.query_params.get("since_ts"), field_name="since_ts")
     until_ts = _parse_optional_ts(websocket.query_params.get("until_ts"), field_name="until_ts")
