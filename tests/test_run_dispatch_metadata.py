@@ -9,7 +9,7 @@ def test_extract_route_failure_metadata_normalizes_code_terms() -> None:
             "status": "failed",
             "failure": {
                 "code": "Capacity-Exhausted",
-                "classification": "capacity",
+                "classification": "Capacity-Exhausted",
                 "message": "capacity exhausted",
             },
             "decision": {
@@ -22,4 +22,5 @@ def test_extract_route_failure_metadata_normalizes_code_terms() -> None:
     metadata = _extract_route_failure_metadata(downstream_event)
     assert metadata["run_status"] == "failed"
     assert metadata["failure_code"] == "capacity_exhausted"
+    assert metadata["failure_classification"] == "capacity_exhausted"
     assert metadata["placement_reason_code"] == "no_eligible_device"

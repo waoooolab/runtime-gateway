@@ -225,8 +225,8 @@ def _extract_route_failure_metadata(downstream_event: Mapping[str, Any]) -> dict
         failure_code = normalize_optional_code_term(failure.get("code"))
         if failure_code is not None:
             metadata["failure_code"] = failure_code
-        failure_classification = failure.get("classification")
-        if isinstance(failure_classification, str) and failure_classification.strip():
+        failure_classification = normalize_optional_code_term(failure.get("classification"))
+        if failure_classification is not None:
             metadata["failure_classification"] = failure_classification
         failure_message = failure.get("message")
         if isinstance(failure_message, str) and failure_message.strip():
