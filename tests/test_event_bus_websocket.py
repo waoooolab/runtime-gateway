@@ -894,6 +894,63 @@ class EventBusWebsocketTests(unittest.TestCase):
                 self.assertEqual(first["event"]["event_type"], "runtime.run.started")
                 self.assertEqual(second["event"]["event_type"], "runtime.run.completed")
 
+    def test_websocket_durable_reconnect_replays_from_cursor_with_trace_id_continuity(self) -> None:
+        ws_token = self._token(scope=["runs:read"])
+        publish_token = self._token(scope=["runs:write"])
+        run_id = "run-ws-reconnect-trace"
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["RUNTIME_GATEWAY_EVENT_LOG_PATH"] = os.path.join(
+                tmp, "events", "runtime-events.ndjson"
+            )
+            self.client.post(
+                "/v1/events/publish",
+                json=_event_envelope("runtime.run.started", run_id=run_id),
+                headers={"Authorization": f"Bearer {publish_token}"},
+            )
+            self.client.post(
+                "/v1/events/publish",
+                json=_event_envelope("runtime.run.status", run_id=run_id),
+                headers={"Authorization": f"Bearer {publish_token}"},
+            )
+
+            with self.client.websocket_connect(
+                (
+                    f"/v1/ws/events?access_token={ws_token}&tenant_id=t1&app_id=covernow"
+                    f"&source=durable&run_id={run_id}&cursor=0"
+                )
+            ) as ws:
+                ready = ws.receive_json()
+                self.assertEqual(ready["kind"], "ws.ready")
+                self.assertEqual(ready["source"], "durable")
+
+                first = ws.receive_json()
+                self.assertEqual(first["event"]["event_type"], "runtime.run.started")
+                self.assertEqual(first["event"]["trace_id"], "trace-events-1")
+                reconnect_cursor = int(first["bus_seq"])
+
+            self.client.post(
+                "/v1/events/publish",
+                json=_event_envelope("runtime.run.completed", run_id=run_id),
+                headers={"Authorization": f"Bearer {publish_token}"},
+            )
+
+            with self.client.websocket_connect(
+                (
+                    f"/v1/ws/events?access_token={ws_token}&tenant_id=t1&app_id=covernow"
+                    f"&source=durable&run_id={run_id}&cursor={reconnect_cursor}"
+                )
+            ) as ws:
+                ready = ws.receive_json()
+                self.assertEqual(ready["kind"], "ws.ready")
+                self.assertEqual(ready["source"], "durable")
+
+                replayed = ws.receive_json()
+                resumed = ws.receive_json()
+                self.assertEqual(replayed["event"]["event_type"], "runtime.run.status")
+                self.assertEqual(replayed["event"]["trace_id"], "trace-events-1")
+                self.assertEqual(resumed["event"]["event_type"], "runtime.run.completed")
+                self.assertEqual(resumed["event"]["trace_id"], "trace-events-1")
+
     def test_websocket_memory_source_applies_since_ts_filter(self) -> None:
         ws_token = self._token(scope=["runs:read"])
         publish_token = self._token(scope=["runs:write"])
