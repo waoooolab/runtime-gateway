@@ -11,7 +11,13 @@ from .auth.exchange import ExchangeError, exchange_subject_token
 from .code_terms import normalize_optional_code_term
 from .contracts import ContractValidationError, validate_runtime_run_lease_contract
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
-from .upstream_error import resolve_upstream_status_code
+from .upstream_error import (
+    build_upstream_error_detail,
+    extract_upstream_failure_classification,
+    resolve_upstream_error_class,
+    resolve_upstream_retryable,
+    resolve_upstream_status_code,
+)
 
 
 def _recommended_poll_after_ms_for_lease_state(lease_state: str | None) -> int:
@@ -75,11 +81,13 @@ def _build_downstream_error_detail(
     status_code: int,
     requested_run_id: str,
     response_body: dict[str, Any],
+    upstream_error_class: str,
 ) -> dict[str, Any]:
     detail: dict[str, Any] = {
         "message": message,
         "status_code": status_code,
         "requested_run_id": requested_run_id,
+        "upstream_error_class": upstream_error_class,
         "downstream_response": response_body,
     }
     downstream_run_id = _extract_run_id(response_body)
@@ -180,7 +188,31 @@ def dispatch_get_run_lease(
             retryable=exc.retryable,
             message=str(exc),
         )
-        detail: str | dict[str, Any] = str(exc)
+        normalized_retryable = resolve_upstream_retryable(
+            status_code=exc.status_code,
+            retryable=exc.retryable,
+            message=str(exc),
+            detail=exc.detail,
+        )
+        failure_classification = extract_upstream_failure_classification(
+            message=str(exc),
+            detail=exc.detail,
+        )
+        upstream_error_class = resolve_upstream_error_class(
+            message=str(exc),
+            detail=exc.detail,
+            status_code=resolved_status,
+            retryable=normalized_retryable,
+            failure_classification=failure_classification,
+        )
+        detail: str | dict[str, Any] = build_upstream_error_detail(
+            message=str(exc),
+            status_code=resolved_status,
+            retryable=normalized_retryable,
+            failure_classification=failure_classification,
+            detail=exc.detail,
+            upstream_error_class=upstream_error_class,
+        )
         downstream_run_id = None
         lease_state = None
         device_hub_status = None
@@ -195,6 +227,7 @@ def dispatch_get_run_lease(
                 status_code=resolved_status,
                 requested_run_id=run_id,
                 response_body=exc.response_body,
+                upstream_error_class=upstream_error_class,
             )
         emit_audit_event(
             action=action,
@@ -209,6 +242,9 @@ def dispatch_get_run_lease(
                 "lease_state": lease_state,
                 "device_hub_status": device_hub_status,
                 "expire_reason_code": expire_reason_code,
+                "retryable": normalized_retryable,
+                "failure_classification": failure_classification,
+                "upstream_error_class": upstream_error_class,
             },
         )
         raise HTTPException(status_code=resolved_status, detail=detail) from exc

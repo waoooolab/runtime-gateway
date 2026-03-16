@@ -268,6 +268,7 @@ def test_approve_run_downstream_connection_error(
     assert detail["status_code"] == 503
     assert detail["retryable"] is True
     assert detail["failure_classification"] == "upstream_unavailable"
+    assert detail["upstream_error_class"] == "unavailable"
     assert "connection error" in str(detail["message"])
     audit = client.get("/v1/audit/events", headers=auth_headers)
     assert audit.status_code == 200
@@ -277,6 +278,7 @@ def test_approve_run_downstream_connection_error(
     assert latest["metadata"]["status_code"] == 503
     assert latest["metadata"]["retryable"] is True
     assert latest["metadata"]["failure_classification"] == "upstream_unavailable"
+    assert latest["metadata"]["upstream_error_class"] == "unavailable"
 
 
 def test_reject_run_downstream_connection_error(
@@ -297,6 +299,7 @@ def test_reject_run_downstream_connection_error(
     assert detail["status_code"] == 503
     assert detail["retryable"] is True
     assert detail["failure_classification"] == "upstream_unavailable"
+    assert detail["upstream_error_class"] == "unavailable"
     assert "connection error" in str(detail["message"])
     audit = client.get("/v1/audit/events", headers=auth_headers)
     assert audit.status_code == 200
@@ -309,6 +312,7 @@ def test_reject_run_downstream_connection_error(
     assert latest["metadata"]["run_id"] == "run-778"
     assert latest["metadata"]["retryable"] is True
     assert latest["metadata"]["failure_classification"] == "upstream_unavailable"
+    assert latest["metadata"]["upstream_error_class"] == "unavailable"
 
 
 def test_approve_run_missing_auth() -> None:

@@ -345,6 +345,7 @@ def test_get_run_status_connection_error_returns_structured_retryable_detail(
     assert detail["status_code"] == 503
     assert detail["retryable"] is True
     assert detail["failure_classification"] == "upstream_unavailable"
+    assert detail["upstream_error_class"] == "unavailable"
     assert "connection error" in str(detail["message"])
     mock_token_exchange.assert_called_once()
     audit = get_audit_events(limit=1)[0]
@@ -354,6 +355,7 @@ def test_get_run_status_connection_error_returns_structured_retryable_detail(
     assert audit["metadata"]["status_code"] == 503
     assert audit["metadata"]["retryable"] is True
     assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
+    assert audit["metadata"]["upstream_error_class"] == "unavailable"
 
 
 def test_get_run_status_downstream_error_surfaces_failure_and_route_diagnostics(

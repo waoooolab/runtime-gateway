@@ -12,6 +12,7 @@ from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
 from .upstream_error import (
     build_upstream_error_detail,
     extract_upstream_failure_classification,
+    resolve_upstream_error_class,
     resolve_upstream_retryable,
     resolve_upstream_status_code,
 )
@@ -52,10 +53,12 @@ def _build_scheduler_error_detail(
     message: str,
     status_code: int,
     response_body: dict[str, Any],
+    upstream_error_class: str,
 ) -> dict[str, Any]:
     detail: dict[str, Any] = {
         "message": message,
         "status_code": status_code,
+        "upstream_error_class": upstream_error_class,
         "downstream_response": response_body,
     }
     downstream_detail = response_body.get("detail")
@@ -94,6 +97,7 @@ def _build_scheduler_error_audit_metadata(
     status_code: int | None,
     retryable: bool,
     failure_classification: str,
+    upstream_error_class: str,
     response_body: dict[str, Any] | None,
 ) -> dict[str, Any]:
     metadata: dict[str, Any] = {
@@ -101,6 +105,7 @@ def _build_scheduler_error_audit_metadata(
         "status_code": status_code,
         "retryable": retryable,
         "failure_classification": failure_classification,
+        "upstream_error_class": upstream_error_class,
     }
     if not isinstance(response_body, dict):
         return metadata
@@ -155,12 +160,20 @@ def _resolve_scheduler_error_context(
         message=message,
         detail=exc.detail,
     )
+    upstream_error_class = resolve_upstream_error_class(
+        message=message,
+        detail=exc.detail,
+        status_code=resolved_status,
+        retryable=normalized_retryable,
+        failure_classification=failure_classification,
+    )
     detail: str | dict[str, Any] = build_upstream_error_detail(
         message=message,
         status_code=resolved_status,
         retryable=normalized_retryable,
         failure_classification=failure_classification,
         detail=exc.detail,
+        upstream_error_class=upstream_error_class,
     )
     response_body = exc.response_body if isinstance(exc.response_body, dict) else None
     if response_body is not None:
@@ -168,12 +181,14 @@ def _resolve_scheduler_error_context(
             message=message,
             status_code=resolved_status,
             response_body=response_body,
+            upstream_error_class=upstream_error_class,
         )
     metadata = _build_scheduler_error_audit_metadata(
         reason=message,
         status_code=resolved_status,
         retryable=normalized_retryable,
         failure_classification=failure_classification,
+        upstream_error_class=upstream_error_class,
         response_body=response_body,
     )
     return resolved_status, detail, metadata

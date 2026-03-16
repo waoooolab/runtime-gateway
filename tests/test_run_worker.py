@@ -478,6 +478,7 @@ def test_worker_tick_downstream_connection_error(
     assert detail["status_code"] == 503
     assert detail["retryable"] is True
     assert detail["failure_classification"] == "upstream_unavailable"
+    assert detail["upstream_error_class"] == "unavailable"
     assert "connection error" in str(detail["message"])
     audit = get_audit_events(limit=1)[0]
     assert audit["action"] == "orchestration.worker_tick"
@@ -485,6 +486,7 @@ def test_worker_tick_downstream_connection_error(
     assert audit["metadata"]["status_code"] == 503
     assert audit["metadata"]["retryable"] is True
     assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
+    assert audit["metadata"]["upstream_error_class"] == "unavailable"
     assert "connection error" in audit["metadata"]["reason"]
     assert "downstream_detail" not in audit["metadata"]
 
@@ -553,6 +555,7 @@ def test_worker_health_downstream_connection_error(
     assert detail["status_code"] == 503
     assert detail["retryable"] is True
     assert detail["failure_classification"] == "upstream_unavailable"
+    assert detail["upstream_error_class"] == "unavailable"
     assert "connection error" in str(detail["message"])
     audit = get_audit_events(limit=1)[0]
     assert audit["action"] == "orchestration.worker_health"
@@ -560,6 +563,7 @@ def test_worker_health_downstream_connection_error(
     assert audit["metadata"]["status_code"] == 503
     assert audit["metadata"]["retryable"] is True
     assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
+    assert audit["metadata"]["upstream_error_class"] == "unavailable"
     assert "connection error" in audit["metadata"]["reason"]
     assert "downstream_detail" not in audit["metadata"]
 
@@ -582,6 +586,7 @@ def test_worker_drain_downstream_connection_error(
     assert detail["status_code"] == 503
     assert detail["retryable"] is True
     assert detail["failure_classification"] == "upstream_unavailable"
+    assert detail["upstream_error_class"] == "unavailable"
     assert "connection error" in str(detail["message"])
     audit = get_audit_events(limit=1)[0]
     assert audit["action"] == "orchestration.worker_drain"
@@ -589,6 +594,7 @@ def test_worker_drain_downstream_connection_error(
     assert audit["metadata"]["status_code"] == 503
     assert audit["metadata"]["retryable"] is True
     assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
+    assert audit["metadata"]["upstream_error_class"] == "unavailable"
     assert "connection error" in audit["metadata"]["reason"]
     assert "downstream_detail" not in audit["metadata"]
 

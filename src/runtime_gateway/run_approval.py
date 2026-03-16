@@ -13,6 +13,7 @@ from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
 from .upstream_error import (
     build_upstream_error_detail,
     extract_upstream_failure_classification,
+    resolve_upstream_error_class,
     resolve_upstream_retryable,
     resolve_upstream_status_code,
 )
@@ -37,11 +38,13 @@ def _build_downstream_error_detail(
     downstream_event: dict[str, Any],
     downstream_event_type: str,
     bus_seq: int | None,
+    upstream_error_class: str,
 ) -> dict[str, Any]:
     detail: dict[str, Any] = {
         "message": message,
         "status_code": status_code,
         "downstream_event_type": downstream_event_type,
+        "upstream_error_class": upstream_error_class,
     }
     event_id = downstream_event.get("event_id")
     if isinstance(event_id, str) and event_id.strip():
@@ -140,6 +143,13 @@ def _submit_approval_action(
             message=str(exc),
             detail=exc.detail,
         )
+        upstream_error_class = resolve_upstream_error_class(
+            message=str(exc),
+            detail=exc.detail,
+            status_code=resolved_status,
+            retryable=normalized_retryable,
+            failure_classification=failure_classification,
+        )
         downstream_event_type = None
         downstream_status = None
         bus_seq = None
@@ -149,6 +159,7 @@ def _submit_approval_action(
             retryable=normalized_retryable,
             failure_classification=failure_classification,
             detail=exc.detail,
+            upstream_error_class=upstream_error_class,
         )
         if isinstance(exc.response_body, dict):
             try:
@@ -162,6 +173,7 @@ def _submit_approval_action(
                     downstream_event=exc.response_body,
                     downstream_event_type=downstream_event_type,
                     bus_seq=bus_seq,
+                    upstream_error_class=upstream_error_class,
                 )
             except ValueError:
                 downstream_event_type = None
@@ -181,6 +193,7 @@ def _submit_approval_action(
                 "bus_seq": bus_seq,
                 "retryable": normalized_retryable,
                 "failure_classification": failure_classification,
+                "upstream_error_class": upstream_error_class,
             },
         )
         raise HTTPException(status_code=resolved_status, detail=detail) from exc

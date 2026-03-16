@@ -530,6 +530,7 @@ def test_timeout_run_connection_error_maps_to_503(
     assert detail["status_code"] == 503
     assert detail["retryable"] is True
     assert detail["failure_classification"] == "upstream_unavailable"
+    assert detail["upstream_error_class"] == "unavailable"
     assert "connection error" in str(detail["message"])
     mock_token_exchange.assert_called_once()
     audit = get_audit_events(limit=1)[0]
@@ -539,6 +540,7 @@ def test_timeout_run_connection_error_maps_to_503(
     assert audit["metadata"]["run_id"] == "run-timeout-2"
     assert audit["metadata"]["retryable"] is True
     assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
+    assert audit["metadata"]["upstream_error_class"] == "unavailable"
 
 
 def test_preempt_run_accepts_requested_by_run_id_alias(
@@ -620,6 +622,7 @@ def test_cancel_run_connection_error_maps_to_503(
     assert detail["status_code"] == 503
     assert detail["retryable"] is True
     assert detail["failure_classification"] == "upstream_unavailable"
+    assert detail["upstream_error_class"] == "unavailable"
     assert "connection error" in str(detail["message"])
     mock_token_exchange.assert_called_once()
     audit = get_audit_events(limit=1)[0]
@@ -629,6 +632,7 @@ def test_cancel_run_connection_error_maps_to_503(
     assert audit["metadata"]["run_id"] == "run-cancel-connect"
     assert audit["metadata"]["retryable"] is True
     assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
+    assert audit["metadata"]["upstream_error_class"] == "unavailable"
 
 
 def test_preempt_run_connection_error_maps_to_503(
@@ -648,6 +652,7 @@ def test_preempt_run_connection_error_maps_to_503(
     assert detail["status_code"] == 503
     assert detail["retryable"] is True
     assert detail["failure_classification"] == "upstream_unavailable"
+    assert detail["upstream_error_class"] == "unavailable"
     assert "connection error" in str(detail["message"])
     mock_token_exchange.assert_called_once()
     audit = get_audit_events(limit=1)[0]
@@ -657,6 +662,7 @@ def test_preempt_run_connection_error_maps_to_503(
     assert audit["metadata"]["run_id"] == "run-preempt-connect"
     assert audit["metadata"]["retryable"] is True
     assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
+    assert audit["metadata"]["upstream_error_class"] == "unavailable"
 
 
 def test_complete_run_connection_error_maps_to_503(
@@ -680,6 +686,7 @@ def test_complete_run_connection_error_maps_to_503(
     assert detail["status_code"] == 503
     assert detail["retryable"] is True
     assert detail["failure_classification"] == "upstream_unavailable"
+    assert detail["upstream_error_class"] == "unavailable"
     assert "connection error" in str(detail["message"])
     mock_token_exchange.assert_called_once()
     audit = get_audit_events(limit=1)[0]
@@ -689,6 +696,7 @@ def test_complete_run_connection_error_maps_to_503(
     assert audit["metadata"]["run_id"] == "run-complete-connect"
     assert audit["metadata"]["retryable"] is True
     assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
+    assert audit["metadata"]["upstream_error_class"] == "unavailable"
 
 
 def test_lease_renew_connection_error_maps_to_503(
@@ -708,6 +716,7 @@ def test_lease_renew_connection_error_maps_to_503(
     assert detail["status_code"] == 503
     assert detail["retryable"] is True
     assert detail["failure_classification"] == "upstream_unavailable"
+    assert detail["upstream_error_class"] == "unavailable"
     assert "connection error" in str(detail["message"])
     mock_token_exchange.assert_called_once()
     audit = get_audit_events(limit=1)[0]
@@ -717,6 +726,7 @@ def test_lease_renew_connection_error_maps_to_503(
     assert audit["metadata"]["run_id"] == "run-lease-connect"
     assert audit["metadata"]["retryable"] is True
     assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
+    assert audit["metadata"]["upstream_error_class"] == "unavailable"
 
 
 def test_run_control_rejects_invalid_payload_type(

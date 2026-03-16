@@ -7,6 +7,116 @@ from typing import Any
 from .code_terms import normalize_optional_code_term
 
 _RETRYABLE_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
+_UPSTREAM_ERROR_CLASSES = {"timeout", "unavailable", "retryable", "error"}
+_TIMEOUT_HINT_TERMS = (
+    "timeout",
+    "timed out",
+    "timed_out",
+    "deadline exceeded",
+    "deadline_exceeded",
+)
+_UNAVAILABLE_HINT_TERMS = (
+    "connection error",
+    "connection refused",
+    "connection reset",
+    "network unreachable",
+    "name or service not known",
+    "dns",
+    "socket",
+    "econn",
+    "transport error",
+    "upstream unavailable",
+)
+
+
+def _normalize_upstream_error_class(value: Any) -> str | None:
+    normalized = normalize_optional_code_term(value)
+    if normalized is None:
+        return None
+    alias_map = {
+        "timeout": "timeout",
+        "timed_out": "timeout",
+        "deadline_exceeded": "timeout",
+        "unavailable": "unavailable",
+        "upstream_unavailable": "unavailable",
+        "upstream_connection_error": "unavailable",
+        "connection_error": "unavailable",
+        "retryable": "retryable",
+        "retry": "retryable",
+        "error": "error",
+        "upstream_error": "error",
+    }
+    resolved = alias_map.get(normalized)
+    if resolved in _UPSTREAM_ERROR_CLASSES:
+        return resolved
+    return None
+
+
+def _contains_hint_term(text: str, *, terms: tuple[str, ...]) -> bool:
+    lowered = text.strip().lower()
+    if not lowered:
+        return False
+    return any(term in lowered for term in terms)
+
+
+def _collect_detail_hint_text(detail: Any) -> str:
+    if not isinstance(detail, dict):
+        return ""
+    parts: list[str] = []
+    for key in (
+        "category",
+        "code",
+        "message",
+        "classification",
+        "failure_classification",
+    ):
+        value = detail.get(key)
+        if isinstance(value, str) and value.strip():
+            parts.append(value.strip())
+    nested_failure = detail.get("failure")
+    if isinstance(nested_failure, dict):
+        for key in ("classification", "code", "message"):
+            value = nested_failure.get(key)
+            if isinstance(value, str) and value.strip():
+                parts.append(value.strip())
+    return " ".join(parts)
+
+
+def resolve_upstream_error_class(
+    *,
+    message: str,
+    detail: Any,
+    status_code: int | None,
+    retryable: bool,
+    failure_classification: str | None = None,
+) -> str:
+    if isinstance(detail, dict):
+        explicit = _normalize_upstream_error_class(detail.get("upstream_error_class"))
+        if explicit is not None:
+            return explicit
+
+    hint_text = " ".join(
+        part
+        for part in (
+            message.strip(),
+            _collect_detail_hint_text(detail),
+        )
+        if part
+    )
+    if _contains_hint_term(hint_text, terms=_UNAVAILABLE_HINT_TERMS):
+        return "unavailable"
+    if _contains_hint_term(hint_text, terms=_TIMEOUT_HINT_TERMS):
+        return "timeout"
+
+    normalized_failure_classification = normalize_optional_code_term(failure_classification)
+    if isinstance(normalized_failure_classification, str):
+        if normalized_failure_classification == "upstream_unavailable":
+            return "unavailable"
+        if _contains_hint_term(normalized_failure_classification, terms=_TIMEOUT_HINT_TERMS):
+            return "timeout"
+    if retryable or (isinstance(status_code, int) and status_code in _RETRYABLE_STATUS_CODES):
+        return "retryable"
+    return "error"
 
 
 def resolve_upstream_status_code(
@@ -73,13 +183,24 @@ def build_upstream_error_detail(
     retryable: bool,
     failure_classification: str,
     detail: Any,
+    upstream_error_class: str | None = None,
     retry_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    normalized_upstream_error_class = _normalize_upstream_error_class(upstream_error_class)
+    if normalized_upstream_error_class is None:
+        normalized_upstream_error_class = resolve_upstream_error_class(
+            message=message,
+            detail=detail,
+            status_code=status_code,
+            retryable=retryable,
+            failure_classification=failure_classification,
+        )
     payload: dict[str, Any] = {
         "message": message,
         "status_code": status_code,
         "retryable": retryable,
         "failure_classification": failure_classification,
+        "upstream_error_class": normalized_upstream_error_class,
     }
     if isinstance(retry_policy, dict) and retry_policy:
         payload["retry_policy"] = dict(retry_policy)

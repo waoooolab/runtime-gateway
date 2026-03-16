@@ -194,6 +194,7 @@ def test_scheduler_enqueue_downstream_connection_error(
     assert detail["status_code"] == 503
     assert detail["retryable"] is True
     assert detail["failure_classification"] == "upstream_unavailable"
+    assert detail["upstream_error_class"] == "unavailable"
     assert "connection error" in str(detail["message"])
     audit = get_audit_events(limit=1)[0]
     assert audit["action"] == "orchestration.scheduler_enqueue"
@@ -201,6 +202,7 @@ def test_scheduler_enqueue_downstream_connection_error(
     assert audit["metadata"]["status_code"] == 503
     assert audit["metadata"]["retryable"] is True
     assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
+    assert audit["metadata"]["upstream_error_class"] == "unavailable"
 
 
 def test_scheduler_tick_downstream_connection_error(
@@ -222,6 +224,7 @@ def test_scheduler_tick_downstream_connection_error(
     assert detail["status_code"] == 503
     assert detail["retryable"] is True
     assert detail["failure_classification"] == "upstream_unavailable"
+    assert detail["upstream_error_class"] == "unavailable"
     assert "connection error" in str(detail["message"])
     audit = get_audit_events(limit=1)[0]
     assert audit["action"] == "orchestration.scheduler_tick"
@@ -229,6 +232,7 @@ def test_scheduler_tick_downstream_connection_error(
     assert audit["metadata"]["status_code"] == 503
     assert audit["metadata"]["retryable"] is True
     assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
+    assert audit["metadata"]["upstream_error_class"] == "unavailable"
 
 
 def test_scheduler_health_downstream_connection_error(
@@ -250,6 +254,7 @@ def test_scheduler_health_downstream_connection_error(
     assert detail["status_code"] == 503
     assert detail["retryable"] is True
     assert detail["failure_classification"] == "upstream_unavailable"
+    assert detail["upstream_error_class"] == "unavailable"
     assert "connection error" in str(detail["message"])
     audit = get_audit_events(limit=1)[0]
     assert audit["action"] == "orchestration.scheduler_health"
@@ -257,6 +262,7 @@ def test_scheduler_health_downstream_connection_error(
     assert audit["metadata"]["status_code"] == 503
     assert audit["metadata"]["retryable"] is True
     assert audit["metadata"]["failure_classification"] == "upstream_unavailable"
+    assert audit["metadata"]["upstream_error_class"] == "unavailable"
 
 
 def test_scheduler_endpoints_require_bearer_token() -> None:

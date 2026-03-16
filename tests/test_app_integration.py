@@ -962,6 +962,7 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(detail.get("status_code"), 503)
         self.assertEqual(detail.get("retryable"), True)
         self.assertEqual(detail.get("failure_classification"), "upstream_unavailable")
+        self.assertEqual(detail.get("upstream_error_class"), "unavailable")
         self.assertEqual(
             detail.get("retry_policy"),
             {"max_attempts": 3, "backoff_ms": 250, "strategy": "fixed"},
@@ -976,6 +977,7 @@ class AppIntegrationTests(unittest.TestCase):
             audit_latest["metadata"].get("failure_classification"),
             "upstream_unavailable",
         )
+        self.assertEqual(audit_latest["metadata"].get("upstream_error_class"), "unavailable")
         self.assertEqual(audit_latest["metadata"].get("downstream_event_type"), None)
 
     def test_runs_propagates_downstream_route_failed_status_and_publishes_event(self) -> None:

@@ -15,6 +15,7 @@ from .run_status_terms import recommended_poll_after_ms_for_run_status
 from .upstream_error import (
     build_upstream_error_detail,
     extract_upstream_failure_classification,
+    resolve_upstream_error_class,
     resolve_upstream_retryable,
     resolve_upstream_status_code,
 )
@@ -93,11 +94,13 @@ def _build_downstream_error_detail(
     status_code: int,
     requested_run_id: str,
     response_body: dict[str, Any],
+    upstream_error_class: str,
 ) -> dict[str, Any]:
     detail: dict[str, Any] = {
         "message": message,
         "status_code": status_code,
         "requested_run_id": requested_run_id,
+        "upstream_error_class": upstream_error_class,
         "downstream_response": response_body,
     }
     downstream_event_type = response_body.get("event_type")
@@ -194,12 +197,20 @@ def dispatch_get_run_status(
             message=str(exc),
             detail=exc.detail,
         )
+        upstream_error_class = resolve_upstream_error_class(
+            message=str(exc),
+            detail=exc.detail,
+            status_code=resolved_status,
+            retryable=normalized_retryable,
+            failure_classification=failure_classification,
+        )
         detail: str | dict[str, Any] = build_upstream_error_detail(
             message=str(exc),
             status_code=resolved_status,
             retryable=normalized_retryable,
             failure_classification=failure_classification,
             detail=exc.detail,
+            upstream_error_class=upstream_error_class,
         )
         downstream_event_type = None
         downstream_status = None
@@ -219,6 +230,7 @@ def dispatch_get_run_status(
                 status_code=resolved_status,
                 requested_run_id=run_id,
                 response_body=exc.response_body,
+                upstream_error_class=upstream_error_class,
             )
         emit_audit_event(
             action=action,
@@ -236,6 +248,7 @@ def dispatch_get_run_status(
                 **downstream_route_metadata,
                 "retryable": normalized_retryable,
                 "failure_classification": failure_classification,
+                "upstream_error_class": upstream_error_class,
             },
         )
         raise HTTPException(status_code=resolved_status, detail=detail) from exc

@@ -25,6 +25,7 @@ from .run_status_terms import is_terminal_run_status
 from .upstream_error import (
     build_upstream_error_detail,
     extract_upstream_failure_classification,
+    resolve_upstream_error_class,
     resolve_upstream_status_code,
 )
 
@@ -130,6 +131,7 @@ def _build_downstream_error_detail(
     downstream_event_type: str,
     bus_seq: int | None,
     retryable: bool,
+    upstream_error_class: str,
     retry_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     detail: dict[str, Any] = {
@@ -137,6 +139,7 @@ def _build_downstream_error_detail(
         "status_code": status_code,
         "downstream_event_type": downstream_event_type,
         "retryable": retryable,
+        "upstream_error_class": upstream_error_class,
     }
     if isinstance(retry_policy, dict) and retry_policy:
         detail["retry_policy"] = dict(retry_policy)
@@ -406,12 +409,21 @@ def _submit_command(
             retryable=effective_retryable,
             message=str(exc),
         )
+        effective_failure_classification = failure_classification
+        upstream_error_class = resolve_upstream_error_class(
+            message=str(exc),
+            detail=exc.detail,
+            status_code=effective_status_code,
+            retryable=effective_retryable,
+            failure_classification=effective_failure_classification,
+        )
         detail: str | dict[str, Any] = build_upstream_error_detail(
             message=str(exc),
             status_code=effective_status_code,
             retryable=effective_retryable,
             failure_classification=failure_classification,
             detail=exc.detail,
+            upstream_error_class=upstream_error_class,
             retry_policy=retry_policy_metadata.get("retry_policy")
             if isinstance(retry_policy_metadata.get("retry_policy"), dict)
             else None,
@@ -426,6 +438,18 @@ def _submit_command(
                     fallback_retryable=exc.retryable,
                     downstream_event=exc.response_body,
                 )
+                route_failure_classification = normalize_optional_code_term(
+                    route_failure_metadata.get("failure_classification")
+                )
+                if route_failure_classification is not None:
+                    effective_failure_classification = route_failure_classification
+                upstream_error_class = resolve_upstream_error_class(
+                    message=str(exc),
+                    detail=exc.detail,
+                    status_code=effective_status_code,
+                    retryable=effective_retryable,
+                    failure_classification=effective_failure_classification,
+                )
                 detail = _build_downstream_error_detail(
                     message=str(exc),
                     status_code=effective_status_code,
@@ -433,6 +457,7 @@ def _submit_command(
                     downstream_event_type=downstream_event_type,
                     bus_seq=bus_seq,
                     retryable=effective_retryable,
+                    upstream_error_class=upstream_error_class,
                     retry_policy=retry_policy_metadata.get("retry_policy")
                     if isinstance(retry_policy_metadata.get("retry_policy"), dict)
                     else None,
@@ -447,7 +472,8 @@ def _submit_command(
             "downstream_event_type": downstream_event_type,
             "bus_seq": bus_seq,
             "retryable": effective_retryable,
-            "failure_classification": failure_classification,
+            "failure_classification": effective_failure_classification,
+            "upstream_error_class": upstream_error_class,
         }
         audit_metadata.update(retry_policy_metadata)
         audit_metadata.update(route_failure_metadata)
