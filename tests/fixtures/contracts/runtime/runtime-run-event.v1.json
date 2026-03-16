@@ -498,6 +498,10 @@
             "child_run_ids"
           ],
           "properties": {
+            "task_id": {
+              "type": "string",
+              "minLength": 1
+            },
             "parent_run_id": {
               "type": "string",
               "minLength": 1

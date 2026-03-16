@@ -5,6 +5,10 @@
   "description": "Optional run orchestration hints for hierarchy, queue priority and scheduling.",
   "type": "object",
   "properties": {
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
     "parent_run_id": {
       "type": "string",
       "minLength": 1
