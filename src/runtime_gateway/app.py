@@ -202,6 +202,16 @@ def _probe_runtime_execution_ready(*, timeout_seconds: float) -> tuple[bool, dic
     return True, dependency
 
 
+def _build_runtime_gateway_readiness_payload(*, timeout_seconds: float) -> tuple[bool, dict[str, Any]]:
+    ready, dependency = _probe_runtime_execution_ready(timeout_seconds=timeout_seconds)
+    payload = {
+        "status": "ok" if ready else "not_ready",
+        "service": "runtime-gateway",
+        "dependencies": [dependency],
+    }
+    return ready, payload
+
+
 @app.get("/healthz")
 def healthz() -> dict:
     return {"status": "ok", "service": "runtime-gateway"}
@@ -210,21 +220,29 @@ def healthz() -> dict:
 @app.get("/readyz", response_model=None)
 def readyz() -> Any:
     timeout_seconds = float(os.environ.get("RUNTIME_GATEWAY_READY_TIMEOUT_SECONDS", "1.5"))
-    ready, dependency = _probe_runtime_execution_ready(timeout_seconds=timeout_seconds)
+    ready, payload = _build_runtime_gateway_readiness_payload(timeout_seconds=timeout_seconds)
     if not ready:
-        return JSONResponse(
-            status_code=503,
-            content={
-                "status": "not_ready",
-                "service": "runtime-gateway",
-                "dependencies": [dependency],
-            },
-        )
-    return {
-        "status": "ok",
+        return JSONResponse(status_code=503, content=payload)
+    return payload
+
+
+@app.get("/v1/runtime/usable", response_model=None)
+def runtime_usable() -> Any:
+    timeout_seconds = float(os.environ.get("RUNTIME_GATEWAY_READY_TIMEOUT_SECONDS", "1.5"))
+    ready, readiness_payload = _build_runtime_gateway_readiness_payload(timeout_seconds=timeout_seconds)
+    response_payload = {
+        "schema_version": "runtime_gateway_usable.v1",
+        "ok": bool(ready),
+        "status": str(readiness_payload.get("status", "not_ready")),
         "service": "runtime-gateway",
-        "dependencies": [dependency],
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "dependencies": readiness_payload.get("dependencies", []),
+        "event_bus": _event_bus.stats(),
+        "recommended_poll_after_ms": 10000 if ready else 1000,
     }
+    if not ready:
+        return JSONResponse(status_code=503, content=response_payload)
+    return response_payload
 
 
 @app.get("/v1/audit/events")

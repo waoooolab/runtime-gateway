@@ -490,6 +490,57 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(dependency["http_status"], 503)
         self.assertEqual(dependency["upstream_status"], "degraded")
 
+    @patch("runtime_gateway.app.urllib.request.urlopen")
+    def test_runtime_usable_reports_gateway_summary_when_ready(self, mock_urlopen) -> None:
+        with patch.dict(
+            os.environ,
+            {"RUNTIME_EXECUTION_BASE_URL": "http://runtime-execution.internal:8003"},
+            clear=False,
+        ):
+            mock_urlopen.return_value = _FakeHealthResponse(
+                status_code=200,
+                payload=b'{"status":"ok","service":"runtime-execution"}',
+            )
+            response = self.client.get("/v1/runtime/usable")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["schema_version"], "runtime_gateway_usable.v1")
+        self.assertEqual(payload["ok"], True)
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["service"], "runtime-gateway")
+        self.assertEqual(payload["recommended_poll_after_ms"], 10000)
+        self.assertIn("generated_at", payload)
+        self.assertEqual(len(payload["dependencies"]), 1)
+        dependency = payload["dependencies"][0]
+        self.assertEqual(dependency["name"], "runtime-execution")
+        self.assertEqual(dependency["status"], "ok")
+        event_bus = payload["event_bus"]
+        self.assertIn("connections", event_bus)
+        self.assertIn("buffered_events", event_bus)
+        self.assertIn("next_seq", event_bus)
+
+    @patch("runtime_gateway.app.urllib.request.urlopen")
+    def test_runtime_usable_returns_503_when_not_ready(self, mock_urlopen) -> None:
+        with patch.dict(
+            os.environ,
+            {"RUNTIME_EXECUTION_BASE_URL": "http://runtime-execution.internal:8003"},
+            clear=False,
+        ):
+            mock_urlopen.side_effect = urllib.error.URLError("connection refused")
+            response = self.client.get("/v1/runtime/usable")
+        self.assertEqual(response.status_code, 503)
+        payload = response.json()
+        self.assertEqual(payload["schema_version"], "runtime_gateway_usable.v1")
+        self.assertEqual(payload["ok"], False)
+        self.assertEqual(payload["status"], "not_ready")
+        self.assertEqual(payload["recommended_poll_after_ms"], 1000)
+        self.assertEqual(payload["service"], "runtime-gateway")
+        self.assertEqual(len(payload["dependencies"]), 1)
+        dependency = payload["dependencies"][0]
+        self.assertEqual(dependency["name"], "runtime-execution")
+        self.assertEqual(dependency["status"], "down")
+        self.assertEqual(dependency["reason"], "unreachable")
+
     def test_executor_profiles_requires_runs_read_scope(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["runs:write"])
         response = self.client.get(
