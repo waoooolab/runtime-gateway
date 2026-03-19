@@ -303,18 +303,22 @@ def _probe_runtime_execution_contract_signals(*, timeout_seconds: float) -> dict
         "runtime_worker_pool_contract_failures": None,
         "probe": {
             "source": "runtime-execution.worker-pool-status",
-            "ok": False,
+            "enabled": False,
+            "status": "disabled",
+            "ok": True,
             "error": "",
             "worker_pool_failure_details": [],
             "backpressure_failure_details": [],
         },
     }
     if not _env_truthy("RUNTIME_GATEWAY_RUNTIME_USABLE_ENABLE_CONTRACT_PROBE", default=False):
-        result["probe"]["error"] = "probe_disabled"
         return result
+    result["probe"]["enabled"] = True
     try:
         auth_token = _runtime_execution_probe_token()
     except Exception as exc:  # pragma: no cover - token env misconfiguration path
+        result["probe"]["status"] = "failed"
+        result["probe"]["ok"] = False
         result["probe"]["error"] = f"token_issue_failed:{exc}"
         return result
 
@@ -329,9 +333,13 @@ def _probe_runtime_execution_contract_signals(*, timeout_seconds: float) -> dict
         detail = str(exc)
         if isinstance(exc.status_code, int):
             detail = f"{detail} (status={exc.status_code})"
+        result["probe"]["status"] = "failed"
+        result["probe"]["ok"] = False
         result["probe"]["error"] = detail
         return result
     except Exception as exc:  # pragma: no cover - unexpected transport failure
+        result["probe"]["status"] = "failed"
+        result["probe"]["ok"] = False
         result["probe"]["error"] = f"runtime_execution_probe_failed:{exc}"
         return result
 
@@ -343,6 +351,8 @@ def _probe_runtime_execution_contract_signals(*, timeout_seconds: float) -> dict
     result["runtime_backpressure_contract_failures"] = len(backpressure_failures)
     result["probe"] = {
         "source": "runtime-execution.worker-pool-status",
+        "enabled": True,
+        "status": "passed" if len(worker_pool_failures) == 0 and len(backpressure_failures) == 0 else "failed",
         "ok": len(worker_pool_failures) == 0 and len(backpressure_failures) == 0,
         "error": "",
         "worker_pool_failure_details": worker_pool_failures[:8],
