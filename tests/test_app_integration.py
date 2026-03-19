@@ -515,6 +515,8 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(payload["runtime_worker_pool_contract_failures"], 0)
         self.assertEqual(payload["runtime_worker_pool_status_contract_ok"], True)
         self.assertEqual(payload["runtime_worker_pool_status_contract_failures"], 0)
+        self.assertEqual(payload["runtime_usable_contract_surface_ok"], True)
+        self.assertEqual(payload["runtime_usable_contract_surface_failures"], 0)
         self.assertEqual(
             payload["compatibility_aliases"]["runtime_worker_pool_status_contract"],
             "runtime_worker_pool_contract",
@@ -550,6 +552,8 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(payload["runtime_worker_pool_contract_failures"], 1)
         self.assertEqual(payload["runtime_worker_pool_status_contract_ok"], False)
         self.assertEqual(payload["runtime_worker_pool_status_contract_failures"], 1)
+        self.assertEqual(payload["runtime_usable_contract_surface_ok"], False)
+        self.assertEqual(payload["runtime_usable_contract_surface_failures"], 1)
         self.assertEqual(
             payload["compatibility_aliases"]["runtime_worker_pool_status_contract"],
             "runtime_worker_pool_contract",

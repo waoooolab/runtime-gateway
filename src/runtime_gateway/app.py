@@ -372,6 +372,26 @@ def _resolve_contract_signal(
     return bool(ready), 0 if bool(ready) else 1
 
 
+def _runtime_usable_contract_surface_signal(
+    *,
+    runtime_backpressure_contract_ok: bool,
+    runtime_backpressure_contract_failures: int,
+    runtime_worker_pool_contract_ok: bool,
+    runtime_worker_pool_contract_failures: int,
+    runtime_worker_pool_status_contract_ok: bool,
+    runtime_worker_pool_status_contract_failures: int,
+) -> tuple[bool, int]:
+    usable_surface_ok = bool(
+        runtime_backpressure_contract_ok
+        and runtime_backpressure_contract_failures == 0
+        and runtime_worker_pool_contract_ok
+        and runtime_worker_pool_contract_failures == 0
+        and runtime_worker_pool_status_contract_ok == runtime_worker_pool_contract_ok
+        and runtime_worker_pool_status_contract_failures == runtime_worker_pool_contract_failures
+    )
+    return usable_surface_ok, 0 if usable_surface_ok else 1
+
+
 @app.get("/healthz")
 def healthz() -> dict:
     return {"status": "ok", "service": "runtime-gateway"}
@@ -401,6 +421,16 @@ def runtime_usable() -> Any:
         raw_ok=contract_probe.get("runtime_backpressure_contract_ok"),
         raw_failures=contract_probe.get("runtime_backpressure_contract_failures"),
     )
+    runtime_usable_contract_surface_ok, runtime_usable_contract_surface_failures = (
+        _runtime_usable_contract_surface_signal(
+            runtime_backpressure_contract_ok=runtime_backpressure_contract_ok,
+            runtime_backpressure_contract_failures=runtime_backpressure_contract_failures,
+            runtime_worker_pool_contract_ok=runtime_worker_pool_contract_ok,
+            runtime_worker_pool_contract_failures=runtime_worker_pool_contract_failures,
+            runtime_worker_pool_status_contract_ok=runtime_worker_pool_contract_ok,
+            runtime_worker_pool_status_contract_failures=runtime_worker_pool_contract_failures,
+        )
+    )
     response_payload = {
         "schema_version": "runtime_gateway_usable.v1",
         "ok": bool(ready),
@@ -416,6 +446,8 @@ def runtime_usable() -> Any:
         "runtime_worker_pool_contract_failures": runtime_worker_pool_contract_failures,
         "runtime_worker_pool_status_contract_ok": runtime_worker_pool_contract_ok,
         "runtime_worker_pool_status_contract_failures": runtime_worker_pool_contract_failures,
+        "runtime_usable_contract_surface_ok": runtime_usable_contract_surface_ok,
+        "runtime_usable_contract_surface_failures": runtime_usable_contract_surface_failures,
         "compatibility_aliases": {
             "runtime_worker_pool_status_contract": "runtime_worker_pool_contract"
         },
