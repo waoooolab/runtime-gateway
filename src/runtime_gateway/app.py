@@ -13,6 +13,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
 from fastapi.responses import JSONResponse
 
 from .api.schemas import TokenExchangeRequest, TokenExchangeResponse
+from .auth.tokens import issue_token
 from .audit.emitter import emit_audit_event, get_audit_events, read_audit_log
 from .contracts import (
     ContractValidationError,
@@ -23,7 +24,7 @@ from .events.bus import InMemoryEventBus
 from .events.durable import append_event_record, read_event_page
 from .events.validation import validate_event_envelope
 from .executor_profiles import list_executor_profiles
-from .integration import RuntimeExecutionClient
+from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
 from .routes_capabilities import register_capability_routes
 from .routes_runs import register_run_routes
 from .security import (
@@ -39,6 +40,7 @@ from .ws_events import handle_websocket_events
 app = FastAPI(title="runtime-gateway", version="0.1.0")
 _execution_client = RuntimeExecutionClient()
 _event_bus = InMemoryEventBus()
+_VALID_CONTROL_OUTCOMES = {"dispatch", "queue", "defer", "reject"}
 
 
 def _publish_gateway_event(event: dict[str, Any]) -> int | None:
@@ -147,6 +149,13 @@ def _decode_json_object(raw: bytes) -> dict[str, Any] | None:
     return None
 
 
+def _env_truthy(name: str, *, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _probe_runtime_execution_ready(*, timeout_seconds: float) -> tuple[bool, dict[str, Any]]:
     target = _runtime_execution_health_target()
     dependency: dict[str, Any] = {
@@ -212,6 +221,147 @@ def _build_runtime_gateway_readiness_payload(*, timeout_seconds: float) -> tuple
     return ready, payload
 
 
+def _runtime_execution_probe_claims() -> dict[str, Any]:
+    tenant_id = str(os.environ.get("RUNTIME_GATEWAY_PROBE_TENANT_ID", "dev-tenant")).strip() or "dev-tenant"
+    app_id = str(os.environ.get("RUNTIME_GATEWAY_PROBE_APP_ID", "waoooolab-runtime")).strip() or "waoooolab-runtime"
+    return {
+        "aud": "runtime-execution",
+        "sub": "runtime-gateway:runtime-usable-probe",
+        "tenant_id": tenant_id,
+        "app_id": app_id,
+        "trace_id": f"trace-runtime-usable-{datetime.now(timezone.utc).timestamp()}",
+        "scope": ["runs:read"],
+        "token_use": "service",
+    }
+
+
+def _runtime_execution_probe_token() -> str:
+    ttl_seconds = 30
+    raw_ttl = os.environ.get("RUNTIME_GATEWAY_PROBE_TOKEN_TTL_SECONDS")
+    if isinstance(raw_ttl, str) and raw_ttl.strip():
+        try:
+            ttl_seconds = max(5, min(300, int(raw_ttl.strip())))
+        except ValueError:
+            ttl_seconds = 30
+    return issue_token(_runtime_execution_probe_claims(), ttl_seconds=ttl_seconds)
+
+
+def _validate_worker_pool_contract_projection(payload: dict[str, Any]) -> list[str]:
+    failures: list[str] = []
+    if not isinstance(payload.get("desired_workers"), int):
+        failures.append("desired_workers_not_int")
+    if not isinstance(payload.get("active_workers"), int):
+        failures.append("active_workers_not_int")
+    if not isinstance(payload.get("lifecycle_state"), str):
+        failures.append("lifecycle_state_not_str")
+    if not isinstance(payload.get("is_running"), bool):
+        failures.append("is_running_not_bool")
+    if not isinstance(payload.get("pool_health_state"), str):
+        failures.append("pool_health_state_not_str")
+    if not isinstance(payload.get("recommended_poll_after_ms"), int):
+        failures.append("recommended_poll_after_ms_not_int")
+    return failures
+
+
+def _validate_backpressure_contract_projection(payload: dict[str, Any]) -> list[str]:
+    failures: list[str] = []
+    control_counts = payload.get("last_control_counts")
+    control_signal = payload.get("last_control_signal")
+    control_outcome = payload.get("last_control_outcome")
+
+    if not isinstance(control_counts, dict):
+        failures.append("last_control_counts_not_object")
+    else:
+        for key in ("queue", "defer", "reject"):
+            value = control_counts.get(key)
+            if not isinstance(value, int) or value < 0:
+                failures.append(f"last_control_counts_{key}_invalid")
+
+    if not isinstance(control_signal, dict):
+        failures.append("last_control_signal_not_object")
+    else:
+        for key in ("queue_pending", "defer_pending", "reject_pending"):
+            if not isinstance(control_signal.get(key), bool):
+                failures.append(f"last_control_signal_{key}_not_bool")
+
+    if not isinstance(control_outcome, str) or control_outcome not in _VALID_CONTROL_OUTCOMES:
+        failures.append("last_control_outcome_invalid")
+    if not isinstance(payload.get("last_retry_deferred_total"), int):
+        failures.append("last_retry_deferred_total_not_int")
+    if not isinstance(payload.get("last_retry_rejected_total"), int):
+        failures.append("last_retry_rejected_total_not_int")
+    if not isinstance(payload.get("last_reject_pending_signal"), bool):
+        failures.append("last_reject_pending_signal_not_bool")
+    return failures
+
+
+def _probe_runtime_execution_contract_signals(*, timeout_seconds: float) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "runtime_backpressure_contract_ok": None,
+        "runtime_backpressure_contract_failures": None,
+        "runtime_worker_pool_contract_ok": None,
+        "runtime_worker_pool_contract_failures": None,
+        "probe": {
+            "source": "runtime-execution.worker-pool-status",
+            "ok": False,
+            "error": "",
+            "worker_pool_failure_details": [],
+            "backpressure_failure_details": [],
+        },
+    }
+    if not _env_truthy("RUNTIME_GATEWAY_RUNTIME_USABLE_ENABLE_CONTRACT_PROBE", default=False):
+        result["probe"]["error"] = "probe_disabled"
+        return result
+    try:
+        auth_token = _runtime_execution_probe_token()
+    except Exception as exc:  # pragma: no cover - token env misconfiguration path
+        result["probe"]["error"] = f"token_issue_failed:{exc}"
+        return result
+
+    try:
+        probe_client = RuntimeExecutionClient(
+            base_url=_execution_client.base_url,
+            require_https=_execution_client.require_https,
+            timeout_seconds=max(0.2, min(5.0, float(timeout_seconds))),
+        )
+        worker_pool_payload = probe_client.worker_pool_status(auth_token=auth_token)
+    except RuntimeExecutionClientError as exc:
+        detail = str(exc)
+        if isinstance(exc.status_code, int):
+            detail = f"{detail} (status={exc.status_code})"
+        result["probe"]["error"] = detail
+        return result
+    except Exception as exc:  # pragma: no cover - unexpected transport failure
+        result["probe"]["error"] = f"runtime_execution_probe_failed:{exc}"
+        return result
+
+    worker_pool_failures = _validate_worker_pool_contract_projection(worker_pool_payload)
+    backpressure_failures = _validate_backpressure_contract_projection(worker_pool_payload)
+    result["runtime_worker_pool_contract_ok"] = len(worker_pool_failures) == 0
+    result["runtime_worker_pool_contract_failures"] = len(worker_pool_failures)
+    result["runtime_backpressure_contract_ok"] = len(backpressure_failures) == 0
+    result["runtime_backpressure_contract_failures"] = len(backpressure_failures)
+    result["probe"] = {
+        "source": "runtime-execution.worker-pool-status",
+        "ok": len(worker_pool_failures) == 0 and len(backpressure_failures) == 0,
+        "error": "",
+        "worker_pool_failure_details": worker_pool_failures[:8],
+        "backpressure_failure_details": backpressure_failures[:8],
+    }
+    return result
+
+
+def _resolve_contract_signal(
+    *,
+    ready: bool,
+    raw_ok: Any,
+    raw_failures: Any,
+) -> tuple[bool, int]:
+    if isinstance(raw_ok, bool) and isinstance(raw_failures, int) and raw_failures >= 0:
+        return raw_ok, raw_failures
+    return bool(ready), 0 if bool(ready) else 1
+
+
 @app.get("/healthz")
 def healthz() -> dict:
     return {"status": "ok", "service": "runtime-gateway"}
@@ -230,6 +380,17 @@ def readyz() -> Any:
 def runtime_usable() -> Any:
     timeout_seconds = float(os.environ.get("RUNTIME_GATEWAY_READY_TIMEOUT_SECONDS", "1.5"))
     ready, readiness_payload = _build_runtime_gateway_readiness_payload(timeout_seconds=timeout_seconds)
+    contract_probe = _probe_runtime_execution_contract_signals(timeout_seconds=timeout_seconds)
+    runtime_worker_pool_contract_ok, runtime_worker_pool_contract_failures = _resolve_contract_signal(
+        ready=ready,
+        raw_ok=contract_probe.get("runtime_worker_pool_contract_ok"),
+        raw_failures=contract_probe.get("runtime_worker_pool_contract_failures"),
+    )
+    runtime_backpressure_contract_ok, runtime_backpressure_contract_failures = _resolve_contract_signal(
+        ready=ready,
+        raw_ok=contract_probe.get("runtime_backpressure_contract_ok"),
+        raw_failures=contract_probe.get("runtime_backpressure_contract_failures"),
+    )
     response_payload = {
         "schema_version": "runtime_gateway_usable.v1",
         "ok": bool(ready),
@@ -239,6 +400,16 @@ def runtime_usable() -> Any:
         "dependencies": readiness_payload.get("dependencies", []),
         "event_bus": _event_bus.stats(),
         "recommended_poll_after_ms": 10000 if ready else 1000,
+        "runtime_backpressure_contract_ok": runtime_backpressure_contract_ok,
+        "runtime_backpressure_contract_failures": runtime_backpressure_contract_failures,
+        "runtime_worker_pool_contract_ok": runtime_worker_pool_contract_ok,
+        "runtime_worker_pool_contract_failures": runtime_worker_pool_contract_failures,
+        "runtime_worker_pool_status_contract_ok": runtime_worker_pool_contract_ok,
+        "runtime_worker_pool_status_contract_failures": runtime_worker_pool_contract_failures,
+        "compatibility_aliases": {
+            "runtime_worker_pool_status_contract": "runtime_worker_pool_contract"
+        },
+        "runtime_contract_probe": contract_probe.get("probe", {}),
     }
     if not ready:
         return JSONResponse(status_code=503, content=response_payload)

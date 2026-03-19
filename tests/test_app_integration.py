@@ -509,6 +509,16 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(payload["service"], "runtime-gateway")
         self.assertEqual(payload["recommended_poll_after_ms"], 10000)
+        self.assertEqual(payload["runtime_backpressure_contract_ok"], True)
+        self.assertEqual(payload["runtime_backpressure_contract_failures"], 0)
+        self.assertEqual(payload["runtime_worker_pool_contract_ok"], True)
+        self.assertEqual(payload["runtime_worker_pool_contract_failures"], 0)
+        self.assertEqual(payload["runtime_worker_pool_status_contract_ok"], True)
+        self.assertEqual(payload["runtime_worker_pool_status_contract_failures"], 0)
+        self.assertEqual(
+            payload["compatibility_aliases"]["runtime_worker_pool_status_contract"],
+            "runtime_worker_pool_contract",
+        )
         self.assertIn("generated_at", payload)
         self.assertEqual(len(payload["dependencies"]), 1)
         dependency = payload["dependencies"][0]
@@ -534,6 +544,16 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(payload["ok"], False)
         self.assertEqual(payload["status"], "not_ready")
         self.assertEqual(payload["recommended_poll_after_ms"], 1000)
+        self.assertEqual(payload["runtime_backpressure_contract_ok"], False)
+        self.assertEqual(payload["runtime_backpressure_contract_failures"], 1)
+        self.assertEqual(payload["runtime_worker_pool_contract_ok"], False)
+        self.assertEqual(payload["runtime_worker_pool_contract_failures"], 1)
+        self.assertEqual(payload["runtime_worker_pool_status_contract_ok"], False)
+        self.assertEqual(payload["runtime_worker_pool_status_contract_failures"], 1)
+        self.assertEqual(
+            payload["compatibility_aliases"]["runtime_worker_pool_status_contract"],
+            "runtime_worker_pool_contract",
+        )
         self.assertEqual(payload["service"], "runtime-gateway")
         self.assertEqual(len(payload["dependencies"]), 1)
         dependency = payload["dependencies"][0]

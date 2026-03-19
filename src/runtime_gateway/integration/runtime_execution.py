@@ -509,6 +509,16 @@ class RuntimeExecutionClient:
             auth_token=auth_token,
         )
 
+    def worker_pool_status(
+        self,
+        *,
+        auth_token: str,
+    ) -> dict[str, Any]:
+        return self._get_json(
+            path="v1/orchestration/worker:pool",
+            auth_token=auth_token,
+        )
+
     def scheduler_enqueue(
         self,
         *,
