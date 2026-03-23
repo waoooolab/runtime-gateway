@@ -59,6 +59,9 @@ Required environment:
 Testing:
 - `tests/test_app_integration.py` covers HTTP auth rejections and valid run creation path.
 - `tests/test_e2e_run_flow.py` covers cross-service run flow (`runtime-gateway -> runtime-execution`).
+- `PYTHONPATH=src python3 scripts/verify_durable_sqlite_minimal.py` verifies
+  SQLite durable read/write for runtime events and audit ledgers without
+  `fastapi`/`pytest` dependency.
 - `scripts/check_code_shape.py` reports file/function size guardrails
   (target fail: file>300/function>40; CI enforces this threshold).
 - `.github/workflows/ci.yml` runs tests on PR/push across
