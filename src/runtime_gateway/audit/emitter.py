@@ -11,6 +11,8 @@ from threading import Lock
 from typing import Any
 from uuid import uuid4
 
+from runtime_gateway.persistence_paths import resolve_audit_db_path
+
 _AUDIT_EVENTS: list[dict[str, Any]] = []
 _FILE_LOCK = Lock()
 
@@ -23,10 +25,7 @@ def _audit_log_path() -> Path | None:
 
 
 def _audit_db_path() -> Path | None:
-    raw = os.environ.get("RUNTIME_GATEWAY_AUDIT_DB_PATH")
-    if not raw:
-        return None
-    return Path(raw).expanduser()
+    return resolve_audit_db_path()
 
 
 def _connect_audit_db(path: Path) -> sqlite3.Connection:

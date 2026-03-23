@@ -49,6 +49,10 @@ Validation and auth notes:
 - auth and run actions emit audit events in memory, and optionally to file via `RUNTIME_GATEWAY_AUDIT_LOG_PATH`
 - audit/events durable storage now also supports optional SQLite paths:
   `RUNTIME_GATEWAY_AUDIT_DB_PATH` and `RUNTIME_GATEWAY_EVENT_DB_PATH`
+- optional shared persist root via `OWA_PERSIST_ROOT` derives defaults:
+  - `$OWA_PERSIST_ROOT/runtime-gateway/runtime-audit.sqlite`
+  - `$OWA_PERSIST_ROOT/runtime-gateway/runtime-events.sqlite`
+  (used only when explicit DB path env vars are absent)
 - gateway currently forwards runtime workload route semantics
   (`execution_mode=control|compute`) and consumes `execution_context.executor`
   as an ingress compatibility gate (not as dispatch target selector)

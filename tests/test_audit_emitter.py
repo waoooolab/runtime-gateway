@@ -20,6 +20,7 @@ os.environ["WAOOOOLAB_PLATFORM_CONTRACTS_DIR"] = str(
 class AuditEmitterTests(unittest.TestCase):
     def setUp(self) -> None:
         clear_audit_events()
+        os.environ.pop("OWA_PERSIST_ROOT", None)
         os.environ.pop("RUNTIME_GATEWAY_AUDIT_LOG_PATH", None)
         os.environ.pop("RUNTIME_GATEWAY_AUDIT_DB_PATH", None)
 
@@ -58,6 +59,17 @@ class AuditEmitterTests(unittest.TestCase):
             self.assertEqual(len(items), 1)
             self.assertEqual(items[0]["action"], "runs.cancel")
             self.assertEqual(items[0]["decision"], "deny")
+
+    def test_emit_persists_to_durable_audit_db_via_persist_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["OWA_PERSIST_ROOT"] = tmp
+            emit_audit_event(action="runs.reject", decision="deny", actor_id="user:u3")
+            clear_audit_events()
+            items = read_audit_log()
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0]["action"], "runs.reject")
+            expected_db_path = os.path.join(tmp, "runtime-gateway", "runtime-audit.sqlite")
+            self.assertTrue(os.path.exists(expected_db_path))
 
 
 if __name__ == "__main__":

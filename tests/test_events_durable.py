@@ -27,6 +27,7 @@ def _event(*, event_type: str, run_id: str, ts: str) -> dict:
 
 class DurableEventsStorageTests(unittest.TestCase):
     def setUp(self) -> None:
+        os.environ.pop("OWA_PERSIST_ROOT", None)
         os.environ.pop("RUNTIME_GATEWAY_EVENT_LOG_PATH", None)
         os.environ.pop("RUNTIME_GATEWAY_EVENT_DB_PATH", None)
 
@@ -113,6 +114,33 @@ class DurableEventsStorageTests(unittest.TestCase):
             self.assertEqual(len(filtered["items"]), 1)
             self.assertEqual(filtered["items"][0]["event"]["event_type"], "runtime.run.status")
             self.assertEqual(filtered["items"][0]["event"]["payload"]["run_id"], "run-1")
+
+    def test_sqlite_durable_uses_persist_root_default_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["OWA_PERSIST_ROOT"] = tmp
+            append_event_record(
+                bus_seq=7,
+                event=_event(
+                    event_type="runtime.run.started",
+                    run_id="run-persist-root",
+                    ts="2026-03-12T00:03:00Z",
+                ),
+            )
+            page = read_event_page(
+                limit=10,
+                tenant_id="t1",
+                app_id="covernow",
+                session_key=None,
+                event_types=None,
+                run_id="run-persist-root",
+                since_ts=None,
+                until_ts=None,
+                cursor=0,
+            )
+            self.assertEqual(len(page["items"]), 1)
+            self.assertEqual(page["stats"]["buffered_events"], 1)
+            expected_db_path = os.path.join(tmp, "runtime-gateway", "runtime-events.sqlite")
+            self.assertTrue(os.path.exists(expected_db_path))
 
 
 if __name__ == "__main__":

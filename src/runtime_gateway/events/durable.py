@@ -10,6 +10,8 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
+from runtime_gateway.persistence_paths import resolve_event_db_path
+
 _FILE_LOCK = Lock()
 
 
@@ -21,10 +23,7 @@ def _event_log_path() -> Path | None:
 
 
 def _event_db_path() -> Path | None:
-    raw = os.environ.get("RUNTIME_GATEWAY_EVENT_DB_PATH")
-    if not raw:
-        return None
-    return Path(raw).expanduser()
+    return resolve_event_db_path()
 
 
 def _connect_event_db(path: Path) -> sqlite3.Connection:
