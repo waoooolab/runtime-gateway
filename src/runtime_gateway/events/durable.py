@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
@@ -35,7 +36,7 @@ def _connect_event_db(path: Path) -> sqlite3.Connection:
 
 
 def _ensure_event_db_schema(path: Path) -> None:
-    with _connect_event_db(path) as conn:
+    with closing(_connect_event_db(path)) as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS runtime_gateway_events (
@@ -90,7 +91,7 @@ def _append_event_record_sqlite(*, db_path: Path, bus_seq: int, event: dict[str,
     created_at = datetime.now(timezone.utc).isoformat()
     with _FILE_LOCK:
         _ensure_event_db_schema(db_path)
-        with _connect_event_db(db_path) as conn:
+        with closing(_connect_event_db(db_path)) as conn:
             conn.execute(
                 """
                 INSERT INTO runtime_gateway_events (
@@ -176,7 +177,7 @@ def _read_records_from_db(path: Path) -> list[dict[str, Any]]:
         return []
     with _FILE_LOCK:
         _ensure_event_db_schema(path)
-        with _connect_event_db(path) as conn:
+        with closing(_connect_event_db(path)) as conn:
             rows = conn.execute(
                 """
                 SELECT bus_seq, event_json
