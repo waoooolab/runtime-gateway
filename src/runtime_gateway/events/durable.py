@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
@@ -19,7 +20,45 @@ def _event_log_path() -> Path | None:
     return Path(raw).expanduser()
 
 
+def _event_db_path() -> Path | None:
+    raw = os.environ.get("RUNTIME_GATEWAY_EVENT_DB_PATH")
+    if not raw:
+        return None
+    return Path(raw).expanduser()
+
+
+def _connect_event_db(path: Path) -> sqlite3.Connection:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path.as_posix())
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    return conn
+
+
+def _ensure_event_db_schema(path: Path) -> None:
+    with _connect_event_db(path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS runtime_gateway_events (
+                bus_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                memory_bus_seq INTEGER NOT NULL,
+                event_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.commit()
+
+
 def append_event_record(*, bus_seq: int, event: dict[str, Any]) -> None:
+    db_path = _event_db_path()
+    if db_path is not None:
+        _append_event_record_sqlite(
+            db_path=db_path,
+            bus_seq=bus_seq,
+            event=event,
+        )
+        return
     path = _event_log_path()
     if path is None:
         return
@@ -38,6 +77,33 @@ def append_event_record(*, bus_seq: int, event: dict[str, Any]) -> None:
         with path.open("a", encoding="utf-8") as handle:
             handle.write(line)
             handle.write("\n")
+
+
+def _append_event_record_sqlite(*, db_path: Path, bus_seq: int, event: dict[str, Any]) -> None:
+    payload = json.dumps(
+        {
+            "memory_bus_seq": int(bus_seq),
+            "event": dict(event),
+        },
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+    created_at = datetime.now(timezone.utc).isoformat()
+    with _FILE_LOCK:
+        _ensure_event_db_schema(db_path)
+        with _connect_event_db(db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO runtime_gateway_events (
+                    memory_bus_seq,
+                    event_json,
+                    created_at
+                )
+                VALUES (?, ?, ?)
+                """,
+                (int(bus_seq), payload, created_at),
+            )
+            conn.commit()
 
 
 def read_event_page(
@@ -60,8 +126,13 @@ def read_event_page(
             "stats": {"connections": 0, "buffered_events": 0, "next_seq": 1},
         }
 
-    path = _event_log_path()
-    records = _read_records_from_file(path)
+    db_path = _event_db_path()
+    if db_path is not None:
+        records = _read_records_from_db(db_path)
+    else:
+        path = _event_log_path()
+        records = _read_records_from_file(path)
+
     filtered = [
         record
         for record in records
@@ -99,6 +170,40 @@ def read_event_page(
         "has_more": has_more,
         "stats": stats,
     }
+
+
+def _read_records_from_db(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    with _FILE_LOCK:
+        _ensure_event_db_schema(path)
+        with _connect_event_db(path) as conn:
+            rows = conn.execute(
+                """
+                SELECT bus_seq, event_json
+                FROM runtime_gateway_events
+                ORDER BY bus_seq ASC
+                """
+            ).fetchall()
+    records: list[dict[str, Any]] = []
+    for row in rows:
+        bus_seq = row[0]
+        raw_payload = row[1]
+        if not isinstance(bus_seq, int) or bus_seq < 1:
+            continue
+        if not isinstance(raw_payload, str) or not raw_payload:
+            continue
+        try:
+            value = json.loads(raw_payload)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(value, dict):
+            continue
+        event = value.get("event")
+        if not isinstance(event, dict):
+            continue
+        records.append({"bus_seq": int(bus_seq), "event": event})
+    return records
 
 
 def _read_records_from_file(path: Path | None = None) -> list[dict[str, Any]]:

@@ -21,6 +21,7 @@ class AuditEmitterTests(unittest.TestCase):
     def setUp(self) -> None:
         clear_audit_events()
         os.environ.pop("RUNTIME_GATEWAY_AUDIT_LOG_PATH", None)
+        os.environ.pop("RUNTIME_GATEWAY_AUDIT_DB_PATH", None)
 
     def test_emit_and_read_events(self) -> None:
         event = emit_audit_event(
@@ -45,6 +46,16 @@ class AuditEmitterTests(unittest.TestCase):
             items = read_audit_log()
             self.assertEqual(len(items), 1)
             self.assertEqual(items[0]["action"], "runs.create")
+
+    def test_emit_persists_to_durable_audit_db(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = os.path.join(tmp, "audit", "events.sqlite")
+            os.environ["RUNTIME_GATEWAY_AUDIT_DB_PATH"] = db_path
+            emit_audit_event(action="runs.cancel", decision="deny", actor_id="user:u2")
+            items = read_audit_log()
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0]["action"], "runs.cancel")
+            self.assertEqual(items[0]["decision"], "deny")
 
 
 if __name__ == "__main__":

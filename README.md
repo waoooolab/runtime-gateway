@@ -47,6 +47,8 @@ Validation and auth notes:
 - `/v1/orchestration/worker:tick` and `/v1/orchestration/worker:drain` forward
   to runtime-execution through delegated service tokens (`runs:write`)
 - auth and run actions emit audit events in memory, and optionally to file via `RUNTIME_GATEWAY_AUDIT_LOG_PATH`
+- audit/events durable storage now also supports optional SQLite paths:
+  `RUNTIME_GATEWAY_AUDIT_DB_PATH` and `RUNTIME_GATEWAY_EVENT_DB_PATH`
 - gateway currently forwards runtime workload route semantics
   (`execution_mode=control|compute`) and consumes `execution_context.executor`
   as an ingress compatibility gate (not as dispatch target selector)
