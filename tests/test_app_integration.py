@@ -396,6 +396,26 @@ class AppIntegrationTests(unittest.TestCase):
             ttl_seconds=300,
         )
 
+    def _event_publish_envelope(
+        self,
+        *,
+        event_id: str,
+        event_type: str,
+        correlation_id: str,
+        payload: dict,
+    ) -> dict:
+        return {
+            "event_id": event_id,
+            "event_type": event_type,
+            "tenant_id": "t1",
+            "app_id": "covernow",
+            "session_key": "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+            "trace_id": "trace-1",
+            "correlation_id": correlation_id,
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "payload": payload,
+        }
+
     def test_runs_requires_bearer_token(self) -> None:
         response = self.client.post("/v1/runs", json=self.payload)
         self.assertEqual(response.status_code, 401)
@@ -951,6 +971,116 @@ class AppIntegrationTests(unittest.TestCase):
         items = recent.json()["items"]
         self.assertGreaterEqual(len(items), 1)
         self.assertEqual(items[-1]["event"]["event_type"], "runtime.run.requested")
+
+    def test_events_publish_accepts_direct_completion_alias_and_normalizes(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["events:write", "events:read"])
+        envelope = self._event_publish_envelope(
+            event_id="evt-direct-completion-1",
+            event_type="direct_completion.v1",
+            correlation_id="corr-direct-completion-1",
+            payload={
+                "schema_version": "direct_completion.v1",
+                "task_id": "TASK-ACK-003",
+                "provider": "claude",
+                "request_id": "owa:req:ack-003",
+                "request_state": "completed",
+                "ack_stage": "completed",
+                "idempotency_key": "TASK-ACK-003:r0:a1",
+                "completed_at": "2026-03-23T12:00:00+00:00",
+                "callback_at": "2026-03-23T12:00:01+00:00",
+            },
+        )
+
+        publish = self.client.post(
+            "/v1/events/publish",
+            json=envelope,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(publish.status_code, 200)
+        publish_payload = publish.json()
+        self.assertEqual(publish_payload["accepted"], True)
+        self.assertEqual(publish_payload["event_type"], "runtime.run.direct.completion")
+        self.assertEqual(publish_payload["original_event_type"], "direct_completion.v1")
+
+        recent = self.client.get(
+            "/v1/events/recent",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(recent.status_code, 200)
+        items = recent.json()["items"]
+        self.assertEqual(len(items), 1)
+        event = items[-1]["event"]
+        self.assertEqual(event["event_type"], "runtime.run.direct.completion")
+        self.assertEqual(event["payload"]["source_event_type"], "direct_completion.v1")
+        self.assertEqual(event["payload"]["task_id"], "TASK-ACK-003")
+
+    def test_events_publish_accepts_direct_audit_alias_with_runtime_event_hint(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["events:write", "events:read"])
+        envelope = self._event_publish_envelope(
+            event_id="evt-direct-audit-1",
+            event_type="direct_audit.v1",
+            correlation_id="corr-direct-audit-1",
+            payload={
+                "schema_version": "direct_audit.v1",
+                "event_type": "dispatch_sent",
+                "runtime_event_type": "runtime.run.direct.audit.dispatch_sent",
+                "task_id": "TASK-AUDIT-001",
+                "provider": "codex",
+                "request_id": "owa:req:audit-001",
+                "ack_stage": "sent",
+                "idempotency_key": "TASK-AUDIT-001:r0:a1",
+                "reason_code": "dispatch_sent",
+            },
+        )
+
+        publish = self.client.post(
+            "/v1/events/publish",
+            json=envelope,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(publish.status_code, 200)
+        publish_payload = publish.json()
+        self.assertEqual(publish_payload["event_type"], "runtime.run.direct.audit.dispatch_sent")
+        self.assertEqual(publish_payload["original_event_type"], "direct_audit.v1")
+
+        recent = self.client.get(
+            "/v1/events/recent",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(recent.status_code, 200)
+        items = recent.json()["items"]
+        self.assertEqual(len(items), 1)
+        event = items[-1]["event"]
+        self.assertEqual(event["event_type"], "runtime.run.direct.audit.dispatch_sent")
+        self.assertEqual(event["payload"]["source_event_type"], "direct_audit.v1")
+        self.assertEqual(
+            event["payload"]["runtime_event_type"],
+            "runtime.run.direct.audit.dispatch_sent",
+        )
+
+    def test_events_publish_rejects_unknown_direct_alias_event_type(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["events:write", "events:read"])
+        envelope = self._event_publish_envelope(
+            event_id="evt-direct-unknown-1",
+            event_type="direct_unknown.v1",
+            correlation_id="corr-direct-unknown-1",
+            payload={"schema_version": "direct_unknown.v1"},
+        )
+
+        publish = self.client.post(
+            "/v1/events/publish",
+            json=envelope,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(publish.status_code, 422)
+        self.assertIn("event type not publishable", str(publish.json().get("detail", "")))
+
+        recent = self.client.get(
+            "/v1/events/recent",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(recent.status_code, 200)
+        self.assertEqual(recent.json()["items"], [])
 
     @patch("runtime_gateway.app.read_event_page")
     def test_recent_events_durable_keeps_next_cursor_monotonic(self, mock_read_event_page) -> None:

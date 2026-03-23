@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -41,6 +42,11 @@ app = FastAPI(title="runtime-gateway", version="0.1.0")
 _execution_client = RuntimeExecutionClient()
 _event_bus = InMemoryEventBus()
 _VALID_CONTROL_OUTCOMES = {"dispatch", "queue", "defer", "reject"}
+_DIRECT_COMPLETION_ALIAS_EVENT_TYPE = "direct_completion.v1"
+_DIRECT_AUDIT_ALIAS_EVENT_TYPE = "direct_audit.v1"
+_DIRECT_COMPLETION_RUNTIME_EVENT_TYPE = "runtime.run.direct.completion"
+_DIRECT_AUDIT_RUNTIME_EVENT_PREFIX = "runtime.run.direct.audit."
+_DIRECT_AUDIT_EVENT_SUFFIX_SANITIZE = re.compile(r"[^a-z0-9_.-]+")
 
 
 def _publish_gateway_event(event: dict[str, Any]) -> int | None:
@@ -50,6 +56,49 @@ def _publish_gateway_event(event: dict[str, Any]) -> int | None:
     bus_seq = _event_bus.publish(event)
     append_event_record(bus_seq=bus_seq, event=event)
     return bus_seq
+
+
+def _sanitize_direct_audit_suffix(raw_suffix: str) -> str:
+    normalized = _DIRECT_AUDIT_EVENT_SUFFIX_SANITIZE.sub("_", raw_suffix.strip().lower()).strip("._-")
+    if not normalized:
+        return "unknown"
+    return normalized
+
+
+def _normalize_direct_alias_envelope(
+    envelope: dict[str, Any],
+) -> tuple[dict[str, Any], str | None]:
+    source_event_type = str(envelope.get("event_type", "")).strip()
+    if not source_event_type or allowed_event_type(source_event_type):
+        return envelope, None
+
+    normalized_event_type = ""
+    if source_event_type == _DIRECT_COMPLETION_ALIAS_EVENT_TYPE:
+        normalized_event_type = _DIRECT_COMPLETION_RUNTIME_EVENT_TYPE
+    elif source_event_type == _DIRECT_AUDIT_ALIAS_EVENT_TYPE:
+        payload = envelope.get("payload")
+        runtime_event_hint = ""
+        payload_event_type = ""
+        if isinstance(payload, dict):
+            runtime_event_hint = str(payload.get("runtime_event_type", "")).strip()
+            payload_event_type = str(payload.get("event_type", "")).strip()
+        if runtime_event_hint.startswith(_DIRECT_AUDIT_RUNTIME_EVENT_PREFIX):
+            normalized_event_type = runtime_event_hint
+        else:
+            normalized_event_type = (
+                f"{_DIRECT_AUDIT_RUNTIME_EVENT_PREFIX}{_sanitize_direct_audit_suffix(payload_event_type)}"
+            )
+    if not normalized_event_type:
+        return envelope, None
+
+    normalized_envelope = dict(envelope)
+    normalized_envelope["event_type"] = normalized_event_type
+    payload = normalized_envelope.get("payload")
+    if isinstance(payload, dict):
+        normalized_payload = dict(payload)
+        normalized_payload.setdefault("source_event_type", source_event_type)
+        normalized_envelope["payload"] = normalized_payload
+    return normalized_envelope, source_event_type
 
 
 def _scope_filter_or_forbid(
@@ -625,28 +674,36 @@ def publish_event(
         )
         raise HTTPException(status_code=403, detail="app_id must match token claim")
 
-    event_type = str(envelope.get("event_type", ""))
+    normalized_envelope, original_event_type = _normalize_direct_alias_envelope(envelope)
+
+    event_type = str(normalized_envelope.get("event_type", ""))
     if not allowed_event_type(event_type):
         raise HTTPException(status_code=422, detail=f"event type not publishable: {event_type}")
 
-    bus_seq = _publish_gateway_event(envelope)
+    bus_seq = _publish_gateway_event(normalized_envelope)
+    audit_metadata = {
+        "event_type": event_type,
+        "event_id": normalized_envelope.get("event_id"),
+        "bus_seq": bus_seq,
+    }
+    if original_event_type is not None:
+        audit_metadata["source_event_type"] = original_event_type
     emit_audit_event(
         action="events.publish",
         decision="allow",
         actor_id=str(auth_context.claims.get("sub", "unknown")),
         trace_id=str(auth_context.claims.get("trace_id", "")),
-        metadata={
-            "event_type": event_type,
-            "event_id": envelope.get("event_id"),
-            "bus_seq": bus_seq,
-        },
+        metadata=audit_metadata,
     )
-    return {
+    response_payload = {
         "accepted": True,
         "bus_seq": bus_seq,
-        "event_id": envelope.get("event_id"),
+        "event_id": normalized_envelope.get("event_id"),
         "event_type": event_type,
     }
+    if original_event_type is not None:
+        response_payload["original_event_type"] = original_event_type
+    return response_payload
 
 
 @app.websocket("/v1/ws/events")
