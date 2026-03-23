@@ -63,6 +63,8 @@ Required environment:
 Testing:
 - `tests/test_app_integration.py` covers HTTP auth rejections and valid run creation path.
 - `tests/test_e2e_run_flow.py` covers cross-service run flow (`runtime-gateway -> runtime-execution`).
+- `scripts/verify_persistence_lane.sh` runs persistence-lane gated verify chain
+  (paths + durable sqlite + boundary + restart-durable checks).
 - `PYTHONPATH=src python3 scripts/verify_durable_sqlite_minimal.py` verifies
   SQLite durable read/write for runtime events and audit ledgers without
   `fastapi`/`pytest` dependency.
