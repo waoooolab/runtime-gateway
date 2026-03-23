@@ -30,6 +30,7 @@ def _event(*, run_id: str, event_type: str, ts: str) -> dict[str, object]:
 
 
 def main() -> int:
+    old_persist_root = os.environ.get("OWA_PERSIST_ROOT")
     old_event_db_path = os.environ.get("RUNTIME_GATEWAY_EVENT_DB_PATH")
     old_audit_db_path = os.environ.get("RUNTIME_GATEWAY_AUDIT_DB_PATH")
     old_event_log_path = os.environ.get("RUNTIME_GATEWAY_EVENT_LOG_PATH")
@@ -37,12 +38,9 @@ def main() -> int:
 
     try:
         with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp)
-            event_db = (base / "events" / "runtime-events.sqlite").as_posix()
-            audit_db = (base / "audit" / "runtime-audit.sqlite").as_posix()
-
-            os.environ["RUNTIME_GATEWAY_EVENT_DB_PATH"] = event_db
-            os.environ["RUNTIME_GATEWAY_AUDIT_DB_PATH"] = audit_db
+            os.environ["OWA_PERSIST_ROOT"] = tmp
+            os.environ.pop("RUNTIME_GATEWAY_EVENT_DB_PATH", None)
+            os.environ.pop("RUNTIME_GATEWAY_AUDIT_DB_PATH", None)
             os.environ.pop("RUNTIME_GATEWAY_EVENT_LOG_PATH", None)
             os.environ.pop("RUNTIME_GATEWAY_AUDIT_LOG_PATH", None)
 
@@ -85,6 +83,10 @@ def main() -> int:
             assert len(audit_items) == 1
             assert audit_items[0]["action"] == "runs.cancel"
             assert audit_items[0]["decision"] == "deny"
+            expected_event_db_path = Path(tmp) / "runtime-gateway" / "runtime-events.sqlite"
+            expected_audit_db_path = Path(tmp) / "runtime-gateway" / "runtime-audit.sqlite"
+            assert expected_event_db_path.exists()
+            assert expected_audit_db_path.exists()
 
             print(
                 "gateway_durable_sqlite_minimal_ok",
@@ -92,10 +94,16 @@ def main() -> int:
                     "event_items": len(page["items"]),
                     "event_next_seq": page["stats"]["next_seq"],
                     "audit_items": len(audit_items),
+                    "event_db_path": expected_event_db_path.as_posix(),
+                    "audit_db_path": expected_audit_db_path.as_posix(),
                 },
             )
         return 0
     finally:
+        if old_persist_root is None:
+            os.environ.pop("OWA_PERSIST_ROOT", None)
+        else:
+            os.environ["OWA_PERSIST_ROOT"] = old_persist_root
         if old_event_db_path is None:
             os.environ.pop("RUNTIME_GATEWAY_EVENT_DB_PATH", None)
         else:
