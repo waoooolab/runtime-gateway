@@ -25,6 +25,8 @@ RUNTIME_WORKER_DRAIN_SCHEMA = "runtime/runtime-worker-drain.v1.json"
 
 _VALIDATOR_CACHE: dict[str, Draft202012Validator] = {}
 _CACHE_LOCK = Lock()
+_PLATFORM_CONTRACTS_DIR_ENV = "OWA_PLATFORM_CONTRACTS_DIR"
+_PLATFORM_CONTRACTS_DIR_ENV_LEGACY = "WAOOOOLAB_PLATFORM_CONTRACTS_DIR"
 
 
 class ContractValidationError(ValueError):
@@ -32,10 +34,12 @@ class ContractValidationError(ValueError):
 
 
 def _contracts_root() -> Path:
-    configured = os.environ.get("WAOOOOLAB_PLATFORM_CONTRACTS_DIR")
+    configured = os.environ.get(_PLATFORM_CONTRACTS_DIR_ENV)
+    if configured is None:
+        configured = os.environ.get(_PLATFORM_CONTRACTS_DIR_ENV_LEGACY)
     if configured:
         return Path(configured).expanduser().resolve()
-    # runtime-gateway/src/runtime_gateway/contracts/validation.py -> waoooolab/
+    # runtime-gateway/src/runtime_gateway/contracts/validation.py -> repository root
     return Path(__file__).resolve().parents[4] / "platform-contracts"
 
 
@@ -44,8 +48,8 @@ def _schema_path(schema_relative_path: str) -> Path:
     jsonschema_root = root / "jsonschema"
     if jsonschema_root.exists():
         return jsonschema_root / schema_relative_path
-    # Compatibility mode: allow WAOOOOLAB_PLATFORM_CONTRACTS_DIR to point
-    # directly at the jsonschema root.
+    # Compatibility mode: allow OWA_PLATFORM_CONTRACTS_DIR (or legacy alias)
+    # to point directly at the jsonschema root.
     return root / schema_relative_path
 
 

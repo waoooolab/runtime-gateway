@@ -13,6 +13,8 @@ from urllib.parse import urlencode, urljoin, urlparse
 from runtime_gateway.code_terms import normalize_optional_code_term
 
 TransportCallable = Callable[..., Any]
+_REQUIRE_INTERNAL_TLS_ENV = "OWA_REQUIRE_INTERNAL_TLS"
+_REQUIRE_INTERNAL_TLS_ENV_LEGACY = "WAOOOOLAB_REQUIRE_INTERNAL_TLS"
 
 
 class RuntimeExecutionClientError(RuntimeError):
@@ -202,6 +204,12 @@ def _env_truthy(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_truthy_with_alias(*, canonical_name: str, legacy_name: str, default: bool = False) -> bool:
+    if canonical_name in os.environ:
+        return _env_truthy(canonical_name, default=default)
+    return _env_truthy(legacy_name, default=default)
+
+
 def _normalize_base_url(base_url: str, *, require_https: bool) -> str:
     normalized = base_url.strip()
     if not normalized:
@@ -216,7 +224,11 @@ def _normalize_base_url(base_url: str, *, require_https: bool) -> str:
     if require_https:
         scheme = parsed.scheme.strip().lower()
         if scheme != "https":
-            raise ValueError("RuntimeExecutionClient base_url must use https when WAOOOOLAB_REQUIRE_INTERNAL_TLS=true")
+            raise ValueError(
+                "RuntimeExecutionClient base_url must use https when "
+                f"{_REQUIRE_INTERNAL_TLS_ENV}=true "
+                f"(legacy alias: {_REQUIRE_INTERNAL_TLS_ENV_LEGACY})"
+            )
     return normalized.rstrip("/")
 
 
@@ -226,7 +238,11 @@ class RuntimeExecutionClient:
         default_factory=lambda: os.environ.get("RUNTIME_EXECUTION_BASE_URL", "http://localhost:8003")
     )
     require_https: bool = field(
-        default_factory=lambda: _env_truthy("WAOOOOLAB_REQUIRE_INTERNAL_TLS", default=False)
+        default_factory=lambda: _env_truthy_with_alias(
+            canonical_name=_REQUIRE_INTERNAL_TLS_ENV,
+            legacy_name=_REQUIRE_INTERNAL_TLS_ENV_LEGACY,
+            default=False,
+        )
     )
     timeout_seconds: float = 10.0
     _transport: TransportCallable = field(default=urllib.request.urlopen)

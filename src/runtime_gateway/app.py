@@ -47,6 +47,10 @@ _DIRECT_AUDIT_ALIAS_EVENT_TYPE = "direct_audit.v1"
 _DIRECT_COMPLETION_RUNTIME_EVENT_TYPE = "runtime.run.direct.completion"
 _DIRECT_AUDIT_RUNTIME_EVENT_PREFIX = "runtime.run.direct.audit."
 _DIRECT_AUDIT_EVENT_SUFFIX_SANITIZE = re.compile(r"[^a-z0-9_.-]+")
+_PROBE_APP_ID_DEFAULT = "owa-runtime"
+_PROBE_APP_ID_LEGACY_ALIASES = {
+    "waoooolab-runtime": _PROBE_APP_ID_DEFAULT,
+}
 
 
 def _publish_gateway_event(event: dict[str, Any]) -> int | None:
@@ -205,6 +209,13 @@ def _env_truthy(name: str, *, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _canonical_probe_app_id(raw_app_id: str) -> str:
+    normalized = raw_app_id.strip()
+    if not normalized:
+        return _PROBE_APP_ID_DEFAULT
+    return _PROBE_APP_ID_LEGACY_ALIASES.get(normalized.lower(), normalized)
+
+
 def _probe_runtime_execution_ready(*, timeout_seconds: float) -> tuple[bool, dict[str, Any]]:
     target = _runtime_execution_health_target()
     dependency: dict[str, Any] = {
@@ -272,7 +283,8 @@ def _build_runtime_gateway_readiness_payload(*, timeout_seconds: float) -> tuple
 
 def _runtime_execution_probe_claims() -> dict[str, Any]:
     tenant_id = str(os.environ.get("RUNTIME_GATEWAY_PROBE_TENANT_ID", "dev-tenant")).strip() or "dev-tenant"
-    app_id = str(os.environ.get("RUNTIME_GATEWAY_PROBE_APP_ID", "waoooolab-runtime")).strip() or "waoooolab-runtime"
+    raw_app_id = str(os.environ.get("RUNTIME_GATEWAY_PROBE_APP_ID", _PROBE_APP_ID_DEFAULT))
+    app_id = _canonical_probe_app_id(raw_app_id)
     return {
         "aud": "runtime-execution",
         "sub": "runtime-gateway:runtime-usable-probe",

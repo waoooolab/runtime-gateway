@@ -17,6 +17,8 @@ class TokenError(ValueError):
 
 
 _DEFAULT_TOKEN_SECRET = "dev-insecure-secret"
+_STRICT_TOKEN_SECRET_ENV = "OWA_STRICT_TOKEN_SECRET"
+_STRICT_TOKEN_SECRET_ENV_LEGACY = "WAOOOOLAB_STRICT_TOKEN_SECRET"
 
 
 def _env_truthy(name: str, default: bool = False) -> bool:
@@ -26,11 +28,23 @@ def _env_truthy(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_truthy_with_alias(*, canonical_name: str, legacy_name: str, default: bool = False) -> bool:
+    if canonical_name in os.environ:
+        return _env_truthy(canonical_name, default=default)
+    return _env_truthy(legacy_name, default=default)
+
+
 def _secret() -> bytes:
     value = os.environ.get("RUNTIME_GATEWAY_TOKEN_SECRET", _DEFAULT_TOKEN_SECRET)
-    if _env_truthy("WAOOOOLAB_STRICT_TOKEN_SECRET", default=False) and value == _DEFAULT_TOKEN_SECRET:
+    if _env_truthy_with_alias(
+        canonical_name=_STRICT_TOKEN_SECRET_ENV,
+        legacy_name=_STRICT_TOKEN_SECRET_ENV_LEGACY,
+        default=False,
+    ) and value == _DEFAULT_TOKEN_SECRET:
         raise TokenError(
-            "insecure default token secret is forbidden when WAOOOOLAB_STRICT_TOKEN_SECRET=true"
+            "insecure default token secret is forbidden when "
+            f"{_STRICT_TOKEN_SECRET_ENV}=true "
+            f"(legacy alias: {_STRICT_TOKEN_SECRET_ENV_LEGACY})"
         )
     return value.encode("utf-8")
 

@@ -36,10 +36,14 @@ _NON_TERMINAL_RUN_STATUSES = frozenset(
     }
 )
 _LEGACY_TERMINAL_STATUSES = frozenset({"rejected"})
+_PLATFORM_CONTRACTS_DIR_ENV = "OWA_PLATFORM_CONTRACTS_DIR"
+_PLATFORM_CONTRACTS_DIR_ENV_LEGACY = "WAOOOOLAB_PLATFORM_CONTRACTS_DIR"
 
 
 def _contracts_root() -> Path:
-    configured = os.environ.get("WAOOOOLAB_PLATFORM_CONTRACTS_DIR")
+    configured = os.environ.get(_PLATFORM_CONTRACTS_DIR_ENV)
+    if configured is None:
+        configured = os.environ.get(_PLATFORM_CONTRACTS_DIR_ENV_LEGACY)
     if configured:
         return Path(configured).expanduser().resolve()
     return Path(__file__).resolve().parents[3] / "platform-contracts"
@@ -100,4 +104,3 @@ def recommended_poll_after_ms_for_run_status(status: str | None) -> int:
     if normalized in {"requested", "queued"}:
         return 1500
     return 3000
-
