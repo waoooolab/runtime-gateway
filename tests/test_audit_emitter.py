@@ -52,6 +52,8 @@ class AuditEmitterTests(unittest.TestCase):
             db_path = os.path.join(tmp, "audit", "events.sqlite")
             os.environ["RUNTIME_GATEWAY_AUDIT_DB_PATH"] = db_path
             emit_audit_event(action="runs.cancel", decision="deny", actor_id="user:u2")
+            clear_audit_events()
+            self.assertEqual(get_audit_events(), [])
             items = read_audit_log()
             self.assertEqual(len(items), 1)
             self.assertEqual(items[0]["action"], "runs.cancel")
