@@ -19,8 +19,10 @@ from .run_control import (
 from .run_dispatch import dispatch_create_run
 from .run_lease import dispatch_get_run_lease
 from .run_scheduler import (
+    dispatch_scheduler_cancel,
     dispatch_scheduler_enqueue,
     dispatch_scheduler_health,
+    dispatch_scheduler_registry,
     dispatch_scheduler_tick,
 )
 from .run_status import dispatch_get_run_status
@@ -406,6 +408,41 @@ def _register_scheduler_routes(
             claims=auth_context.claims,
             subject_token=auth_context.subject_token,
             execution_client=get_execution_client(),
+        )
+
+    @app.get("/v1/orchestration/scheduler:registry")
+    def scheduler_registry(
+        limit: int = 100,
+        cursor: int = 0,
+        run_id: str | None = None,
+        auth_context: AuthContext = Depends(require_runs_read_context),
+    ) -> dict[str, Any]:
+        return dispatch_scheduler_registry(
+            claims=auth_context.claims,
+            subject_token=auth_context.subject_token,
+            execution_client=get_execution_client(),
+            limit=limit,
+            cursor=cursor,
+            run_id=run_id,
+        )
+
+    @app.post("/v1/orchestration/scheduler:cancel")
+    def scheduler_cancel(
+        body: dict[str, Any] | None = None,
+        auth_context: AuthContext = Depends(require_runs_write_context),
+    ) -> dict[str, Any]:
+        payload = body or {}
+        run_id = str(payload.get("run_id", "")).strip()
+        if not run_id:
+            raise HTTPException(status_code=422, detail="run_id is required")
+        reason_value = payload.get("reason")
+        reason = str(reason_value).strip() if isinstance(reason_value, str) else None
+        return dispatch_scheduler_cancel(
+            claims=auth_context.claims,
+            subject_token=auth_context.subject_token,
+            execution_client=get_execution_client(),
+            run_id=run_id,
+            reason=reason or None,
         )
 
 

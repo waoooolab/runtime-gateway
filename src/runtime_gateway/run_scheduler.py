@@ -84,6 +84,13 @@ def _build_scheduler_error_detail(
         "next_due_in_ms",
         "should_continue",
         "recommended_poll_after_ms",
+        "canceled",
+        "canceled_count",
+        "matched_entries",
+        "cursor",
+        "next_cursor",
+        "has_more",
+        "scheduler_depth",
     ):
         value = response_body.get(key)
         if value is not None:
@@ -134,6 +141,13 @@ def _build_scheduler_error_audit_metadata(
         "recommended_poll_after_ms",
         "misfired_total",
         "rescheduled_total",
+        "canceled",
+        "canceled_count",
+        "matched_entries",
+        "cursor",
+        "next_cursor",
+        "has_more",
+        "scheduler_depth",
     ):
         value = response_body.get(key)
         if value is not None:
@@ -303,6 +317,94 @@ def dispatch_scheduler_health(
     )
     try:
         result = execution_client.scheduler_health(auth_token=token)
+    except RuntimeExecutionClientError as exc:
+        resolved_status, detail, metadata = _resolve_scheduler_error_context(exc)
+        emit_audit_event(
+            action=action,
+            decision="deny",
+            actor_id=actor_id,
+            trace_id=trace_id,
+            metadata=metadata,
+        )
+        raise HTTPException(status_code=resolved_status, detail=detail) from exc
+    emit_audit_event(
+        action=action,
+        decision="allow",
+        actor_id=actor_id,
+        trace_id=trace_id,
+        metadata={"result": result},
+    )
+    return result
+
+
+def dispatch_scheduler_registry(
+    *,
+    claims: Mapping[str, Any],
+    subject_token: str,
+    execution_client: RuntimeExecutionClient,
+    limit: int = 100,
+    cursor: int = 0,
+    run_id: str | None = None,
+) -> dict[str, Any]:
+    action = "orchestration.scheduler_registry"
+    trace_id = str(claims.get("trace_id", ""))
+    actor_id = str(claims.get("sub", "unknown"))
+    token = _exchange_runtime_execution_token(
+        action=action,
+        claims=claims,
+        subject_token=subject_token,
+        scope=["runs:read"],
+    )
+    try:
+        result = execution_client.scheduler_registry(
+            auth_token=token,
+            limit=limit,
+            cursor=cursor,
+            run_id=run_id,
+        )
+    except RuntimeExecutionClientError as exc:
+        resolved_status, detail, metadata = _resolve_scheduler_error_context(exc)
+        emit_audit_event(
+            action=action,
+            decision="deny",
+            actor_id=actor_id,
+            trace_id=trace_id,
+            metadata=metadata,
+        )
+        raise HTTPException(status_code=resolved_status, detail=detail) from exc
+    emit_audit_event(
+        action=action,
+        decision="allow",
+        actor_id=actor_id,
+        trace_id=trace_id,
+        metadata={"result": result},
+    )
+    return result
+
+
+def dispatch_scheduler_cancel(
+    *,
+    claims: Mapping[str, Any],
+    subject_token: str,
+    execution_client: RuntimeExecutionClient,
+    run_id: str,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    action = "orchestration.scheduler_cancel"
+    trace_id = str(claims.get("trace_id", ""))
+    actor_id = str(claims.get("sub", "unknown"))
+    token = _exchange_runtime_execution_token(
+        action=action,
+        claims=claims,
+        subject_token=subject_token,
+        scope=["runs:write"],
+    )
+    try:
+        result = execution_client.scheduler_cancel(
+            auth_token=token,
+            run_id=run_id,
+            reason=reason,
+        )
     except RuntimeExecutionClientError as exc:
         resolved_status, detail, metadata = _resolve_scheduler_error_context(exc)
         emit_audit_event(

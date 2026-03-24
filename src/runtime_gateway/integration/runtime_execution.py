@@ -590,6 +590,42 @@ class RuntimeExecutionClient:
             auth_token=auth_token,
         )
 
+    def scheduler_registry(
+        self,
+        *,
+        auth_token: str,
+        limit: int = 100,
+        cursor: int = 0,
+        run_id: str | None = None,
+    ) -> dict[str, Any]:
+        query: dict[str, Any] = {
+            "limit": limit,
+            "cursor": cursor,
+        }
+        if run_id is not None:
+            query["run_id"] = run_id
+        return self._get_json(
+            path="v1/orchestration/scheduler:registry",
+            auth_token=auth_token,
+            query=query,
+        )
+
+    def scheduler_cancel(
+        self,
+        *,
+        auth_token: str,
+        run_id: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"run_id": run_id}
+        if reason is not None:
+            body["reason"] = reason
+        return self._post_json(
+            path="v1/orchestration/scheduler:cancel",
+            auth_token=auth_token,
+            body=body,
+        )
+
     def get_run_status(
         self,
         *,

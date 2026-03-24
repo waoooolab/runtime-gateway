@@ -131,6 +131,58 @@ def test_scheduler_enqueue_tick_health_happy_path(
     mock_execution_client.scheduler_health.assert_called_once_with(auth_token="delegated-token")
 
 
+def test_scheduler_registry_and_cancel_happy_path(
+    mock_execution_client: Mock,
+    mock_token_exchange: Mock,
+    auth_headers: dict[str, str],
+    read_auth_headers: dict[str, str],
+) -> None:
+    _ = mock_token_exchange
+    mock_execution_client.scheduler_registry.return_value = {
+        "items": [{"schedule_id": "sched-run-1-0", "run_id": "run-1"}],
+        "matched_entries": 1,
+        "cursor": 0,
+        "next_cursor": 1,
+        "has_more": False,
+        "scheduler_depth": 1,
+        "recommended_poll_after_ms": 1500,
+    }
+    mock_execution_client.scheduler_cancel.return_value = {
+        "run_id": "run-1",
+        "canceled": True,
+        "canceled_count": 1,
+        "scheduler_depth": 0,
+        "recommended_poll_after_ms": 5000,
+    }
+    client = TestClient(app)
+
+    registry = client.get(
+        "/v1/orchestration/scheduler:registry?limit=20&cursor=0&run_id=run-1",
+        headers=read_auth_headers,
+    )
+    assert registry.status_code == 200
+    assert registry.json()["matched_entries"] == 1
+    mock_execution_client.scheduler_registry.assert_called_once_with(
+        auth_token="delegated-token",
+        limit=20,
+        cursor=0,
+        run_id="run-1",
+    )
+
+    cancel = client.post(
+        "/v1/orchestration/scheduler:cancel",
+        json={"run_id": "run-1", "reason": "operator-cancel"},
+        headers=auth_headers,
+    )
+    assert cancel.status_code == 200
+    assert cancel.json()["canceled"] is True
+    mock_execution_client.scheduler_cancel.assert_called_once_with(
+        auth_token="delegated-token",
+        run_id="run-1",
+        reason="operator-cancel",
+    )
+
+
 def test_scheduler_tick_downstream_4xx_error_is_structured(
     mock_execution_client: Mock,
     mock_token_exchange: Mock,
@@ -270,6 +322,8 @@ def test_scheduler_endpoints_require_bearer_token() -> None:
     assert client.post("/v1/orchestration/scheduler:enqueue", json={"run_id": "run-1"}).status_code == 401
     assert client.post("/v1/orchestration/scheduler:tick").status_code == 401
     assert client.get("/v1/orchestration/scheduler:health").status_code == 401
+    assert client.get("/v1/orchestration/scheduler:registry").status_code == 401
+    assert client.post("/v1/orchestration/scheduler:cancel", json={"run_id": "run-1"}).status_code == 401
 
 
 def test_scheduler_endpoints_scope_requirements() -> None:
@@ -290,6 +344,16 @@ def test_scheduler_endpoints_scope_requirements() -> None:
 
     health = client.get("/v1/orchestration/scheduler:health", headers=write_headers)
     assert health.status_code == 403
+
+    registry = client.get("/v1/orchestration/scheduler:registry", headers=write_headers)
+    assert registry.status_code == 403
+
+    cancel = client.post(
+        "/v1/orchestration/scheduler:cancel",
+        json={"run_id": "run-1"},
+        headers=read_headers,
+    )
+    assert cancel.status_code == 403
 
 
 def test_scheduler_enqueue_forwards_misfire_and_cron_settings(
