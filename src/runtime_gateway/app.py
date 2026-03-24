@@ -9,7 +9,7 @@ import re
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, AsyncIterator
 
 from fastapi import Depends, FastAPI, HTTPException, Header, Query, Request, WebSocket
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -825,7 +825,7 @@ async def stream_events_sse(
     )
     retry_ms = max(500, int(poll_interval_ms))
 
-    async def _stream() -> Any:
+    async def _stream() -> AsyncIterator[str]:
         stream_source = source_value
         next_cursor = max(0, int(cursor))
         ready_payload: dict[str, Any] = {
