@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -10,11 +11,11 @@ import urllib.request
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
-from fastapi.responses import JSONResponse
+from fastapi import Depends, FastAPI, HTTPException, Header, Query, Request, WebSocket
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from .api.schemas import TokenExchangeRequest, TokenExchangeResponse
-from .auth.tokens import issue_token
+from .auth.tokens import TokenError, issue_token, verify_token
 from .audit.emitter import emit_audit_event, get_audit_events, read_audit_log
 from .contracts import (
     ContractValidationError,
@@ -29,11 +30,14 @@ from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
 from .routes_capabilities import register_capability_routes
 from .routes_runs import register_run_routes
 from .security import (
+    EVENT_SCOPE_READ,
     AuthContext,
     allowed_event_type,
     require_events_read_context,
     require_events_write_context,
     require_runs_read_context,
+    scope_contains,
+    validate_required_claims,
 )
 from .token_exchange_api import token_exchange_response
 from .ws_events import handle_websocket_events
@@ -179,6 +183,192 @@ def _parse_optional_ts_or_raise(raw_ts: str | None, *, field_name: str) -> datet
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed
+
+
+def _parse_event_types_or_none(raw_event_types: str | None) -> set[str] | None:
+    if raw_event_types is None:
+        return None
+    parsed = {item.strip() for item in raw_event_types.split(",") if item.strip()}
+    if not parsed:
+        return None
+    return parsed
+
+
+def _parse_source_or_raise(raw_source: str) -> str:
+    normalized = raw_source.strip().lower()
+    if normalized not in {"memory", "durable"}:
+        raise HTTPException(status_code=422, detail="source must be one of: memory, durable")
+    return normalized
+
+
+def _resolve_events_read_auth_context(
+    *,
+    authorization: str | None,
+    access_token: str | None,
+) -> AuthContext:
+    raw_access_token = (access_token or "").strip()
+    if not raw_access_token:
+        return require_events_read_context(authorization=authorization)
+    try:
+        claims = verify_token(raw_access_token, audience="runtime-gateway")
+        validate_required_claims(claims)
+    except TokenError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    if not scope_contains(claims, EVENT_SCOPE_READ):
+        raise HTTPException(status_code=403, detail="missing required scope for event read")
+    return AuthContext(claims=claims, subject_token=raw_access_token)
+
+
+def _resolve_event_read_filters(
+    *,
+    auth_context: AuthContext,
+    source: str,
+    tenant_id: str | None,
+    app_id: str | None,
+    session_key: str | None,
+    event_types: str | None,
+    run_id: str | None,
+    since_ts: str | None,
+    until_ts: str | None,
+) -> tuple[
+    str,
+    str,
+    str | None,
+    set[str] | None,
+    str | None,
+    str,
+    datetime | None,
+    datetime | None,
+]:
+    claims = auth_context.claims
+    effective_tenant = _scope_filter_or_forbid(
+        field="tenant_id",
+        query_value=tenant_id,
+        claim_value=str(claims.get("tenant_id", "")),
+    )
+    effective_app = _scope_filter_or_forbid(
+        field="app_id",
+        query_value=app_id,
+        claim_value=str(claims.get("app_id", "")),
+    )
+    effective_session_key = _optional_scope_filter_or_forbid(
+        field="session_key",
+        query_value=session_key,
+        claim_value=str(claims.get("session_key", "")),
+    )
+    parsed_types = _parse_event_types_or_none(event_types)
+    source_value = _parse_source_or_raise(source)
+    parsed_since_ts = _parse_optional_ts_or_raise(since_ts, field_name="since_ts")
+    parsed_until_ts = _parse_optional_ts_or_raise(until_ts, field_name="until_ts")
+    if (
+        parsed_since_ts is not None
+        and parsed_until_ts is not None
+        and parsed_since_ts > parsed_until_ts
+    ):
+        raise HTTPException(status_code=422, detail="since_ts must be <= until_ts")
+    run_filter = (run_id or "").strip() or None
+    return (
+        effective_tenant,
+        effective_app,
+        effective_session_key,
+        parsed_types,
+        run_filter,
+        source_value,
+        parsed_since_ts,
+        parsed_until_ts,
+    )
+
+
+def _read_event_chunk(
+    *,
+    source: str,
+    limit: int,
+    tenant_id: str,
+    app_id: str,
+    session_key: str | None,
+    event_types: set[str] | None,
+    run_id: str | None,
+    cursor: int | None,
+    since_ts: datetime | None,
+    until_ts: datetime | None,
+) -> tuple[list[dict[str, Any]], bool, int, dict[str, Any]]:
+    if source == "memory":
+        if cursor is None:
+            window = _event_bus.recent(
+                limit=limit + 1,
+                tenant_id=tenant_id or None,
+                app_id=app_id or None,
+                session_key=session_key,
+                event_types=event_types,
+                run_id=run_id,
+                since_ts=since_ts,
+                until_ts=until_ts,
+            )
+            has_more = len(window) > limit
+            items = window[-limit:]
+        else:
+            window = _event_bus.since(
+                cursor=cursor,
+                tenant_id=tenant_id or None,
+                app_id=app_id or None,
+                session_key=session_key,
+                event_types=event_types,
+                run_id=run_id,
+                since_ts=since_ts,
+                until_ts=until_ts,
+            )[: limit + 1]
+            has_more = len(window) > limit
+            items = window[:limit]
+        next_cursor = cursor if cursor is not None else 0
+        if items:
+            next_cursor = int(items[-1]["bus_seq"])
+        normalized_cursor = _normalize_next_cursor(
+            requested_cursor=cursor,
+            resolved_next_cursor=next_cursor,
+        )
+        return items, has_more, normalized_cursor, _event_bus.stats()
+
+    durable_page = read_event_page(
+        limit=limit,
+        tenant_id=tenant_id or None,
+        app_id=app_id or None,
+        session_key=session_key,
+        event_types=event_types,
+        run_id=run_id,
+        since_ts=since_ts,
+        until_ts=until_ts,
+        cursor=cursor,
+    )
+    normalized_cursor = _normalize_next_cursor(
+        requested_cursor=cursor,
+        resolved_next_cursor=int(durable_page["next_cursor"]),
+    )
+    return (
+        list(durable_page["items"]),
+        bool(durable_page["has_more"]),
+        normalized_cursor,
+        dict(durable_page["stats"]),
+    )
+
+
+def _sse_frame(
+    *,
+    payload: dict[str, Any],
+    event: str,
+    cursor: int | None = None,
+    retry_ms: int | None = None,
+) -> str:
+    lines: list[str] = []
+    if retry_ms is not None:
+        lines.append(f"retry: {int(retry_ms)}")
+    lines.append(f"event: {event}")
+    if cursor is not None:
+        lines.append(f"id: {int(cursor)}")
+    body = json.dumps(payload, separators=(",", ":"))
+    for chunk in body.splitlines() or [body]:
+        lines.append(f"data: {chunk}")
+    lines.append("")
+    return "\n".join(lines) + "\n"
 
 
 def _runtime_execution_health_target() -> str:
@@ -540,92 +730,38 @@ def list_recent_events(
     until_ts: str | None = Query(default=None),
     auth_context: AuthContext = Depends(require_events_read_context),
 ) -> dict:
-    claims = auth_context.claims
-    effective_tenant = _scope_filter_or_forbid(
-        field="tenant_id",
-        query_value=tenant_id,
-        claim_value=str(claims.get("tenant_id", "")),
+    (
+        effective_tenant,
+        effective_app,
+        effective_session_key,
+        parsed_types,
+        run_filter,
+        source_value,
+        parsed_since_ts,
+        parsed_until_ts,
+    ) = _resolve_event_read_filters(
+        auth_context=auth_context,
+        source=source,
+        tenant_id=tenant_id,
+        app_id=app_id,
+        session_key=session_key,
+        event_types=event_types,
+        run_id=run_id,
+        since_ts=since_ts,
+        until_ts=until_ts,
     )
-    effective_app = _scope_filter_or_forbid(
-        field="app_id",
-        query_value=app_id,
-        claim_value=str(claims.get("app_id", "")),
+    items, has_more, next_cursor, stats = _read_event_chunk(
+        source=source_value,
+        limit=limit,
+        tenant_id=effective_tenant,
+        app_id=effective_app,
+        session_key=effective_session_key,
+        event_types=parsed_types,
+        run_id=run_filter,
+        cursor=cursor,
+        since_ts=parsed_since_ts,
+        until_ts=parsed_until_ts,
     )
-    effective_session_key = _optional_scope_filter_or_forbid(
-        field="session_key",
-        query_value=session_key,
-        claim_value=str(claims.get("session_key", "")),
-    )
-    parsed_types = (
-        {item.strip() for item in event_types.split(",") if item.strip()}
-        if event_types is not None
-        else None
-    )
-    source_value = source.strip().lower()
-    if source_value not in {"memory", "durable"}:
-        raise HTTPException(status_code=422, detail="source must be one of: memory, durable")
-    parsed_since_ts = _parse_optional_ts_or_raise(since_ts, field_name="since_ts")
-    parsed_until_ts = _parse_optional_ts_or_raise(until_ts, field_name="until_ts")
-    if (
-        parsed_since_ts is not None
-        and parsed_until_ts is not None
-        and parsed_since_ts > parsed_until_ts
-    ):
-        raise HTTPException(status_code=422, detail="since_ts must be <= until_ts")
-    if source_value == "memory":
-        if cursor is None:
-            window = _event_bus.recent(
-                limit=limit + 1,
-                tenant_id=effective_tenant or None,
-                app_id=effective_app or None,
-                session_key=effective_session_key,
-                event_types=parsed_types,
-                run_id=run_id,
-                since_ts=parsed_since_ts,
-                until_ts=parsed_until_ts,
-            )
-            has_more = len(window) > limit
-            items = window[-limit:]
-        else:
-            window = _event_bus.since(
-                cursor=cursor,
-                tenant_id=effective_tenant or None,
-                app_id=effective_app or None,
-                session_key=effective_session_key,
-                event_types=parsed_types,
-                run_id=run_id,
-                since_ts=parsed_since_ts,
-                until_ts=parsed_until_ts,
-            )[: limit + 1]
-            has_more = len(window) > limit
-            items = window[:limit]
-        next_cursor = cursor if cursor is not None else 0
-        if items:
-            next_cursor = int(items[-1]["bus_seq"])
-        next_cursor = _normalize_next_cursor(
-            requested_cursor=cursor,
-            resolved_next_cursor=next_cursor,
-        )
-        stats = _event_bus.stats()
-    else:
-        durable_page = read_event_page(
-            limit=limit,
-            tenant_id=effective_tenant or None,
-            app_id=effective_app or None,
-            session_key=effective_session_key,
-            event_types=parsed_types,
-            run_id=run_id,
-            since_ts=parsed_since_ts,
-            until_ts=parsed_until_ts,
-            cursor=cursor,
-        )
-        items = durable_page["items"]
-        has_more = bool(durable_page["has_more"])
-        next_cursor = _normalize_next_cursor(
-            requested_cursor=cursor,
-            resolved_next_cursor=int(durable_page["next_cursor"]),
-        )
-        stats = dict(durable_page["stats"])
     recommended_poll_after_ms = _recommended_poll_after_ms_for_recent_events(
         has_more=has_more,
         item_count=len(items),
@@ -643,6 +779,155 @@ def list_recent_events(
     except ContractValidationError as exc:
         raise HTTPException(status_code=500, detail=f"invalid recent events response: {exc}") from exc
     return response_payload
+
+
+@app.get("/v1/events/sse")
+async def stream_events_sse(
+    request: Request,
+    limit: int = Query(default=200, ge=1, le=500),
+    source: str = Query(default="memory"),
+    tenant_id: str | None = None,
+    app_id: str | None = None,
+    session_key: str | None = None,
+    event_types: str | None = None,
+    run_id: str | None = None,
+    cursor: int = Query(default=0, ge=0),
+    since_ts: str | None = Query(default=None),
+    until_ts: str | None = Query(default=None),
+    follow: bool = Query(default=True),
+    poll_interval_ms: int = Query(default=1000, ge=200, le=10000),
+    access_token: str | None = Query(default=None),
+    authorization: str | None = Header(default=None),
+) -> StreamingResponse:
+    auth_context = _resolve_events_read_auth_context(
+        authorization=authorization,
+        access_token=access_token,
+    )
+    (
+        effective_tenant,
+        effective_app,
+        effective_session_key,
+        parsed_types,
+        run_filter,
+        source_value,
+        parsed_since_ts,
+        parsed_until_ts,
+    ) = _resolve_event_read_filters(
+        auth_context=auth_context,
+        source=source,
+        tenant_id=tenant_id,
+        app_id=app_id,
+        session_key=session_key,
+        event_types=event_types,
+        run_id=run_id,
+        since_ts=since_ts,
+        until_ts=until_ts,
+    )
+    retry_ms = max(500, int(poll_interval_ms))
+
+    async def _stream() -> Any:
+        stream_source = source_value
+        next_cursor = max(0, int(cursor))
+        ready_payload: dict[str, Any] = {
+            "kind": "sse.ready",
+            "cursor": next_cursor,
+            "source": stream_source,
+            "tenant_id": effective_tenant,
+            "app_id": effective_app,
+            "follow": bool(follow),
+            "stats": _event_bus.stats(),
+        }
+        if effective_session_key is not None:
+            ready_payload["session_key"] = effective_session_key
+        if run_filter is not None:
+            ready_payload["run_id"] = run_filter
+        if parsed_since_ts is not None:
+            ready_payload["since_ts"] = parsed_since_ts.isoformat()
+        if parsed_until_ts is not None:
+            ready_payload["until_ts"] = parsed_until_ts.isoformat()
+        if parsed_types is not None:
+            ready_payload["event_types"] = sorted(parsed_types)
+        yield _sse_frame(
+            payload=ready_payload,
+            event="ready",
+            cursor=next_cursor,
+            retry_ms=retry_ms,
+        )
+
+        while True:
+            if await request.is_disconnected():
+                return
+            items, has_more, chunk_cursor, stats = _read_event_chunk(
+                source=stream_source,
+                limit=limit,
+                tenant_id=effective_tenant,
+                app_id=effective_app,
+                session_key=effective_session_key,
+                event_types=parsed_types,
+                run_id=run_filter,
+                cursor=next_cursor,
+                since_ts=parsed_since_ts,
+                until_ts=parsed_until_ts,
+            )
+            next_cursor = max(next_cursor, int(chunk_cursor))
+            for item in items:
+                item_cursor = next_cursor
+                bus_seq = item.get("bus_seq")
+                if isinstance(bus_seq, int):
+                    item_cursor = max(next_cursor, bus_seq)
+                    next_cursor = item_cursor
+                event_name = str(item.get("event", {}).get("event_type", "")).strip() or "message"
+                yield _sse_frame(
+                    payload=item,
+                    event=event_name,
+                    cursor=item_cursor,
+                )
+
+            if has_more:
+                continue
+
+            if stream_source == "durable":
+                live_cursor = max(0, int(_event_bus.stats().get("next_seq", 1)) - 1)
+                next_cursor = max(next_cursor, live_cursor)
+                stream_source = "memory"
+                continue
+
+            if not follow:
+                done_payload = {
+                    "kind": "sse.complete",
+                    "cursor": next_cursor,
+                    "source": stream_source,
+                    "stats": stats,
+                }
+                yield _sse_frame(
+                    payload=done_payload,
+                    event="complete",
+                    cursor=next_cursor,
+                )
+                return
+
+            keepalive_payload = {
+                "kind": "sse.keepalive",
+                "cursor": next_cursor,
+                "source": stream_source,
+            }
+            yield _sse_frame(
+                payload=keepalive_payload,
+                event="keepalive",
+                cursor=next_cursor,
+                retry_ms=retry_ms,
+            )
+            await asyncio.sleep(retry_ms / 1000)
+
+    return StreamingResponse(
+        _stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.post("/v1/events/publish")

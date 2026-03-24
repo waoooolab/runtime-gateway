@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import unittest
@@ -107,6 +108,36 @@ class EventBusWebsocketTests(unittest.TestCase):
         if session_key is not None:
             payload["session_key"] = session_key
         return issue_token(payload, ttl_seconds=300)
+
+    def _read_sse_events(
+        self,
+        *,
+        url: str,
+        headers: dict[str, str] | None = None,
+        max_data_frames: int = 8,
+    ) -> list[dict]:
+        frames: list[dict] = []
+        current_event = "message"
+        with self.client.stream("GET", url, headers=headers or {}) as response:
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.headers["content-type"].startswith("text/event-stream"))
+            for raw_line in response.iter_lines():
+                if raw_line is None:
+                    continue
+                line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else str(raw_line)
+                if not line:
+                    continue
+                if line.startswith("event:"):
+                    current_event = line.split(":", 1)[1].strip() or "message"
+                    continue
+                if not line.startswith("data:"):
+                    continue
+                payload_raw = line.split(":", 1)[1].strip()
+                payload = json.loads(payload_raw) if payload_raw else {}
+                frames.append({"event": current_event, "payload": payload})
+                if len(frames) >= max_data_frames:
+                    break
+        return frames
 
     def test_publish_event_requires_bearer_token(self) -> None:
         response = self.client.post("/v1/events/publish", json=_event_envelope())
@@ -642,6 +673,121 @@ class EventBusWebsocketTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 422)
         self.assertIn("source must be one of: memory, durable", response.json()["detail"])
+
+    def test_sse_stream_emits_filtered_run_lifecycle_events(self) -> None:
+        write_token = self._token(scope=["runs:write"])
+        read_token = self._token(scope=["runs:read"])
+
+        started = _event_envelope("runtime.run.started", run_id="run-sse-1")
+        started["payload"]["status"] = "started"
+        queued = _event_envelope("runtime.run.status", run_id="run-sse-1")
+        queued["payload"]["status"] = "queued"
+        completed = _event_envelope("runtime.run.completed", run_id="run-sse-1")
+        completed["payload"]["status"] = "completed"
+        ignored = _event_envelope("runtime.run.status", run_id="run-other")
+        ignored["payload"]["status"] = "queued"
+
+        for envelope in (started, queued, completed, ignored):
+            publish = self.client.post(
+                "/v1/events/publish",
+                json=envelope,
+                headers={"Authorization": f"Bearer {write_token}"},
+            )
+            self.assertEqual(publish.status_code, 200)
+
+        frames = self._read_sse_events(
+            url=(
+                "/v1/events/sse?cursor=0&follow=false&run_id=run-sse-1"
+                "&event_types=runtime.run.status,runtime.run.completed"
+            ),
+            headers={"Authorization": f"Bearer {read_token}"},
+            max_data_frames=6,
+        )
+        self.assertGreaterEqual(len(frames), 2)
+        self.assertEqual(frames[0]["event"], "ready")
+        lifecycle_frames = [f for f in frames if f["event"].startswith("runtime.run.")]
+        self.assertEqual(
+            [frame["event"] for frame in lifecycle_frames],
+            ["runtime.run.status", "runtime.run.completed"],
+        )
+        self.assertTrue(
+            all(frame["payload"]["event"]["payload"]["run_id"] == "run-sse-1" for frame in lifecycle_frames)
+        )
+        self.assertEqual(
+            [frame["payload"]["event"]["payload"]["status"] for frame in lifecycle_frames],
+            ["queued", "completed"],
+        )
+
+    def test_sse_stream_durable_source_supports_cursor_replay(self) -> None:
+        write_token = self._token(scope=["runs:write"])
+        read_token = self._token(scope=["runs:read"])
+        run_id = "run-sse-durable-1"
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["RUNTIME_GATEWAY_EVENT_LOG_PATH"] = os.path.join(
+                tmp, "events", "runtime-events.ndjson"
+            )
+            for event_type in ("runtime.run.started", "runtime.run.status", "runtime.run.completed"):
+                publish = self.client.post(
+                    "/v1/events/publish",
+                    json=_event_envelope(event_type, run_id=run_id),
+                    headers={"Authorization": f"Bearer {write_token}"},
+                )
+                self.assertEqual(publish.status_code, 200)
+
+            first_frames = self._read_sse_events(
+                url=f"/v1/events/sse?source=durable&cursor=0&follow=false&run_id={run_id}&limit=2",
+                headers={"Authorization": f"Bearer {read_token}"},
+                max_data_frames=6,
+            )
+            first_runtime_frames = [f for f in first_frames if f["event"].startswith("runtime.run.")]
+            self.assertEqual(
+                [frame["event"] for frame in first_runtime_frames],
+                ["runtime.run.started", "runtime.run.status", "runtime.run.completed"],
+            )
+            reconnect_cursor = int(first_runtime_frames[0]["payload"]["bus_seq"])
+
+            second_frames = self._read_sse_events(
+                url=(
+                    f"/v1/events/sse?source=durable&cursor={reconnect_cursor}"
+                    f"&follow=false&run_id={run_id}&limit=2"
+                ),
+                headers={"Authorization": f"Bearer {read_token}"},
+                max_data_frames=6,
+            )
+            second_runtime_frames = [f for f in second_frames if f["event"].startswith("runtime.run.")]
+            self.assertEqual(
+                [frame["event"] for frame in second_runtime_frames],
+                ["runtime.run.status", "runtime.run.completed"],
+            )
+
+    def test_sse_stream_accepts_access_token_query(self) -> None:
+        write_token = self._token(scope=["runs:write"])
+        read_token = self._token(scope=["runs:read"])
+        publish = self.client.post(
+            "/v1/events/publish",
+            json=_event_envelope("runtime.run.status", run_id="run-sse-query-token"),
+            headers={"Authorization": f"Bearer {write_token}"},
+        )
+        self.assertEqual(publish.status_code, 200)
+
+        frames = self._read_sse_events(
+            url=(
+                f"/v1/events/sse?access_token={read_token}&cursor=0&follow=false"
+                "&run_id=run-sse-query-token"
+            ),
+            headers=None,
+            max_data_frames=4,
+        )
+        self.assertTrue(any(frame["event"] == "runtime.run.status" for frame in frames))
+
+    def test_sse_stream_rejects_cross_tenant_override(self) -> None:
+        read_token = self._token(scope=["runs:read"])
+        response = self.client.get(
+            "/v1/events/sse?tenant_id=t2&follow=false",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("tenant_id query must match token claim", response.json()["detail"])
 
     def test_websocket_receives_published_event(self) -> None:
         ws_token = self._token(scope=["runs:read"])
