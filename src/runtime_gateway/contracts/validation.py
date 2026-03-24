@@ -16,6 +16,7 @@ EVENT_ENVELOPE_SCHEMA = "event-envelope.v1.json"
 COMMAND_ENVELOPE_SCHEMA = "command-envelope.v1.json"
 EXECUTION_CONTEXT_SCHEMA = "runtime/execution-context.v1.json"
 EXECUTOR_PROFILE_CATALOG_SCHEMA = "runtime/executor-profile-catalog.v1.json"
+TOOL_CATALOG_SCHEMA = "runtime/tool-catalog.v1.json"
 ORCHESTRATION_HINTS_SCHEMA = "runtime/orchestration-hints.v1.json"
 RUNTIME_EVENTS_PAGE_SCHEMA = "runtime/runtime-events-page.v1.json"
 RUNTIME_RUN_LEASE_SCHEMA = "runtime/runtime-run-lease.v1.json"
@@ -125,6 +126,10 @@ def validate_execution_context_contract(payload: dict[str, Any]) -> None:
 
 def validate_executor_profile_catalog_contract(payload: dict[str, Any]) -> None:
     validate_contract(EXECUTOR_PROFILE_CATALOG_SCHEMA, payload)
+
+
+def validate_tool_catalog_contract(payload: dict[str, Any]) -> None:
+    validate_contract(TOOL_CATALOG_SCHEMA, payload)
 
 
 def validate_orchestration_hints_contract(payload: dict[str, Any]) -> None:

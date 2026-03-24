@@ -13,6 +13,7 @@ from .validation import (
     validate_runtime_run_lease_contract,
     validate_runtime_worker_health_contract,
     validate_runtime_worker_status_contract,
+    validate_tool_catalog_contract,
     validate_token_exchange_contract,
 )
 
@@ -29,5 +30,6 @@ __all__ = [
     "validate_runtime_run_lease_contract",
     "validate_runtime_worker_health_contract",
     "validate_runtime_worker_status_contract",
+    "validate_tool_catalog_contract",
     "validate_token_exchange_contract",
 ]

@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://waoooolab.dev/contracts/runtime/tool-catalog.v1.json",
+  "title": "RuntimeToolCatalogV1",
+  "description": "Authoritative tool-plane catalog shared across runtime, gateway, and control surfaces.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "items"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "tool_catalog.v1"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/tool_catalog_item"
+      }
+    }
+  },
+  "$defs": {
+    "tool_catalog_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool_id",
+        "source",
+        "provenance",
+        "profile",
+        "optionality"
+      ],
+      "properties": {
+        "tool_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "plane",
+            "registry",
+            "kind",
+            "capability_id",
+            "capability_version"
+          ],
+          "properties": {
+            "plane": {
+              "type": "string",
+              "const": "runtime"
+            },
+            "registry": {
+              "type": "string",
+              "enum": [
+                "capability_registry"
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "module",
+                "tool",
+                "workflow",
+                "app"
+              ]
+            },
+            "capability_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "capability_version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "workflow_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "workflow_version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "node",
+                "simple"
+              ]
+            }
+          }
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "authority",
+            "registered_at"
+          ],
+          "properties": {
+            "authority": {
+              "type": "string",
+              "minLength": 1
+            },
+            "registered_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "registration_mode": {
+              "type": "string",
+              "enum": [
+                "manual",
+                "compiled",
+                "published"
+              ]
+            }
+          }
+        },
+        "profile": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "visibility"
+          ],
+          "properties": {
+            "visibility": {
+              "type": "string",
+              "enum": [
+                "private",
+                "internal",
+                "public"
+              ]
+            },
+            "policy_profile": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "optionality": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "required",
+                "optional"
+              ]
+            },
+            "requires_capabilities": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -9,6 +9,7 @@ from fastapi import Depends, FastAPI
 from .capability_dispatch import (
     dispatch_compile_capability,
     dispatch_get_capability,
+    dispatch_get_tool_catalog,
     dispatch_invoke_capability,
     dispatch_list_capabilities,
     dispatch_publish_capability,
@@ -30,6 +31,17 @@ def register_capability_routes(
     get_execution_client: Callable[[], RuntimeExecutionClient],
     publish_gateway_event: Callable[[dict[str, Any]], int | None],
 ) -> None:
+    @app.get("/v1/tools/catalog")
+    def get_tool_catalog(
+        auth_context: AuthContext = Depends(require_capabilities_read_context),
+    ) -> dict[str, Any]:
+        return dispatch_get_tool_catalog(
+            claims=auth_context.claims,
+            subject_token=auth_context.subject_token,
+            execution_client=get_execution_client(),
+            publish_gateway_event=publish_gateway_event,
+        )
+
     @app.post("/v1/capabilities/register")
     def register_capability(
         body: dict[str, Any] | None = None,

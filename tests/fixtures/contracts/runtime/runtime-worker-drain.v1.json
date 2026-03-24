@@ -15,6 +15,11 @@
     "should_continue",
     "outcome_counts",
     "anomaly_counts",
+    "retry_deferred_total",
+    "retry_rejected_total",
+    "control_counts",
+    "control_outcome",
+    "control_signal",
     "anomaly_ratio",
     "progressed_ratio",
     "stalled_signal",
@@ -81,6 +86,8 @@
       "required": [
         "missing_run",
         "skipped",
+        "dispatch_retry_deferred",
+        "dispatch_retry_failed",
         "total"
       ],
       "properties": {
@@ -92,9 +99,77 @@
           "type": "integer",
           "minimum": 0
         },
+        "dispatch_retry_deferred": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "dispatch_retry_failed": {
+          "type": "integer",
+          "minimum": 0
+        },
         "total": {
           "type": "integer",
           "minimum": 0
+        }
+      },
+      "additionalProperties": true
+    },
+    "retry_deferred_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "retry_rejected_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "control_counts": {
+      "type": "object",
+      "required": [
+        "queue",
+        "defer",
+        "reject"
+      ],
+      "properties": {
+        "queue": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "defer": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reject": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": true
+    },
+    "control_outcome": {
+      "type": "string",
+      "enum": [
+        "dispatch",
+        "queue",
+        "defer",
+        "reject"
+      ]
+    },
+    "control_signal": {
+      "type": "object",
+      "required": [
+        "queue_pending",
+        "defer_pending",
+        "reject_pending"
+      ],
+      "properties": {
+        "queue_pending": {
+          "type": "boolean"
+        },
+        "defer_pending": {
+          "type": "boolean"
+        },
+        "reject_pending": {
+          "type": "boolean"
         }
       },
       "additionalProperties": true
@@ -127,6 +202,11 @@
         "remaining",
         "should_continue",
         "stalled_signal",
+        "retry_deferred_total",
+        "retry_rejected_total",
+        "control_counts",
+        "control_outcome",
+        "control_signal",
         "anomaly_ratio",
         "recommended_poll_after_ms"
       ],
@@ -157,6 +237,66 @@
         },
         "stalled_signal": {
           "type": "boolean"
+        },
+        "retry_deferred_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "retry_rejected_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "control_counts": {
+          "type": "object",
+          "required": [
+            "queue",
+            "defer",
+            "reject"
+          ],
+          "properties": {
+            "queue": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "defer": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "reject": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": true
+        },
+        "control_outcome": {
+          "type": "string",
+          "enum": [
+            "dispatch",
+            "queue",
+            "defer",
+            "reject"
+          ]
+        },
+        "control_signal": {
+          "type": "object",
+          "required": [
+            "queue_pending",
+            "defer_pending",
+            "reject_pending"
+          ],
+          "properties": {
+            "queue_pending": {
+              "type": "boolean"
+            },
+            "defer_pending": {
+              "type": "boolean"
+            },
+            "reject_pending": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": true
         },
         "anomaly_ratio": {
           "type": "number",

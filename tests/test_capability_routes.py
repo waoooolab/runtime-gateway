@@ -112,6 +112,48 @@ def test_register_and_read_capability_forwarding() -> None:
     )
 
 
+def test_get_tool_catalog_forwarding_uses_authoritative_shape() -> None:
+    client = TestClient(app)
+    from runtime_gateway import app as app_module
+
+    app_module._execution_client.list_tool_catalog.return_value = {
+        "schema_version": "tool_catalog.v1",
+        "items": [
+            {
+                "tool_id": "cap.demo",
+                "source": {
+                    "plane": "runtime",
+                    "registry": "capability_registry",
+                    "kind": "app",
+                    "capability_id": "cap.demo",
+                    "capability_version": "1.0.0",
+                },
+                "provenance": {
+                    "authority": "runtime-execution",
+                    "registered_at": "2026-03-24T00:00:00+00:00",
+                },
+                "profile": {"visibility": "internal"},
+                "optionality": {"mode": "optional"},
+            }
+        ],
+    }
+
+    read_headers = {"Authorization": f"Bearer {_token(['capabilities:read'])}"}
+    response = client.get("/v1/tools/catalog", headers=read_headers)
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["schema_version"] == "tool_catalog.v1"
+    assert payload["items"][0]["tool_id"] == "cap.demo"
+
+    app_module._execution_client.list_tool_catalog.assert_called_once_with(
+        auth_token="delegated-capability-token"
+    )
+
+    audit = get_audit_events(limit=1)[0]
+    assert audit["action"] == "tools.catalog"
+    assert audit["decision"] == "allow"
+
+
 def test_compile_capability_publishes_event_to_gateway_bus() -> None:
     client = TestClient(app)
     from runtime_gateway import app as app_module
@@ -249,6 +291,10 @@ def test_capability_routes_require_matching_scope() -> None:
     listed = client.get("/v1/capabilities", headers=bad_headers)
     assert listed.status_code == 403
     assert "capabilities:read" in listed.json()["detail"]
+
+    catalog = client.get("/v1/tools/catalog", headers=bad_headers)
+    assert catalog.status_code == 403
+    assert "capabilities:read" in catalog.json()["detail"]
 
     invoke = client.post(
         "/v1/capabilities/cap.demo:invoke",

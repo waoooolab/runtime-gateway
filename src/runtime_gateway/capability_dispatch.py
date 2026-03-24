@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from .audit.emitter import emit_audit_event
 from .auth.exchange import ExchangeError, exchange_subject_token
+from .contracts import ContractValidationError, validate_tool_catalog_contract
 from .events.validation import validate_event_envelope
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
 from .upstream_error import resolve_upstream_status_code
@@ -240,6 +241,30 @@ def dispatch_list_capabilities(
         submitter=lambda auth_token: execution_client.list_capabilities(auth_token=auth_token),
         expect_event=False,
     )
+
+
+def dispatch_get_tool_catalog(
+    *,
+    claims: Mapping[str, Any],
+    subject_token: str,
+    execution_client: RuntimeExecutionClient,
+    publish_gateway_event: Callable[[dict[str, Any]], int | None],
+) -> dict[str, Any]:
+    payload = _submit_capability_action(
+        action="tools.catalog",
+        delegated_scope="capabilities:read",
+        claims=claims,
+        subject_token=subject_token,
+        execution_client=execution_client,
+        publish_gateway_event=publish_gateway_event,
+        submitter=lambda auth_token: execution_client.list_tool_catalog(auth_token=auth_token),
+        expect_event=False,
+    )
+    try:
+        validate_tool_catalog_contract(payload)
+    except ContractValidationError as exc:
+        raise HTTPException(status_code=502, detail=f"invalid tool catalog payload: {exc}") from exc
+    return payload
 
 
 def dispatch_get_capability(

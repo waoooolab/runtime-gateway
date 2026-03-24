@@ -14,6 +14,7 @@ from runtime_gateway.contracts.validation import (
     validate_runtime_events_page_contract,
     validate_runtime_worker_health_contract,
     validate_runtime_worker_status_contract,
+    validate_tool_catalog_contract,
     validate_token_exchange_contract,
 )
 from runtime_gateway.events.envelope import build_event_envelope
@@ -135,6 +136,57 @@ class ContractValidationTests(unittest.TestCase):
         with self.assertRaises(ContractValidationError):
             validate_executor_profile_catalog_contract(payload)
 
+    def test_tool_catalog_contract_valid(self) -> None:
+        payload = {
+            "schema_version": "tool_catalog.v1",
+            "items": [
+                {
+                    "tool_id": "cap.demo",
+                    "source": {
+                        "plane": "runtime",
+                        "registry": "capability_registry",
+                        "kind": "app",
+                        "capability_id": "cap.demo",
+                        "capability_version": "1.0.0",
+                        "workflow_id": "wf-demo",
+                        "workflow_version": "7",
+                        "mode": "node",
+                    },
+                    "provenance": {
+                        "authority": "runtime-execution",
+                        "registered_at": "2026-03-24T00:00:00Z",
+                        "registration_mode": "manual",
+                    },
+                    "profile": {
+                        "visibility": "internal",
+                        "policy_profile": "internal_default",
+                    },
+                    "optionality": {
+                        "mode": "optional",
+                    },
+                }
+            ],
+        }
+        validate_tool_catalog_contract(payload)
+
+    def test_tool_catalog_contract_rejects_missing_source(self) -> None:
+        payload = {
+            "schema_version": "tool_catalog.v1",
+            "items": [
+                {
+                    "tool_id": "cap.demo",
+                    "provenance": {
+                        "authority": "runtime-execution",
+                        "registered_at": "2026-03-24T00:00:00Z",
+                    },
+                    "profile": {"visibility": "private"},
+                    "optionality": {"mode": "optional"},
+                }
+            ],
+        }
+        with self.assertRaises(ContractValidationError):
+            validate_tool_catalog_contract(payload)
+
     def test_orchestration_hints_contract_valid(self) -> None:
         payload = {
             "parent_run_id": "run-parent",
@@ -234,6 +286,13 @@ class ContractValidationTests(unittest.TestCase):
             },
             "lifecycle_state": "running",
             "is_running": True,
+            "pool_last_control_counts": {"queue": 0, "defer": 0, "reject": 0},
+            "pool_last_control_outcome": "dispatch",
+            "pool_last_control_signal": {
+                "queue_pending": False,
+                "defer_pending": False,
+                "reject_pending": False,
+            },
             "last_transition": "start",
             "last_transition_at": "2026-03-12T00:00:00Z",
             "start_total": 1,
@@ -279,6 +338,13 @@ class ContractValidationTests(unittest.TestCase):
             },
             "lifecycle_state": "running",
             "is_running": True,
+            "pool_last_control_counts": {"queue": 0, "defer": 0, "reject": 0},
+            "pool_last_control_outcome": "dispatch",
+            "pool_last_control_signal": {
+                "queue_pending": False,
+                "defer_pending": False,
+                "reject_pending": False,
+            },
             "last_transition": "start",
             "last_transition_at": "2026-03-12T00:00:00Z",
             "start_total": 1,
@@ -300,7 +366,18 @@ class ContractValidationTests(unittest.TestCase):
             "remaining": 1,
             "should_continue": False,
             "outcome_counts": {"progressed": 2, "missing_run": 0, "skipped": 0},
-            "anomaly_counts": {"missing_run": 0, "skipped": 0, "total": 0},
+            "anomaly_counts": {
+                "missing_run": 0,
+                "skipped": 0,
+                "dispatch_retry_deferred": 0,
+                "dispatch_retry_failed": 0,
+                "total": 0,
+            },
+            "retry_deferred_total": 0,
+            "retry_rejected_total": 0,
+            "control_counts": {"queue": 0, "defer": 0, "reject": 0},
+            "control_outcome": "dispatch",
+            "control_signal": {"queue_pending": False, "defer_pending": False, "reject_pending": False},
             "anomaly_ratio": 0.0,
             "progressed_ratio": 1.0,
             "stalled_signal": False,
@@ -313,6 +390,15 @@ class ContractValidationTests(unittest.TestCase):
                 "remaining": 1,
                 "should_continue": False,
                 "stalled_signal": False,
+                "retry_deferred_total": 0,
+                "retry_rejected_total": 0,
+                "control_counts": {"queue": 0, "defer": 0, "reject": 0},
+                "control_outcome": "dispatch",
+                "control_signal": {
+                    "queue_pending": False,
+                    "defer_pending": False,
+                    "reject_pending": False,
+                },
                 "anomaly_ratio": 0.0,
                 "recommended_poll_after_ms": 1500,
             },
@@ -352,7 +438,18 @@ class ContractValidationTests(unittest.TestCase):
             "remaining": 1,
             "should_continue": False,
             "outcome_counts": {"progressed": 2, "missing_run": 0, "skipped": 0},
-            "anomaly_counts": {"missing_run": 0, "skipped": 0, "total": 0},
+            "anomaly_counts": {
+                "missing_run": 0,
+                "skipped": 0,
+                "dispatch_retry_deferred": 0,
+                "dispatch_retry_failed": 0,
+                "total": 0,
+            },
+            "retry_deferred_total": 0,
+            "retry_rejected_total": 0,
+            "control_counts": {"queue": 0, "defer": 0, "reject": 0},
+            "control_outcome": "dispatch",
+            "control_signal": {"queue_pending": False, "defer_pending": False, "reject_pending": False},
             "anomaly_ratio": 0.0,
             "progressed_ratio": 1.0,
             "stalled_signal": False,
@@ -365,6 +462,15 @@ class ContractValidationTests(unittest.TestCase):
                 "remaining": 1,
                 "should_continue": False,
                 "stalled_signal": False,
+                "retry_deferred_total": 0,
+                "retry_rejected_total": 0,
+                "control_counts": {"queue": 0, "defer": 0, "reject": 0},
+                "control_outcome": "dispatch",
+                "control_signal": {
+                    "queue_pending": False,
+                    "defer_pending": False,
+                    "reject_pending": False,
+                },
                 "anomaly_ratio": 0.0,
                 "recommended_poll_after_ms": 1500,
             },
@@ -383,6 +489,13 @@ class ContractValidationTests(unittest.TestCase):
             "last_heartbeat_at": "2026-03-12T00:00:00Z",
             "last_heartbeat_age_seconds": 0.5,
             "is_heartbeat_stale": False,
+            "pool_last_control_counts": {"queue": 0, "defer": 0, "reject": 0},
+            "pool_last_control_outcome": "dispatch",
+            "pool_last_control_signal": {
+                "queue_pending": False,
+                "defer_pending": False,
+                "reject_pending": False,
+            },
             "ticks_total": 3,
             "drain_calls_total": 1,
             "start_total": 1,
@@ -403,6 +516,13 @@ class ContractValidationTests(unittest.TestCase):
             "last_heartbeat_at": "2026-03-12T00:00:00Z",
             "last_heartbeat_age_seconds": 0.5,
             "is_heartbeat_stale": False,
+            "pool_last_control_counts": {"queue": 0, "defer": 0, "reject": 0},
+            "pool_last_control_outcome": "dispatch",
+            "pool_last_control_signal": {
+                "queue_pending": False,
+                "defer_pending": False,
+                "reject_pending": False,
+            },
             "ticks_total": 3,
             "drain_calls_total": 1,
             "start_total": 1,

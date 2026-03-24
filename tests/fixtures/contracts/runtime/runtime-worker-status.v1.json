@@ -14,6 +14,9 @@
     "last_heartbeat_at",
     "last_heartbeat_age_seconds",
     "is_heartbeat_stale",
+    "pool_last_control_counts",
+    "pool_last_control_outcome",
+    "pool_last_control_signal",
     "ticks_total",
     "drain_calls_total",
     "start_total",
@@ -79,6 +82,58 @@
     },
     "is_heartbeat_stale": {
       "type": "boolean"
+    },
+    "pool_last_control_counts": {
+      "type": "object",
+      "required": [
+        "queue",
+        "defer",
+        "reject"
+      ],
+      "properties": {
+        "queue": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "defer": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reject": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "pool_last_control_outcome": {
+      "type": "string",
+      "enum": [
+        "dispatch",
+        "queue",
+        "defer",
+        "reject"
+      ]
+    },
+    "pool_last_control_signal": {
+      "type": "object",
+      "required": [
+        "queue_pending",
+        "defer_pending",
+        "reject_pending"
+      ],
+      "properties": {
+        "queue_pending": {
+          "type": "boolean"
+        },
+        "defer_pending": {
+          "type": "boolean"
+        },
+        "reject_pending": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
     },
     "ticks_total": {
       "type": "integer",

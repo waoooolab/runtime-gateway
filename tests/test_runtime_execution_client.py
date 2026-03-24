@@ -919,7 +919,7 @@ class RuntimeExecutionClientTests(unittest.TestCase):
         self.assertIn("/v1/capabilities/register", captured["url"])
         self.assertIn('"capability_id":"cap.demo"', captured["body"])
 
-    def test_list_and_get_capability_use_get_method(self) -> None:
+    def test_list_tool_catalog_and_get_capability_use_get_method(self) -> None:
         captured: list[dict[str, str]] = []
 
         class _Response:
@@ -942,6 +942,17 @@ class RuntimeExecutionClientTests(unittest.TestCase):
         def transport(request, timeout=10.0):
             _ = timeout
             captured.append({"url": request.full_url, "method": request.get_method()})
+            if request.full_url.endswith("/v1/tools/catalog"):
+                return _Response(
+                    body=(
+                        b'{"schema_version":"tool_catalog.v1","items":[{"tool_id":"cap.demo",'
+                        b'"source":{"plane":"runtime","registry":"capability_registry","kind":"app",'
+                        b'"capability_id":"cap.demo","capability_version":"1.0.0"},'
+                        b'"provenance":{"authority":"runtime-execution","registered_at":"2026-03-24T00:00:00+00:00"},'
+                        b'"profile":{"visibility":"private"},'
+                        b'"optionality":{"mode":"optional"}}]}'
+                    )
+                )
             if request.full_url.endswith("/v1/capabilities"):
                 return _Response(body=b'{"count":1,"items":[{"capability_id":"cap.demo"}]}')
             return _Response(body=b'{"capability_id":"cap.demo","latest_version":"1.0.0","capability":{"kind":"app"}}')
@@ -950,15 +961,19 @@ class RuntimeExecutionClientTests(unittest.TestCase):
             base_url="http://runtime-execution.test",
             _transport=transport,
         )
+        catalog = client.list_tool_catalog(auth_token="token-1")
         listed = client.list_capabilities(auth_token="token-1")
         got = client.get_capability(capability_id="cap.demo", auth_token="token-1")
 
+        self.assertEqual(catalog["schema_version"], "tool_catalog.v1")
         self.assertEqual(listed["count"], 1)
         self.assertEqual(got["capability_id"], "cap.demo")
         self.assertEqual(captured[0]["method"], "GET")
-        self.assertIn("/v1/capabilities", captured[0]["url"])
+        self.assertIn("/v1/tools/catalog", captured[0]["url"])
         self.assertEqual(captured[1]["method"], "GET")
-        self.assertIn("/v1/capabilities/cap.demo", captured[1]["url"])
+        self.assertIn("/v1/capabilities", captured[1]["url"])
+        self.assertEqual(captured[2]["method"], "GET")
+        self.assertIn("/v1/capabilities/cap.demo", captured[2]["url"])
 
     def test_compile_publish_invoke_capability_send_payload_fields(self) -> None:
         captured: list[dict[str, str]] = []

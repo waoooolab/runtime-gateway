@@ -670,6 +670,16 @@ class RuntimeExecutionClient:
             auth_token=auth_token,
         )
 
+    def list_tool_catalog(
+        self,
+        *,
+        auth_token: str,
+    ) -> dict[str, Any]:
+        return self._get_json(
+            path="v1/tools/catalog",
+            auth_token=auth_token,
+        )
+
     def get_capability(
         self,
         *,

@@ -27,6 +27,9 @@
     "lease_renew_signal",
     "lifecycle_state",
     "is_running",
+    "pool_last_control_counts",
+    "pool_last_control_outcome",
+    "pool_last_control_signal",
     "last_transition",
     "last_transition_at",
     "start_total",
@@ -214,6 +217,58 @@
     },
     "is_running": {
       "type": "boolean"
+    },
+    "pool_last_control_counts": {
+      "type": "object",
+      "required": [
+        "queue",
+        "defer",
+        "reject"
+      ],
+      "properties": {
+        "queue": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "defer": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reject": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "pool_last_control_outcome": {
+      "type": "string",
+      "enum": [
+        "dispatch",
+        "queue",
+        "defer",
+        "reject"
+      ]
+    },
+    "pool_last_control_signal": {
+      "type": "object",
+      "required": [
+        "queue_pending",
+        "defer_pending",
+        "reject_pending"
+      ],
+      "properties": {
+        "queue_pending": {
+          "type": "boolean"
+        },
+        "defer_pending": {
+          "type": "boolean"
+        },
+        "reject_pending": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
     },
     "last_transition": {
       "type": [
