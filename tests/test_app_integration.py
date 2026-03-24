@@ -367,6 +367,8 @@ class AppIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         clear_audit_events()
         gateway_app_module._event_bus.clear()
+        gateway_app_module._direct_idempotency_index.clear()
+        gateway_app_module._direct_idempotency_order.clear()
         self._original_execution_client = gateway_app_module._execution_client
         self.fake_execution_client = _FakeExecutionClient()
         gateway_app_module._execution_client = self.fake_execution_client
@@ -1013,6 +1015,160 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(event["event_type"], "runtime.run.direct.completion")
         self.assertEqual(event["payload"]["source_event_type"], "direct_completion.v1")
         self.assertEqual(event["payload"]["task_id"], "TASK-ACK-003")
+
+    def test_events_publish_direct_completion_alias_requires_idempotency_key(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["events:write", "events:read"])
+        envelope = self._event_publish_envelope(
+            event_id="evt-direct-completion-missing-idempotency",
+            event_type="direct_completion.v1",
+            correlation_id="corr-direct-completion-missing-idempotency",
+            payload={
+                "schema_version": "direct_completion.v1",
+                "task_id": "TASK-ACK-004",
+                "provider": "claude",
+                "request_id": "owa:req:ack-004",
+                "request_state": "completed",
+                "ack_stage": "completed",
+                "completed_at": "2026-03-23T12:00:00+00:00",
+                "callback_at": "2026-03-23T12:00:01+00:00",
+            },
+        )
+        publish = self.client.post(
+            "/v1/events/publish",
+            json=envelope,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(publish.status_code, 422)
+        self.assertIn("payload.idempotency_key is required", str(publish.json().get("detail", "")))
+
+    def test_events_publish_direct_completion_alias_requires_completed_ack_stage(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["events:write", "events:read"])
+        envelope = self._event_publish_envelope(
+            event_id="evt-direct-completion-invalid-ack-stage",
+            event_type="direct_completion.v1",
+            correlation_id="corr-direct-completion-invalid-ack-stage",
+            payload={
+                "schema_version": "direct_completion.v1",
+                "task_id": "TASK-ACK-005",
+                "provider": "claude",
+                "request_id": "owa:req:ack-005",
+                "request_state": "completed",
+                "ack_stage": "provider_seen",
+                "idempotency_key": "TASK-ACK-005:r0:a1",
+                "completed_at": "2026-03-23T12:00:00+00:00",
+                "callback_at": "2026-03-23T12:00:01+00:00",
+            },
+        )
+        publish = self.client.post(
+            "/v1/events/publish",
+            json=envelope,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(publish.status_code, 422)
+        self.assertIn("payload.ack_stage must be completed", str(publish.json().get("detail", "")))
+
+    def test_events_publish_direct_completion_alias_replay_is_idempotent(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["events:write", "events:read"])
+        first_envelope = self._event_publish_envelope(
+            event_id="evt-direct-completion-replay-1",
+            event_type="direct_completion.v1",
+            correlation_id="corr-direct-completion-replay-1",
+            payload={
+                "schema_version": "direct_completion.v1",
+                "task_id": "TASK-ACK-006",
+                "provider": "claude",
+                "request_id": "owa:req:ack-006",
+                "request_state": "completed",
+                "ack_stage": "completed",
+                "idempotency_key": "TASK-ACK-006:r0:a1",
+                "completed_at": "2026-03-23T12:00:00+00:00",
+                "callback_at": "2026-03-23T12:00:01+00:00",
+            },
+        )
+        second_envelope = self._event_publish_envelope(
+            event_id="evt-direct-completion-replay-2",
+            event_type="direct_completion.v1",
+            correlation_id="corr-direct-completion-replay-2",
+            payload={
+                "schema_version": "direct_completion.v1",
+                "task_id": "TASK-ACK-006",
+                "provider": "claude",
+                "request_id": "owa:req:ack-006",
+                "request_state": "completed",
+                "ack_stage": "completed",
+                "idempotency_key": "TASK-ACK-006:r0:a1",
+                "completed_at": "2026-03-23T12:00:00+00:00",
+                "callback_at": "2026-03-23T12:00:01+00:00",
+            },
+        )
+
+        first_publish = self.client.post(
+            "/v1/events/publish",
+            json=first_envelope,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(first_publish.status_code, 200)
+        first_payload = first_publish.json()
+        self.assertEqual(first_payload["idempotent_replay"], False)
+
+        second_publish = self.client.post(
+            "/v1/events/publish",
+            json=second_envelope,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(second_publish.status_code, 200)
+        second_payload = second_publish.json()
+        self.assertEqual(second_payload["idempotent_replay"], True)
+        self.assertEqual(second_payload["bus_seq"], first_payload["bus_seq"])
+        self.assertEqual(second_payload["event_id"], first_payload["event_id"])
+        self.assertEqual(second_payload["correlation_id"], "owa:req:ack-006")
+
+        recent = self.client.get(
+            "/v1/events/recent?event_types=runtime.run.direct.completion",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(recent.status_code, 200)
+        items = recent.json()["items"]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["event"]["payload"]["idempotency_key"], "TASK-ACK-006:r0:a1")
+
+    def test_events_publish_direct_alias_projects_correlation_id_from_request_id(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["events:write", "events:read"])
+        envelope = self._event_publish_envelope(
+            event_id="evt-direct-correlation-1",
+            event_type="direct_audit.v1",
+            correlation_id="corr-direct-correlation-legacy",
+            payload={
+                "schema_version": "direct_audit.v1",
+                "event_type": "dispatch_sent",
+                "task_id": "TASK-AUDIT-003",
+                "provider": "codex",
+                "request_id": "owa:req:audit-003",
+                "ack_stage": "sent",
+                "idempotency_key": "TASK-AUDIT-003:r0:a1",
+                "reason_code": "dispatch_sent",
+            },
+        )
+        publish = self.client.post(
+            "/v1/events/publish",
+            json=envelope,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(publish.status_code, 200)
+        publish_payload = publish.json()
+        self.assertEqual(publish_payload["correlation_id"], "owa:req:audit-003")
+
+        recent = self.client.get(
+            "/v1/events/recent?event_types=runtime.run.direct.audit.dispatch_sent",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(recent.status_code, 200)
+        items = recent.json()["items"]
+        self.assertEqual(len(items), 1)
+        event = items[0]["event"]
+        self.assertEqual(event["correlation_id"], "owa:req:audit-003")
+        self.assertEqual(event["payload"]["ack_stage"], "sent")
+        self.assertEqual(event["payload"]["idempotency_key"], "TASK-AUDIT-003:r0:a1")
 
     def test_events_publish_accepts_direct_audit_alias_with_runtime_event_hint(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["events:write", "events:read"])

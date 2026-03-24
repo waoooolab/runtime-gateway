@@ -6,8 +6,10 @@ import asyncio
 import json
 import os
 import re
+import threading
 import urllib.error
 import urllib.request
+from collections import deque
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 
@@ -51,6 +53,34 @@ _DIRECT_AUDIT_ALIAS_EVENT_TYPE = "direct_audit.v1"
 _DIRECT_COMPLETION_RUNTIME_EVENT_TYPE = "runtime.run.direct.completion"
 _DIRECT_AUDIT_RUNTIME_EVENT_PREFIX = "runtime.run.direct.audit."
 _DIRECT_AUDIT_EVENT_SUFFIX_SANITIZE = re.compile(r"[^a-z0-9_.-]+")
+_DIRECT_ACK_STAGE_ALIASES = {
+    "provider-seen": "provider_seen",
+    "provider seen": "provider_seen",
+    "dispatch-failed": "dispatch_failed",
+    "dispatch failed": "dispatch_failed",
+    "requeued-stale": "requeued_stale",
+    "requeued stale": "requeued_stale",
+}
+_DIRECT_ACK_ALLOWED_STAGES = {
+    "accepted",
+    "sent",
+    "provider_seen",
+    "completed",
+    "dispatch_failed",
+    "requeued_stale",
+}
+_DIRECT_REQUEST_STATE_ALIASES = {
+    "done": "completed",
+    "complete": "completed",
+    "success": "completed",
+    "succeeded": "completed",
+}
+_DIRECT_IDEMPOTENCY_MAX_ENTRIES_DEFAULT = 10000
+_DIRECT_IDEMPOTENCY_MAX_ENTRIES_MIN = 128
+_DIRECT_IDEMPOTENCY_MAX_ENTRIES_MAX = 200000
+_direct_idempotency_index: dict[str, dict[str, Any]] = {}
+_direct_idempotency_order: deque[str] = deque()
+_direct_idempotency_lock = threading.Lock()
 _PROBE_APP_ID_DEFAULT = "owa-runtime"
 _PROBE_APP_ID_LEGACY_ALIASES = {
     "waoooolab-runtime": _PROBE_APP_ID_DEFAULT,
@@ -73,40 +103,236 @@ def _sanitize_direct_audit_suffix(raw_suffix: str) -> str:
     return normalized
 
 
+def _direct_payload_field_or_raise(*, payload: dict[str, Any], field: str, source_event_type: str) -> str:
+    value = str(payload.get(field, "")).strip()
+    if not value:
+        raise HTTPException(status_code=422, detail=f"{source_event_type} payload.{field} is required")
+    return value
+
+
+def _normalize_direct_ack_stage(raw_stage: Any) -> str:
+    lowered = str(raw_stage or "").strip().lower()
+    if not lowered:
+        return ""
+    return _DIRECT_ACK_STAGE_ALIASES.get(lowered, lowered)
+
+
+def _normalize_direct_request_state(raw_state: Any) -> str:
+    lowered = str(raw_state or "").strip().lower()
+    if not lowered:
+        return ""
+    return _DIRECT_REQUEST_STATE_ALIASES.get(lowered, lowered)
+
+
+def _direct_idempotency_max_entries() -> int:
+    raw = os.environ.get("RUNTIME_GATEWAY_DIRECT_IDEMPOTENCY_MAX_ENTRIES", "").strip()
+    if not raw:
+        return _DIRECT_IDEMPOTENCY_MAX_ENTRIES_DEFAULT
+    try:
+        parsed = int(raw)
+    except ValueError:
+        return _DIRECT_IDEMPOTENCY_MAX_ENTRIES_DEFAULT
+    return max(
+        _DIRECT_IDEMPOTENCY_MAX_ENTRIES_MIN,
+        min(_DIRECT_IDEMPOTENCY_MAX_ENTRIES_MAX, parsed),
+    )
+
+
+def _build_direct_idempotency_dedupe_key(
+    *,
+    source_event_type: str,
+    normalized_event_type: str,
+    task_id: str,
+    request_id: str,
+    ack_stage: str,
+    idempotency_key: str,
+) -> str:
+    return "|".join(
+        (
+            source_event_type.strip().lower(),
+            normalized_event_type.strip().lower(),
+            task_id.strip(),
+            request_id.strip(),
+            ack_stage.strip().lower(),
+            idempotency_key.strip(),
+        )
+    )
+
+
+def _get_direct_idempotency_record(dedupe_key: str) -> dict[str, Any] | None:
+    with _direct_idempotency_lock:
+        record = _direct_idempotency_index.get(dedupe_key)
+        if record is None:
+            return None
+        return dict(record)
+
+
+def _remember_direct_idempotency_record(
+    *,
+    dedupe_key: str,
+    bus_seq: int | None,
+    event_id: Any,
+    event_type: str,
+    correlation_id: str,
+    source_event_type: str,
+) -> None:
+    if not isinstance(bus_seq, int):
+        return
+    record = {
+        "bus_seq": int(bus_seq),
+        "event_id": event_id,
+        "event_type": event_type,
+        "correlation_id": correlation_id,
+        "source_event_type": source_event_type,
+    }
+    with _direct_idempotency_lock:
+        if dedupe_key in _direct_idempotency_index:
+            _direct_idempotency_index[dedupe_key] = record
+            return
+        _direct_idempotency_index[dedupe_key] = record
+        _direct_idempotency_order.append(dedupe_key)
+        limit = _direct_idempotency_max_entries()
+        while len(_direct_idempotency_order) > limit:
+            stale_key = _direct_idempotency_order.popleft()
+            _direct_idempotency_index.pop(stale_key, None)
+
+
 def _normalize_direct_alias_envelope(
     envelope: dict[str, Any],
-) -> tuple[dict[str, Any], str | None]:
+) -> tuple[dict[str, Any], str | None, str | None]:
     source_event_type = str(envelope.get("event_type", "")).strip()
     if not source_event_type or allowed_event_type(source_event_type):
-        return envelope, None
+        return envelope, None, None
+
+    if source_event_type not in {_DIRECT_COMPLETION_ALIAS_EVENT_TYPE, _DIRECT_AUDIT_ALIAS_EVENT_TYPE}:
+        return envelope, None, None
+
+    payload = envelope.get("payload")
+    if not isinstance(payload, dict):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{source_event_type} payload must be object",
+        )
+    normalized_payload = dict(payload)
+    normalized_envelope = dict(envelope)
+    dedupe_key: str | None = None
 
     normalized_event_type = ""
+    task_id = ""
+    request_id = ""
+    idempotency_key = ""
+    ack_stage = ""
     if source_event_type == _DIRECT_COMPLETION_ALIAS_EVENT_TYPE:
+        task_id = _direct_payload_field_or_raise(
+            payload=normalized_payload,
+            field="task_id",
+            source_event_type=source_event_type,
+        )
+        request_id = _direct_payload_field_or_raise(
+            payload=normalized_payload,
+            field="request_id",
+            source_event_type=source_event_type,
+        )
+        idempotency_key = _direct_payload_field_or_raise(
+            payload=normalized_payload,
+            field="idempotency_key",
+            source_event_type=source_event_type,
+        )
+        request_state = _normalize_direct_request_state(normalized_payload.get("request_state")) or "completed"
+        if request_state != "completed":
+            raise HTTPException(
+                status_code=422,
+                detail=f"{source_event_type} payload.request_state must be completed",
+            )
+        ack_stage = _normalize_direct_ack_stage(normalized_payload.get("ack_stage")) or "completed"
+        if ack_stage != "completed":
+            raise HTTPException(
+                status_code=422,
+                detail=f"{source_event_type} payload.ack_stage must be completed",
+            )
+        completed_at = _direct_payload_field_or_raise(
+            payload=normalized_payload,
+            field="completed_at",
+            source_event_type=source_event_type,
+        )
+        _parse_optional_ts_or_raise(completed_at, field_name="payload.completed_at")
+        callback_at = str(normalized_payload.get("callback_at", "")).strip() or completed_at
+        _parse_optional_ts_or_raise(callback_at, field_name="payload.callback_at")
         normalized_event_type = _DIRECT_COMPLETION_RUNTIME_EVENT_TYPE
+        normalized_payload["schema_version"] = _DIRECT_COMPLETION_ALIAS_EVENT_TYPE
+        normalized_payload["task_id"] = task_id
+        normalized_payload["request_id"] = request_id
+        normalized_payload["request_state"] = request_state
+        normalized_payload["ack_stage"] = ack_stage
+        normalized_payload["idempotency_key"] = idempotency_key
+        normalized_payload["completed_at"] = completed_at
+        normalized_payload["callback_at"] = callback_at
     elif source_event_type == _DIRECT_AUDIT_ALIAS_EVENT_TYPE:
-        payload = envelope.get("payload")
+        task_id = _direct_payload_field_or_raise(
+            payload=normalized_payload,
+            field="task_id",
+            source_event_type=source_event_type,
+        )
+        request_id = _direct_payload_field_or_raise(
+            payload=normalized_payload,
+            field="request_id",
+            source_event_type=source_event_type,
+        )
+        idempotency_key = _direct_payload_field_or_raise(
+            payload=normalized_payload,
+            field="idempotency_key",
+            source_event_type=source_event_type,
+        )
+        ack_stage = _normalize_direct_ack_stage(normalized_payload.get("ack_stage"))
+        if not ack_stage:
+            raise HTTPException(
+                status_code=422,
+                detail=f"{source_event_type} payload.ack_stage is required",
+            )
+        if ack_stage not in _DIRECT_ACK_ALLOWED_STAGES:
+            raise HTTPException(
+                status_code=422,
+                detail=f"{source_event_type} payload.ack_stage is unsupported",
+            )
         runtime_event_hint = ""
-        payload_event_type = ""
-        if isinstance(payload, dict):
-            runtime_event_hint = str(payload.get("runtime_event_type", "")).strip()
-            payload_event_type = str(payload.get("event_type", "")).strip()
+        payload_event_type = _direct_payload_field_or_raise(
+            payload=normalized_payload,
+            field="event_type",
+            source_event_type=source_event_type,
+        )
+        runtime_event_hint = str(normalized_payload.get("runtime_event_type", "")).strip()
         if runtime_event_hint.startswith(_DIRECT_AUDIT_RUNTIME_EVENT_PREFIX):
             normalized_event_type = runtime_event_hint
         else:
             normalized_event_type = (
                 f"{_DIRECT_AUDIT_RUNTIME_EVENT_PREFIX}{_sanitize_direct_audit_suffix(payload_event_type)}"
             )
+        reason_code = str(normalized_payload.get("reason_code", "")).strip() or _sanitize_direct_audit_suffix(
+            payload_event_type
+        )
+        normalized_payload["schema_version"] = _DIRECT_AUDIT_ALIAS_EVENT_TYPE
+        normalized_payload["task_id"] = task_id
+        normalized_payload["request_id"] = request_id
+        normalized_payload["ack_stage"] = ack_stage
+        normalized_payload["idempotency_key"] = idempotency_key
+        normalized_payload["runtime_event_type"] = normalized_event_type
+        normalized_payload["reason_code"] = reason_code
     if not normalized_event_type:
-        return envelope, None
+        return envelope, None, None
 
-    normalized_envelope = dict(envelope)
+    dedupe_key = _build_direct_idempotency_dedupe_key(
+        source_event_type=source_event_type,
+        normalized_event_type=normalized_event_type,
+        task_id=task_id,
+        request_id=request_id,
+        ack_stage=ack_stage,
+        idempotency_key=idempotency_key,
+    )
     normalized_envelope["event_type"] = normalized_event_type
-    payload = normalized_envelope.get("payload")
-    if isinstance(payload, dict):
-        normalized_payload = dict(payload)
-        normalized_payload.setdefault("source_event_type", source_event_type)
-        normalized_envelope["payload"] = normalized_payload
-    return normalized_envelope, source_event_type
+    normalized_envelope["correlation_id"] = request_id
+    normalized_payload.setdefault("source_event_type", source_event_type)
+    normalized_envelope["payload"] = normalized_payload
+    return normalized_envelope, source_event_type, dedupe_key
 
 
 def _scope_filter_or_forbid(
@@ -971,11 +1197,42 @@ def publish_event(
         )
         raise HTTPException(status_code=403, detail="app_id must match token claim")
 
-    normalized_envelope, original_event_type = _normalize_direct_alias_envelope(envelope)
+    normalized_envelope, original_event_type, direct_dedupe_key = _normalize_direct_alias_envelope(envelope)
 
     event_type = str(normalized_envelope.get("event_type", ""))
     if not allowed_event_type(event_type):
         raise HTTPException(status_code=422, detail=f"event type not publishable: {event_type}")
+    correlation_id = str(normalized_envelope.get("correlation_id", "")).strip()
+
+    if direct_dedupe_key is not None:
+        replay_record = _get_direct_idempotency_record(direct_dedupe_key)
+        if replay_record is not None:
+            audit_metadata = {
+                "event_type": str(replay_record.get("event_type", "")),
+                "event_id": replay_record.get("event_id"),
+                "bus_seq": replay_record.get("bus_seq"),
+                "source_event_type": original_event_type,
+                "idempotent_replay": True,
+            }
+            emit_audit_event(
+                action="events.publish",
+                decision="allow",
+                actor_id=str(auth_context.claims.get("sub", "unknown")),
+                trace_id=str(auth_context.claims.get("trace_id", "")),
+                metadata=audit_metadata,
+            )
+            replay_response_payload = {
+                "accepted": True,
+                "bus_seq": replay_record.get("bus_seq"),
+                "event_id": replay_record.get("event_id"),
+                "event_type": str(replay_record.get("event_type", "")),
+                "idempotent_replay": True,
+            }
+            if original_event_type is not None:
+                replay_response_payload["original_event_type"] = original_event_type
+            if isinstance(replay_record.get("correlation_id"), str) and replay_record["correlation_id"].strip():
+                replay_response_payload["correlation_id"] = replay_record["correlation_id"]
+            return replay_response_payload
 
     bus_seq = _publish_gateway_event(normalized_envelope)
     audit_metadata = {
@@ -1000,6 +1257,18 @@ def publish_event(
     }
     if original_event_type is not None:
         response_payload["original_event_type"] = original_event_type
+    if correlation_id:
+        response_payload["correlation_id"] = correlation_id
+    if direct_dedupe_key is not None:
+        response_payload["idempotent_replay"] = False
+        _remember_direct_idempotency_record(
+            dedupe_key=direct_dedupe_key,
+            bus_seq=bus_seq,
+            event_id=normalized_envelope.get("event_id"),
+            event_type=event_type,
+            correlation_id=correlation_id,
+            source_event_type=original_event_type or "",
+        )
     return response_payload
 
 
