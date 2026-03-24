@@ -516,7 +516,13 @@ class AppIntegrationTests(unittest.TestCase):
     def test_runtime_usable_reports_gateway_summary_when_ready(self, mock_urlopen) -> None:
         with patch.dict(
             os.environ,
-            {"RUNTIME_EXECUTION_BASE_URL": "http://runtime-execution.internal:8003"},
+            {
+                "RUNTIME_EXECUTION_BASE_URL": "http://runtime-execution.internal:8003",
+                "RUNTIME_GATEWAY_NODE_ID": "gw-local",
+                "RUNTIME_GATEWAY_WORKSPACE_ID": "workspace-main",
+                "RUNTIME_GATEWAY_STICKY_LINEAGE_ENABLED": "true",
+                "RUNTIME_GATEWAY_STICKY_LINEAGE_TTL_SECONDS": "1200",
+            },
             clear=False,
         ):
             mock_urlopen.return_value = _FakeHealthResponse(
@@ -552,6 +558,13 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertIn("connections", event_bus)
         self.assertIn("buffered_events", event_bus)
         self.assertIn("next_seq", event_bus)
+        federation_node = payload["federation_node"]
+        self.assertEqual(federation_node["schema_version"], "runtime_gateway_federation_node.v1")
+        self.assertEqual(federation_node["gateway_id"], "gw-local")
+        self.assertEqual(federation_node["workspace_scope"]["workspace_id"], "workspace-main")
+        self.assertTrue(federation_node["routing_policy"]["sticky_lineage_enabled"])
+        self.assertEqual(federation_node["routing_policy"]["sticky_lineage_ttl_seconds"], 1200)
+        self.assertEqual(federation_node["capacity_snapshot"]["runtime_worker_pool_contract_ok"], True)
 
     @patch("runtime_gateway.app.urllib.request.urlopen")
     def test_runtime_usable_returns_503_when_not_ready(self, mock_urlopen) -> None:
@@ -586,6 +599,10 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(dependency["name"], "runtime-execution")
         self.assertEqual(dependency["status"], "down")
         self.assertEqual(dependency["reason"], "unreachable")
+        federation_node = payload["federation_node"]
+        self.assertEqual(federation_node["schema_version"], "runtime_gateway_federation_node.v1")
+        self.assertEqual(federation_node["capacity_snapshot"]["runtime_worker_pool_contract_ok"], False)
+        self.assertEqual(federation_node["capacity_snapshot"]["runtime_backpressure_contract_ok"], False)
 
     def test_executor_profiles_requires_runs_read_scope(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["runs:write"])

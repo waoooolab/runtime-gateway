@@ -772,6 +772,36 @@ def _validate_backpressure_contract_projection(payload: dict[str, Any]) -> list[
     return failures
 
 
+def _optional_env_str(name: str) -> str | None:
+    raw = os.environ.get(name)
+    if raw is None:
+        return None
+    normalized = raw.strip()
+    return normalized or None
+
+
+def _normalize_non_negative_int(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    if value < 0:
+        return None
+    return value
+
+
+def _extract_worker_pool_capacity_snapshot(worker_pool_payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "desired_workers": _normalize_non_negative_int(worker_pool_payload.get("desired_workers")),
+        "active_workers": _normalize_non_negative_int(worker_pool_payload.get("active_workers")),
+        "queue_depth": _normalize_non_negative_int(worker_pool_payload.get("queue_depth")),
+        "scheduler_depth": _normalize_non_negative_int(worker_pool_payload.get("scheduler_depth")),
+        "lifecycle_state": str(worker_pool_payload.get("lifecycle_state", "") or ""),
+        "pool_health_state": str(worker_pool_payload.get("pool_health_state", "") or ""),
+        "recommended_poll_after_ms": _normalize_non_negative_int(
+            worker_pool_payload.get("recommended_poll_after_ms")
+        ),
+    }
+
+
 def _probe_runtime_execution_contract_signals(*, timeout_seconds: float) -> dict[str, Any]:
     result: dict[str, Any] = {
         "runtime_backpressure_contract_ok": None,
@@ -786,6 +816,7 @@ def _probe_runtime_execution_contract_signals(*, timeout_seconds: float) -> dict
             "error": "",
             "worker_pool_failure_details": [],
             "backpressure_failure_details": [],
+            "worker_pool_snapshot": {},
         },
     }
     if not _env_truthy("RUNTIME_GATEWAY_RUNTIME_USABLE_ENABLE_CONTRACT_PROBE", default=False):
@@ -813,13 +844,16 @@ def _probe_runtime_execution_contract_signals(*, timeout_seconds: float) -> dict
         result["probe"]["status"] = "failed"
         result["probe"]["ok"] = False
         result["probe"]["error"] = detail
+        result["probe"]["worker_pool_snapshot"] = {}
         return result
     except Exception as exc:  # pragma: no cover - unexpected transport failure
         result["probe"]["status"] = "failed"
         result["probe"]["ok"] = False
         result["probe"]["error"] = f"runtime_execution_probe_failed:{exc}"
+        result["probe"]["worker_pool_snapshot"] = {}
         return result
 
+    worker_pool_snapshot = _extract_worker_pool_capacity_snapshot(worker_pool_payload)
     worker_pool_failures = _validate_worker_pool_contract_projection(worker_pool_payload)
     backpressure_failures = _validate_backpressure_contract_projection(worker_pool_payload)
     result["runtime_worker_pool_contract_ok"] = len(worker_pool_failures) == 0
@@ -834,6 +868,7 @@ def _probe_runtime_execution_contract_signals(*, timeout_seconds: float) -> dict
         "error": "",
         "worker_pool_failure_details": worker_pool_failures[:8],
         "backpressure_failure_details": backpressure_failures[:8],
+        "worker_pool_snapshot": worker_pool_snapshot,
     }
     return result
 
@@ -867,6 +902,73 @@ def _runtime_usable_contract_surface_signal(
         and runtime_worker_pool_status_contract_failures == runtime_worker_pool_contract_failures
     )
     return usable_surface_ok, 0 if usable_surface_ok else 1
+
+
+def _normalize_ttl_seconds(raw: str | None, *, default: int = 900) -> int:
+    if raw is None:
+        return default
+    try:
+        parsed = int(raw)
+    except ValueError:
+        return default
+    return max(30, min(86400, parsed))
+
+
+def _runtime_gateway_workspace_scope() -> dict[str, str | None]:
+    return {
+        "workspace_id": _optional_env_str("RUNTIME_GATEWAY_WORKSPACE_ID"),
+        "agent_workspace_id": _optional_env_str("RUNTIME_GATEWAY_AGENT_WORKSPACE_ID"),
+        "lane_workspace_id": _optional_env_str("RUNTIME_GATEWAY_LANE_WORKSPACE_ID"),
+    }
+
+
+def _runtime_gateway_routing_policy() -> dict[str, Any]:
+    return {
+        "mode": _optional_env_str("RUNTIME_GATEWAY_FEDERATION_ROUTING_MODE") or "local_preferred",
+        "failover_mode": _optional_env_str("RUNTIME_GATEWAY_FEDERATION_FAILOVER_MODE")
+        or "prefer_primary_then_spillover",
+        "sticky_lineage_enabled": _env_truthy("RUNTIME_GATEWAY_STICKY_LINEAGE_ENABLED", default=True),
+        "sticky_lineage_ttl_seconds": _normalize_ttl_seconds(
+            _optional_env_str("RUNTIME_GATEWAY_STICKY_LINEAGE_TTL_SECONDS"),
+            default=900,
+        ),
+    }
+
+
+def _build_runtime_gateway_federation_node_contract(
+    *,
+    event_bus: dict[str, Any],
+    contract_probe: dict[str, Any],
+    runtime_worker_pool_contract_ok: bool,
+    runtime_worker_pool_contract_failures: int,
+    runtime_backpressure_contract_ok: bool,
+    runtime_backpressure_contract_failures: int,
+) -> dict[str, Any]:
+    connections = _normalize_non_negative_int(event_bus.get("connections"))
+    buffered_events = _normalize_non_negative_int(event_bus.get("buffered_events"))
+    probe = contract_probe.get("probe")
+    worker_pool_snapshot: dict[str, Any] = {}
+    if isinstance(probe, dict):
+        raw_snapshot = probe.get("worker_pool_snapshot")
+        if isinstance(raw_snapshot, dict):
+            worker_pool_snapshot = dict(raw_snapshot)
+    return {
+        "schema_version": "runtime_gateway_federation_node.v1",
+        "gateway_id": _optional_env_str("RUNTIME_GATEWAY_NODE_ID") or "runtime-gateway",
+        "deployment_id": _optional_env_str("RUNTIME_GATEWAY_DEPLOYMENT_ID") or "local",
+        "role": _optional_env_str("RUNTIME_GATEWAY_NODE_ROLE") or "primary",
+        "workspace_scope": _runtime_gateway_workspace_scope(),
+        "routing_policy": _runtime_gateway_routing_policy(),
+        "capacity_snapshot": {
+            "event_bus_connections": connections,
+            "event_bus_buffered_events": buffered_events,
+            "runtime_worker_pool_contract_ok": runtime_worker_pool_contract_ok,
+            "runtime_worker_pool_contract_failures": runtime_worker_pool_contract_failures,
+            "runtime_backpressure_contract_ok": runtime_backpressure_contract_ok,
+            "runtime_backpressure_contract_failures": runtime_backpressure_contract_failures,
+            "worker_pool_snapshot": worker_pool_snapshot,
+        },
+    }
 
 
 @app.get("/healthz")
@@ -908,6 +1010,7 @@ def runtime_usable() -> Any:
             runtime_worker_pool_status_contract_failures=runtime_worker_pool_contract_failures,
         )
     )
+    event_bus_stats = _event_bus.stats()
     response_payload = {
         "schema_version": "runtime_gateway_usable.v1",
         "ok": bool(ready),
@@ -915,7 +1018,7 @@ def runtime_usable() -> Any:
         "service": "runtime-gateway",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "dependencies": readiness_payload.get("dependencies", []),
-        "event_bus": _event_bus.stats(),
+        "event_bus": event_bus_stats,
         "recommended_poll_after_ms": 10000 if ready else 1000,
         "runtime_backpressure_contract_ok": runtime_backpressure_contract_ok,
         "runtime_backpressure_contract_failures": runtime_backpressure_contract_failures,
@@ -929,6 +1032,14 @@ def runtime_usable() -> Any:
             "runtime_worker_pool_status_contract": "runtime_worker_pool_contract"
         },
         "runtime_contract_probe": contract_probe.get("probe", {}),
+        "federation_node": _build_runtime_gateway_federation_node_contract(
+            event_bus=event_bus_stats,
+            contract_probe=contract_probe,
+            runtime_worker_pool_contract_ok=runtime_worker_pool_contract_ok,
+            runtime_worker_pool_contract_failures=runtime_worker_pool_contract_failures,
+            runtime_backpressure_contract_ok=runtime_backpressure_contract_ok,
+            runtime_backpressure_contract_failures=runtime_backpressure_contract_failures,
+        ),
     }
     if not ready:
         return JSONResponse(status_code=503, content=response_payload)
