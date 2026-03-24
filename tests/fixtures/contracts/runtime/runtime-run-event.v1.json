@@ -491,6 +491,48 @@
           ],
           "additionalProperties": false
         },
+        "control_ingress": {
+          "type": "object",
+          "required": [
+            "entry_mode",
+            "trace_id",
+            "tenant_id",
+            "app_id",
+            "session_key"
+          ],
+          "properties": {
+            "entry_mode": {
+              "type": "string",
+              "enum": [
+                "assistant",
+                "workflow",
+                "tools",
+                "mixed"
+              ]
+            },
+            "trace_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tenant_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "app_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "session_key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "lifecycle_id": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
         "orchestration": {
           "type": "object",
           "required": [

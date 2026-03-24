@@ -186,6 +186,53 @@ class EventBusWebsocketTests(unittest.TestCase):
         self.assertFalse(payload["has_more"])
         self.assertEqual(payload["recommended_poll_after_ms"], 1500)
 
+    def test_recent_and_sse_preserve_control_ingress_projection(self) -> None:
+        token = self._token(scope=["runs:write", "runs:read"])
+        envelope = _event_envelope(event_type="runtime.run.status", run_id="run-ingress-1")
+        envelope["payload"] = {
+            "run_id": "run-ingress-1",
+            "status": "running",
+            "retry_attempts": 0,
+            "control_ingress": {
+                "entry_mode": "mixed",
+                "trace_id": "trace-events-1",
+                "tenant_id": "t1",
+                "app_id": "covernow",
+                "session_key": "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+                "lifecycle_id": "life-mixed-1",
+            },
+        }
+
+        publish = self.client.post(
+            "/v1/events/publish",
+            json=envelope,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(publish.status_code, 200)
+
+        recent = self.client.get(
+            "/v1/events/recent?event_types=runtime.run.status",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(recent.status_code, 200)
+        recent_items = recent.json()["items"]
+        self.assertEqual(len(recent_items), 1)
+        recent_ingress = recent_items[0]["event"]["payload"]["control_ingress"]
+        self.assertEqual(recent_ingress["entry_mode"], "mixed")
+        self.assertEqual(recent_ingress["trace_id"], "trace-events-1")
+        self.assertEqual(recent_ingress["lifecycle_id"], "life-mixed-1")
+
+        sse_frames = self._read_sse_events(
+            url="/v1/events/sse?follow=false&event_types=runtime.run.status&limit=8",
+            headers={"Authorization": f"Bearer {token}"},
+            max_data_frames=4,
+        )
+        status_frame = next(frame for frame in sse_frames if frame["event"] == "runtime.run.status")
+        sse_ingress = status_frame["payload"]["event"]["payload"]["control_ingress"]
+        self.assertEqual(sse_ingress["entry_mode"], "mixed")
+        self.assertEqual(sse_ingress["trace_id"], "trace-events-1")
+        self.assertEqual(sse_ingress["lifecycle_id"], "life-mixed-1")
+
     def test_publish_event_and_list_recent_with_capability_scopes(self) -> None:
         write_token = self._token(scope=["capabilities:write"])
         read_token = self._token(scope=["capabilities:read"])
