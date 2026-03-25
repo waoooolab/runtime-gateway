@@ -53,6 +53,30 @@ class _FakeExecutionClient:
 
 
 @dataclass
+class _FakeExecutionClientContractVersionDrift:
+    def submit_command(self, *, envelope: dict, auth_token: str) -> dict:
+        _ = auth_token
+        return {
+            "event_id": "evt-run-drift-1",
+            "event_type": "runtime.run.requested",
+            "tenant_id": str(envelope["tenant_id"]),
+            "app_id": str(envelope["app_id"]),
+            "session_key": str(envelope["session_key"]),
+            "trace_id": str(envelope["trace_id"]),
+            "correlation_id": str(envelope["command_id"]),
+            "task_contract_version": str(envelope.get("task_contract_version", "task-envelope.v1")),
+            "agent_contract_version": str(envelope.get("agent_contract_version", "assistant-decision.v1")),
+            "event_schema_version": "event-envelope.v999",
+            "ts": "2026-03-01T12:00:00+00:00",
+            "payload": {
+                "run_id": "run-test-contract-version-drift",
+                "status": "queued",
+                "retry_attempts": 0,
+            },
+        }
+
+
+@dataclass
 class _FakeExecutionClientComputeAccepted:
     def submit_command(self, *, envelope: dict, auth_token: str) -> dict:
         _ = auth_token
@@ -870,6 +894,37 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(envelope["task_contract_version"], "task-envelope.v1")
         self.assertEqual(envelope["agent_contract_version"], "assistant-decision.v1")
         self.assertEqual(envelope["event_schema_version"], "event-envelope.v1")
+
+    def test_runs_binds_default_contract_versions_when_not_provided(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        response = self.client.post(
+            "/v1/runs",
+            json=self.payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        assert self.fake_execution_client.last_submit is not None
+        envelope = self.fake_execution_client.last_submit["envelope"]
+        self.assertEqual(envelope["task_contract_version"], "task-envelope.v1")
+        self.assertEqual(envelope["agent_contract_version"], "assistant-decision.v1")
+        self.assertEqual(envelope["event_schema_version"], "event-envelope.v1")
+
+    def test_runs_rejects_downstream_contract_version_drift(self) -> None:
+        gateway_app_module._execution_client = _FakeExecutionClientContractVersionDrift()
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        response = self.client.post(
+            "/v1/runs",
+            json=self.payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 502)
+        detail = response.json().get("detail")
+        self.assertIsInstance(detail, str)
+        assert isinstance(detail, str)
+        self.assertIn("contract version drift detected", detail)
+        audit_latest = get_audit_events(limit=1)[0]
+        self.assertEqual(audit_latest["decision"], "deny")
+        self.assertIn("contract version drift detected", str(audit_latest["metadata"].get("reason", "")))
 
     def test_runs_rejects_contract_versions_unknown_fields(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["runs:write"])

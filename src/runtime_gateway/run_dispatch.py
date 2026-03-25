@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping
@@ -29,9 +30,65 @@ from .upstream_error import (
     resolve_upstream_status_code,
 )
 
+_TASK_CONTRACT_VERSION_ENV = "OWA_TASK_CONTRACT_VERSION"
+_AGENT_CONTRACT_VERSION_ENV = "OWA_AGENT_CONTRACT_VERSION"
+_EVENT_SCHEMA_VERSION_ENV = "OWA_EVENT_SCHEMA_VERSION"
+_DEFAULT_TASK_CONTRACT_VERSION = "task-envelope.v1"
+_DEFAULT_AGENT_CONTRACT_VERSION = "assistant-decision.v1"
+_DEFAULT_EVENT_SCHEMA_VERSION = "event-envelope.v1"
+
 
 def _resolve_trace_id(claims: Mapping[str, Any]) -> str:
     return str(claims.get("trace_id", "")).strip() or str(uuid.uuid4())
+
+
+def _resolve_bound_contract_versions(req: CreateRunRequest) -> dict[str, str]:
+    configured = req.contract_versions.model_dump(exclude_none=True) if req.contract_versions is not None else {}
+    task_contract_version = str(
+        configured.get("task_contract_version")
+        or os.environ.get(_TASK_CONTRACT_VERSION_ENV, _DEFAULT_TASK_CONTRACT_VERSION)
+    ).strip()
+    agent_contract_version = str(
+        configured.get("agent_contract_version")
+        or os.environ.get(_AGENT_CONTRACT_VERSION_ENV, _DEFAULT_AGENT_CONTRACT_VERSION)
+    ).strip()
+    event_schema_version = str(
+        configured.get("event_schema_version")
+        or os.environ.get(_EVENT_SCHEMA_VERSION_ENV, _DEFAULT_EVENT_SCHEMA_VERSION)
+    ).strip()
+    return {
+        "task_contract_version": task_contract_version,
+        "agent_contract_version": agent_contract_version,
+        "event_schema_version": event_schema_version,
+    }
+
+
+def _bound_contract_versions_from_command(command: Mapping[str, Any]) -> dict[str, str]:
+    versions: dict[str, str] = {}
+    for key in ("task_contract_version", "agent_contract_version", "event_schema_version"):
+        raw = command.get(key)
+        if not isinstance(raw, str) or not raw.strip():
+            raise ValueError(f"missing bound contract version on command: {key}")
+        versions[key] = raw.strip()
+    return versions
+
+
+def _enforce_event_contract_versions(
+    *,
+    event: dict[str, Any],
+    bound_versions: Mapping[str, str],
+) -> None:
+    for key, expected in bound_versions.items():
+        raw = event.get(key)
+        if raw is None:
+            event[key] = expected
+            continue
+        if not isinstance(raw, str) or not raw.strip():
+            raise ValueError(f"invalid contract version field in downstream event: {key}")
+        if raw.strip() != expected:
+            raise ValueError(
+                f"contract version drift detected: {key} expected={expected} got={raw.strip()}"
+            )
 
 
 def _build_execution_command(req: CreateRunRequest, trace_id: str) -> dict[str, Any]:
@@ -56,12 +113,7 @@ def _build_execution_command(req: CreateRunRequest, trace_id: str) -> dict[str, 
         "ts": datetime.now(timezone.utc).isoformat(),
         "payload": req.payload,
     }
-    if req.contract_versions is not None:
-        contract_versions = req.contract_versions.model_dump(exclude_none=True)
-        for key in ("task_contract_version", "agent_contract_version", "event_schema_version"):
-            value = contract_versions.get(key)
-            if isinstance(value, str) and value.strip():
-                command[key] = value
+    command.update(_resolve_bound_contract_versions(req))
     return command
 
 
@@ -400,11 +452,13 @@ def _submit_command(
     trace_id: str,
 ) -> dict[str, Any]:
     retry_policy_metadata = _extract_retry_policy_metadata(command)
+    bound_contract_versions = _bound_contract_versions_from_command(command)
     try:
         return execution_client.submit_command(envelope=command, auth_token=delegated_token)
     except RuntimeExecutionClientError as exc:
         downstream_event_type = None
         bus_seq = None
+        contract_version_violation = None
         route_failure_metadata: dict[str, Any] = {}
         failure_classification = extract_upstream_failure_classification(
             message=str(exc),
@@ -437,6 +491,10 @@ def _submit_command(
         )
         if isinstance(exc.response_body, dict):
             try:
+                _enforce_event_contract_versions(
+                    event=exc.response_body,
+                    bound_versions=bound_contract_versions,
+                )
                 validate_event_envelope(exc.response_body)
                 downstream_event_type = str(exc.response_body.get("event_type", ""))
                 bus_seq = publish_gateway_event(exc.response_body)
@@ -469,9 +527,21 @@ def _submit_command(
                     if isinstance(retry_policy_metadata.get("retry_policy"), dict)
                     else None,
                 )
-            except ValueError:
+            except ValueError as version_exc:
+                contract_version_violation = str(version_exc)
                 downstream_event_type = None
                 bus_seq = None
+                effective_status_code = 502
+                effective_retryable = False
+                effective_failure_classification = "validation"
+                upstream_error_class = "contract_drift"
+                detail = {
+                    "message": "downstream event contract-version drift",
+                    "status_code": effective_status_code,
+                    "retryable": effective_retryable,
+                    "upstream_error_class": upstream_error_class,
+                    "reason": contract_version_violation,
+                }
 
         audit_metadata: dict[str, Any] = {
             "reason": str(exc),
@@ -484,6 +554,8 @@ def _submit_command(
         }
         audit_metadata.update(retry_policy_metadata)
         audit_metadata.update(route_failure_metadata)
+        if isinstance(contract_version_violation, str) and contract_version_violation:
+            audit_metadata["contract_version_violation"] = contract_version_violation
         emit_audit_event(
             action="runs.dispatch",
             decision="deny",
@@ -510,11 +582,16 @@ def _extract_run_result(execution_event: dict[str, Any]) -> tuple[str, str]:
 
 def _validate_execution_event(
     execution_event: dict[str, Any],
+    command: Mapping[str, Any],
     *,
     actor_id: str,
     trace_id: str,
 ) -> None:
     try:
+        _enforce_event_contract_versions(
+            event=execution_event,
+            bound_versions=_bound_contract_versions_from_command(command),
+        )
         validate_event_envelope(execution_event)
     except ValueError as exc:
         emit_audit_event(
@@ -625,6 +702,7 @@ def dispatch_create_run(
     )
     _validate_execution_event(
         execution_event,
+        command,
         actor_id=actor_id,
         trace_id=trace_id,
     )

@@ -39,6 +39,18 @@
       "type": "string",
       "minLength": 1
     },
+    "task_contract_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agent_contract_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "event_schema_version": {
+      "type": "string",
+      "minLength": 1
+    },
     "trace_id": {
       "type": "string",
       "minLength": 1
