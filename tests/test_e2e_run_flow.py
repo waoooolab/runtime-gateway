@@ -3187,7 +3187,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(retry_tick_payload["outcome"], "skipped")
         self.assertEqual(retry_tick_payload["reason"], "dispatch_retry_failed")
         self.assertEqual(retry_tick_payload["before_status"], "queued")
-        self.assertEqual(retry_tick_payload["after_status"], "failed")
+        self.assertEqual(retry_tick_payload["after_status"], "dlq")
 
         second_status = self.gateway_client.get(
             f"/v1/runs/{second_run_id}",
@@ -3195,7 +3195,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         )
         self.assertEqual(second_status.status_code, 200)
         status_payload = second_status.json()["payload"]
-        self.assertEqual(status_payload["status"], "failed")
+        self.assertEqual(status_payload["status"], "dlq")
         self.assertEqual(status_payload["retry_attempts"], 1)
         self.assertEqual(
             status_payload["orchestration"]["failure_reason_code"],
@@ -3410,7 +3410,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(retry_tick_two_payload["outcome"], "skipped")
         self.assertEqual(retry_tick_two_payload["reason"], "dispatch_retry_failed")
         self.assertEqual(retry_tick_two_payload["before_status"], "queued")
-        self.assertEqual(retry_tick_two_payload["after_status"], "failed")
+        self.assertEqual(retry_tick_two_payload["after_status"], "dlq")
 
         second_status = self.gateway_client.get(
             f"/v1/runs/{second_run_id}",
@@ -3418,7 +3418,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         )
         self.assertEqual(second_status.status_code, 200)
         status_payload = second_status.json()["payload"]
-        self.assertEqual(status_payload["status"], "failed")
+        self.assertEqual(status_payload["status"], "dlq")
         self.assertEqual(status_payload["retry_attempts"], 2)
         self.assertEqual(
             status_payload["orchestration"]["failure_reason_code"],

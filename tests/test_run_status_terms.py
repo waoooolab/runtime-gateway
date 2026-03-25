@@ -21,6 +21,7 @@ def test_is_terminal_run_status_uses_canonical_terms_with_legacy_compat() -> Non
     assert is_terminal_run_status("running") is False
     assert is_terminal_run_status("succeeded") is True
     assert is_terminal_run_status("failed") is True
+    assert is_terminal_run_status("dlq") is True
     assert is_terminal_run_status("rejected") is True
     assert is_terminal_run_status("unknown_status") is False
 
@@ -29,6 +30,6 @@ def test_recommended_poll_after_ms_for_run_status() -> None:
     assert recommended_poll_after_ms_for_run_status("queued") == 1500
     assert recommended_poll_after_ms_for_run_status("running") == 1000
     assert recommended_poll_after_ms_for_run_status("succeeded") == 10000
+    assert recommended_poll_after_ms_for_run_status("dlq") == 10000
     assert recommended_poll_after_ms_for_run_status("rejected") == 10000
     assert recommended_poll_after_ms_for_run_status("new_future_status") == 3000
-

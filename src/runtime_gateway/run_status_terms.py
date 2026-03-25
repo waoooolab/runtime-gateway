@@ -21,6 +21,7 @@ _DEFAULT_RUN_STATUSES = frozenset(
         "retrying",
         "succeeded",
         "failed",
+        "dlq",
         "canceled",
         "timed_out",
     }
