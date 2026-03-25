@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from threading import Lock
 from typing import Any
 
+from runtime_gateway.code_terms import normalize_optional_code_term
+
 
 @dataclass
 class InMemoryEventBus:
@@ -42,6 +44,8 @@ class InMemoryEventBus:
         app_id: str | None = None,
         session_key: str | None = None,
         event_types: set[str] | None = None,
+        run_statuses: set[str] | None = None,
+        reason_codes: set[str] | None = None,
         run_id: str | None = None,
         since_ts: datetime | None = None,
         until_ts: datetime | None = None,
@@ -57,6 +61,8 @@ class InMemoryEventBus:
                 app_id=app_id,
                 session_key=session_key,
                 event_types=event_types,
+                run_statuses=run_statuses,
+                reason_codes=reason_codes,
                 run_id=run_id,
                 since_ts=since_ts,
                 until_ts=until_ts,
@@ -74,6 +80,8 @@ class InMemoryEventBus:
         app_id: str | None = None,
         session_key: str | None = None,
         event_types: set[str] | None = None,
+        run_statuses: set[str] | None = None,
+        reason_codes: set[str] | None = None,
         run_id: str | None = None,
         since_ts: datetime | None = None,
         until_ts: datetime | None = None,
@@ -90,6 +98,8 @@ class InMemoryEventBus:
                 app_id=app_id,
                 session_key=session_key,
                 event_types=event_types,
+                run_statuses=run_statuses,
+                reason_codes=reason_codes,
                 run_id=run_id,
                 since_ts=since_ts,
                 until_ts=until_ts,
@@ -122,6 +132,8 @@ def _matches(
     app_id: str | None,
     session_key: str | None,
     event_types: set[str] | None,
+    run_statuses: set[str] | None,
+    reason_codes: set[str] | None,
     run_id: str | None,
     since_ts: datetime | None,
     until_ts: datetime | None,
@@ -134,6 +146,14 @@ def _matches(
         return False
     if event_types:
         if str(event.get("event_type")) not in event_types:
+            return False
+    if run_statuses:
+        event_run_status = _extract_run_status(event)
+        if event_run_status is None or event_run_status not in run_statuses:
+            return False
+    if reason_codes:
+        event_reason_code = _extract_failure_reason_code(event)
+        if event_reason_code is None or event_reason_code not in reason_codes:
             return False
     if run_id:
         payload = event.get("payload")
@@ -166,3 +186,37 @@ def _parse_event_ts(raw_ts: Any) -> datetime | None:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed
+
+
+def _extract_run_status(event: dict[str, Any]) -> str | None:
+    payload = event.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    raw_status = payload.get("status")
+    if not isinstance(raw_status, str):
+        return None
+    normalized = raw_status.strip().lower()
+    return normalized or None
+
+
+def _extract_failure_reason_code(event: dict[str, Any]) -> str | None:
+    payload = event.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    orchestration = payload.get("orchestration")
+    if isinstance(orchestration, dict):
+        normalized_orchestration_code = normalize_optional_code_term(orchestration.get("failure_reason_code"))
+        if normalized_orchestration_code is not None:
+            return normalized_orchestration_code
+    normalized_failure_code = normalize_optional_code_term(payload.get("failure_reason_code"))
+    if normalized_failure_code is not None:
+        return normalized_failure_code
+    route = payload.get("route")
+    if isinstance(route, dict):
+        normalized_placement_reason = normalize_optional_code_term(route.get("placement_reason_code"))
+        if normalized_placement_reason is not None:
+            return normalized_placement_reason
+        normalized_route_reason = normalize_optional_code_term(route.get("reason_code"))
+        if normalized_route_reason is not None:
+            return normalized_route_reason
+    return normalize_optional_code_term(payload.get("reason_code"))

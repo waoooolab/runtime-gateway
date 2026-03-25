@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from .api.schemas import TokenExchangeRequest, TokenExchangeResponse
 from .auth.tokens import TokenError, issue_token, verify_token
 from .audit.emitter import emit_audit_event, get_audit_events, read_audit_log
+from .code_terms import normalize_optional_code_term
 from .contracts import (
     ContractValidationError,
     validate_executor_profile_catalog_contract,
@@ -420,6 +421,86 @@ def _parse_event_types_or_none(raw_event_types: str | None) -> set[str] | None:
     return parsed
 
 
+def _parse_run_statuses_or_none(raw_run_statuses: str | None) -> set[str] | None:
+    if raw_run_statuses is None:
+        return None
+    parsed = {item.strip().lower() for item in raw_run_statuses.split(",") if item.strip()}
+    if not parsed:
+        return None
+    return parsed
+
+
+def _parse_reason_codes_or_none(raw_reason_codes: str | None) -> set[str] | None:
+    if raw_reason_codes is None:
+        return None
+    parsed: set[str] = set()
+    for item in raw_reason_codes.split(","):
+        normalized = normalize_optional_code_term(item)
+        if normalized is not None:
+            parsed.add(normalized)
+    if not parsed:
+        return None
+    return parsed
+
+
+def _extract_event_run_status(event: dict[str, Any]) -> str | None:
+    payload = event.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    status = payload.get("status")
+    if not isinstance(status, str):
+        return None
+    normalized = status.strip().lower()
+    return normalized or None
+
+
+def _extract_event_failure_reason_code(event: dict[str, Any]) -> str | None:
+    payload = event.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    orchestration = payload.get("orchestration")
+    if isinstance(orchestration, dict):
+        orchestration_reason = normalize_optional_code_term(orchestration.get("failure_reason_code"))
+        if orchestration_reason is not None:
+            return orchestration_reason
+    flat_reason = normalize_optional_code_term(payload.get("failure_reason_code"))
+    if flat_reason is not None:
+        return flat_reason
+    route = payload.get("route")
+    if isinstance(route, dict):
+        placement_reason = normalize_optional_code_term(route.get("placement_reason_code"))
+        if placement_reason is not None:
+            return placement_reason
+        route_reason = normalize_optional_code_term(route.get("reason_code"))
+        if route_reason is not None:
+            return route_reason
+    return normalize_optional_code_term(payload.get("reason_code"))
+
+
+def _build_dlq_projection(items: list[dict[str, Any]]) -> dict[str, Any]:
+    run_status_counts: dict[str, int] = {}
+    failure_reason_counts: dict[str, int] = {}
+    dlq_events = 0
+    for item in items:
+        event = item.get("event")
+        if not isinstance(event, dict):
+            continue
+        run_status = _extract_event_run_status(event)
+        failure_reason_code = _extract_event_failure_reason_code(event)
+        if run_status is not None:
+            run_status_counts[run_status] = run_status_counts.get(run_status, 0) + 1
+        if run_status == "dlq":
+            dlq_events += 1
+            if failure_reason_code is not None:
+                failure_reason_counts[failure_reason_code] = failure_reason_counts.get(failure_reason_code, 0) + 1
+    return {
+        "schema_version": "runtime.events.dlq_projection.v1",
+        "dlq_events": dlq_events,
+        "run_status_counts": dict(sorted(run_status_counts.items())),
+        "failure_reason_counts": dict(sorted(failure_reason_counts.items())),
+    }
+
+
 def _parse_source_or_raise(raw_source: str) -> str:
     normalized = raw_source.strip().lower()
     if normalized not in {"memory", "durable"}:
@@ -453,6 +534,8 @@ def _resolve_event_read_filters(
     app_id: str | None,
     session_key: str | None,
     event_types: str | None,
+    run_statuses: str | None,
+    reason_codes: str | None,
     run_id: str | None,
     since_ts: str | None,
     until_ts: str | None,
@@ -460,6 +543,8 @@ def _resolve_event_read_filters(
     str,
     str,
     str | None,
+    set[str] | None,
+    set[str] | None,
     set[str] | None,
     str | None,
     str,
@@ -483,6 +568,8 @@ def _resolve_event_read_filters(
         claim_value=str(claims.get("session_key", "")),
     )
     parsed_types = _parse_event_types_or_none(event_types)
+    parsed_run_statuses = _parse_run_statuses_or_none(run_statuses)
+    parsed_reason_codes = _parse_reason_codes_or_none(reason_codes)
     source_value = _parse_source_or_raise(source)
     parsed_since_ts = _parse_optional_ts_or_raise(since_ts, field_name="since_ts")
     parsed_until_ts = _parse_optional_ts_or_raise(until_ts, field_name="until_ts")
@@ -498,6 +585,8 @@ def _resolve_event_read_filters(
         effective_app,
         effective_session_key,
         parsed_types,
+        parsed_run_statuses,
+        parsed_reason_codes,
         run_filter,
         source_value,
         parsed_since_ts,
@@ -513,6 +602,8 @@ def _read_event_chunk(
     app_id: str,
     session_key: str | None,
     event_types: set[str] | None,
+    run_statuses: set[str] | None,
+    reason_codes: set[str] | None,
     run_id: str | None,
     cursor: int | None,
     since_ts: datetime | None,
@@ -526,6 +617,8 @@ def _read_event_chunk(
                 app_id=app_id or None,
                 session_key=session_key,
                 event_types=event_types,
+                run_statuses=run_statuses,
+                reason_codes=reason_codes,
                 run_id=run_id,
                 since_ts=since_ts,
                 until_ts=until_ts,
@@ -539,6 +632,8 @@ def _read_event_chunk(
                 app_id=app_id or None,
                 session_key=session_key,
                 event_types=event_types,
+                run_statuses=run_statuses,
+                reason_codes=reason_codes,
                 run_id=run_id,
                 since_ts=since_ts,
                 until_ts=until_ts,
@@ -560,6 +655,8 @@ def _read_event_chunk(
         app_id=app_id or None,
         session_key=session_key,
         event_types=event_types,
+        run_statuses=run_statuses,
+        reason_codes=reason_codes,
         run_id=run_id,
         since_ts=since_ts,
         until_ts=until_ts,
@@ -1061,6 +1158,8 @@ def list_recent_events(
     app_id: str | None = None,
     session_key: str | None = None,
     event_types: str | None = None,
+    run_statuses: str | None = None,
+    reason_codes: str | None = None,
     run_id: str | None = None,
     cursor: int | None = Query(default=None, ge=0),
     since_ts: str | None = Query(default=None),
@@ -1072,6 +1171,8 @@ def list_recent_events(
         effective_app,
         effective_session_key,
         parsed_types,
+        parsed_run_statuses,
+        parsed_reason_codes,
         run_filter,
         source_value,
         parsed_since_ts,
@@ -1083,6 +1184,8 @@ def list_recent_events(
         app_id=app_id,
         session_key=session_key,
         event_types=event_types,
+        run_statuses=run_statuses,
+        reason_codes=reason_codes,
         run_id=run_id,
         since_ts=since_ts,
         until_ts=until_ts,
@@ -1094,6 +1197,8 @@ def list_recent_events(
         app_id=effective_app,
         session_key=effective_session_key,
         event_types=parsed_types,
+        run_statuses=parsed_run_statuses,
+        reason_codes=parsed_reason_codes,
         run_id=run_filter,
         cursor=cursor,
         since_ts=parsed_since_ts,
@@ -1110,6 +1215,7 @@ def list_recent_events(
         "recommended_poll_after_ms": recommended_poll_after_ms,
         "stats": stats,
         "source": source_value,
+        "dlq_projection": _build_dlq_projection(items),
     }
     try:
         validate_runtime_events_page_contract(response_payload)
@@ -1127,6 +1233,8 @@ async def stream_events_sse(
     app_id: str | None = None,
     session_key: str | None = None,
     event_types: str | None = None,
+    run_statuses: str | None = None,
+    reason_codes: str | None = None,
     run_id: str | None = None,
     cursor: int = Query(default=0, ge=0),
     since_ts: str | None = Query(default=None),
@@ -1145,6 +1253,8 @@ async def stream_events_sse(
         effective_app,
         effective_session_key,
         parsed_types,
+        parsed_run_statuses,
+        parsed_reason_codes,
         run_filter,
         source_value,
         parsed_since_ts,
@@ -1156,6 +1266,8 @@ async def stream_events_sse(
         app_id=app_id,
         session_key=session_key,
         event_types=event_types,
+        run_statuses=run_statuses,
+        reason_codes=reason_codes,
         run_id=run_id,
         since_ts=since_ts,
         until_ts=until_ts,
@@ -1184,6 +1296,10 @@ async def stream_events_sse(
             ready_payload["until_ts"] = parsed_until_ts.isoformat()
         if parsed_types is not None:
             ready_payload["event_types"] = sorted(parsed_types)
+        if parsed_run_statuses is not None:
+            ready_payload["run_statuses"] = sorted(parsed_run_statuses)
+        if parsed_reason_codes is not None:
+            ready_payload["reason_codes"] = sorted(parsed_reason_codes)
         yield _sse_frame(
             payload=ready_payload,
             event="ready",
@@ -1201,6 +1317,8 @@ async def stream_events_sse(
                 app_id=effective_app,
                 session_key=effective_session_key,
                 event_types=parsed_types,
+                run_statuses=parsed_run_statuses,
+                reason_codes=parsed_reason_codes,
                 run_id=run_filter,
                 cursor=next_cursor,
                 since_ts=parsed_since_ts,

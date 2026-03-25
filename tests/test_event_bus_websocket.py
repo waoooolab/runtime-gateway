@@ -357,6 +357,88 @@ class EventBusWebsocketTests(unittest.TestCase):
         self.assertEqual(items[0]["event"]["payload"]["run_id"], "run-789")
         self.assertEqual(items[0]["event"]["event_type"], "runtime.run.completed")
 
+    def test_recent_events_can_filter_by_run_status_and_reason_code(self) -> None:
+        token = self._token(scope=["runs:write"])
+        base = _event_envelope("runtime.run.status", run_id="run-dlq-filter-1")
+        base["payload"] = {"run_id": "run-dlq-filter-1", "status": "queued", "retry_attempts": 0}
+        self.client.post(
+            "/v1/events/publish",
+            json=base,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        dlq_reason = _event_envelope("runtime.run.status", run_id="run-dlq-filter-1")
+        dlq_reason["payload"] = {
+            "run_id": "run-dlq-filter-1",
+            "status": "dlq",
+            "retry_attempts": 5,
+            "orchestration": {"failure_reason_code": "Run.Preempted"},
+        }
+        self.client.post(
+            "/v1/events/publish",
+            json=dlq_reason,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        dlq_other = _event_envelope("runtime.run.status", run_id="run-dlq-filter-1")
+        dlq_other["payload"] = {
+            "run_id": "run-dlq-filter-1",
+            "status": "dlq",
+            "retry_attempts": 6,
+            "route": {"placement_reason_code": "capacity_exhausted"},
+        }
+        self.client.post(
+            "/v1/events/publish",
+            json=dlq_other,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        filtered = self.client.get(
+            "/v1/events/recent?run_id=run-dlq-filter-1&event_types=runtime.run.status&run_statuses=dlq&reason_codes=Run.Preempted",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(filtered.status_code, 200)
+        payload = filtered.json()
+        items = payload["items"]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["event"]["payload"]["status"], "dlq")
+        self.assertEqual(items[0]["event"]["payload"]["orchestration"]["failure_reason_code"], "Run.Preempted")
+        self.assertEqual(payload["dlq_projection"]["dlq_events"], 1)
+        self.assertEqual(payload["dlq_projection"]["failure_reason_counts"], {"run_preempted": 1})
+
+    def test_recent_events_surfaces_dlq_projection_summary(self) -> None:
+        token = self._token(scope=["runs:write"])
+        running = _event_envelope("runtime.run.status", run_id="run-dlq-summary-1")
+        running["payload"] = {"run_id": "run-dlq-summary-1", "status": "running"}
+        self.client.post(
+            "/v1/events/publish",
+            json=running,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        dlq = _event_envelope("runtime.run.status", run_id="run-dlq-summary-1")
+        dlq["payload"] = {
+            "run_id": "run-dlq-summary-1",
+            "status": "dlq",
+            "orchestration": {"failure_reason_code": "tool_contract_violation"},
+        }
+        self.client.post(
+            "/v1/events/publish",
+            json=dlq,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        recent = self.client.get(
+            "/v1/events/recent?run_id=run-dlq-summary-1&event_types=runtime.run.status",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(recent.status_code, 200)
+        projection = recent.json()["dlq_projection"]
+        self.assertEqual(projection["schema_version"], "runtime.events.dlq_projection.v1")
+        self.assertEqual(projection["dlq_events"], 1)
+        self.assertEqual(projection["run_status_counts"], {"dlq": 1, "running": 1})
+        self.assertEqual(projection["failure_reason_counts"], {"tool_contract_violation": 1})
+
     def test_recent_events_can_filter_by_session_key(self) -> None:
         token = self._token(scope=["runs:write"])
         session_a = "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm"
