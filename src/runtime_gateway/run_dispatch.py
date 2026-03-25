@@ -33,9 +33,15 @@ from .upstream_error import (
 _TASK_CONTRACT_VERSION_ENV = "OWA_TASK_CONTRACT_VERSION"
 _AGENT_CONTRACT_VERSION_ENV = "OWA_AGENT_CONTRACT_VERSION"
 _EVENT_SCHEMA_VERSION_ENV = "OWA_EVENT_SCHEMA_VERSION"
+_ACTIVE_TASK_CONTRACT_VERSIONS_ENV = "OWA_ACTIVE_TASK_CONTRACT_VERSIONS"
+_ACTIVE_AGENT_CONTRACT_VERSIONS_ENV = "OWA_ACTIVE_AGENT_CONTRACT_VERSIONS"
+_ACTIVE_EVENT_SCHEMA_VERSIONS_ENV = "OWA_ACTIVE_EVENT_SCHEMA_VERSIONS"
 _DEFAULT_TASK_CONTRACT_VERSION = "task-envelope.v1"
 _DEFAULT_AGENT_CONTRACT_VERSION = "assistant-decision.v1"
 _DEFAULT_EVENT_SCHEMA_VERSION = "event-envelope.v1"
+_DEFAULT_ACTIVE_TASK_CONTRACT_VERSIONS = ("task-envelope.v1", "task-envelope.v2")
+_DEFAULT_ACTIVE_AGENT_CONTRACT_VERSIONS = ("assistant-decision.v1", "assistant-decision.v2")
+_DEFAULT_ACTIVE_EVENT_SCHEMA_VERSIONS = ("event-envelope.v1", "event-envelope.v2")
 
 
 def _resolve_trace_id(claims: Mapping[str, Any]) -> str:
@@ -61,6 +67,40 @@ def _resolve_bound_contract_versions(req: CreateRunRequest) -> dict[str, str]:
         "agent_contract_version": agent_contract_version,
         "event_schema_version": event_schema_version,
     }
+
+
+def _parse_active_version_pool(env_name: str, defaults: tuple[str, ...]) -> set[str]:
+    raw = os.environ.get(env_name)
+    if raw is None:
+        return {value for value in defaults if isinstance(value, str) and value.strip()}
+    values = {item.strip() for item in raw.split(",") if isinstance(item, str) and item.strip()}
+    if values:
+        return values
+    return {value for value in defaults if isinstance(value, str) and value.strip()}
+
+
+def _validate_bound_versions_in_active_pool(bound_versions: Mapping[str, str]) -> None:
+    active_pools = {
+        "task_contract_version": _parse_active_version_pool(
+            _ACTIVE_TASK_CONTRACT_VERSIONS_ENV,
+            _DEFAULT_ACTIVE_TASK_CONTRACT_VERSIONS,
+        ),
+        "agent_contract_version": _parse_active_version_pool(
+            _ACTIVE_AGENT_CONTRACT_VERSIONS_ENV,
+            _DEFAULT_ACTIVE_AGENT_CONTRACT_VERSIONS,
+        ),
+        "event_schema_version": _parse_active_version_pool(
+            _ACTIVE_EVENT_SCHEMA_VERSIONS_ENV,
+            _DEFAULT_ACTIVE_EVENT_SCHEMA_VERSIONS,
+        ),
+    }
+    for key, value in bound_versions.items():
+        if value not in active_pools[key]:
+            allowed = ",".join(sorted(active_pools[key]))
+            raise HTTPException(
+                status_code=422,
+                detail=f"{key}={value} is not in active version pool ({allowed})",
+            )
 
 
 def _bound_contract_versions_from_command(command: Mapping[str, Any]) -> dict[str, str]:
@@ -175,6 +215,7 @@ def _build_validated_command(req: CreateRunRequest, trace_id: str) -> dict[str, 
     _validate_execution_context_payload(req)
     _validate_orchestration_payload(req)
     command = _build_execution_command(req, trace_id)
+    _validate_bound_versions_in_active_pool(_bound_contract_versions_from_command(command))
     try:
         validate_command_envelope_contract(command)
     except ContractValidationError as exc:

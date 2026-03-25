@@ -926,6 +926,62 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(audit_latest["decision"], "deny")
         self.assertIn("contract version drift detected", str(audit_latest["metadata"].get("reason", "")))
 
+    def test_runs_accepts_v2_versions_within_active_pool(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        payload = dict(self.payload)
+        payload["contract_versions"] = {
+            "task_contract_version": "task-envelope.v2",
+            "agent_contract_version": "assistant-decision.v2",
+            "event_schema_version": "event-envelope.v2",
+        }
+        with patch.dict(
+            os.environ,
+            {
+                "OWA_ACTIVE_TASK_CONTRACT_VERSIONS": "task-envelope.v1,task-envelope.v2",
+                "OWA_ACTIVE_AGENT_CONTRACT_VERSIONS": "assistant-decision.v1,assistant-decision.v2",
+                "OWA_ACTIVE_EVENT_SCHEMA_VERSIONS": "event-envelope.v1,event-envelope.v2",
+            },
+            clear=False,
+        ):
+            response = self.client.post(
+                "/v1/runs",
+                json=payload,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        self.assertEqual(response.status_code, 200)
+        assert self.fake_execution_client.last_submit is not None
+        envelope = self.fake_execution_client.last_submit["envelope"]
+        self.assertEqual(envelope["task_contract_version"], "task-envelope.v2")
+        self.assertEqual(envelope["agent_contract_version"], "assistant-decision.v2")
+        self.assertEqual(envelope["event_schema_version"], "event-envelope.v2")
+
+    def test_runs_rejects_versions_outside_active_pool(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        payload = dict(self.payload)
+        payload["contract_versions"] = {
+            "task_contract_version": "task-envelope.v9",
+            "agent_contract_version": "assistant-decision.v1",
+            "event_schema_version": "event-envelope.v1",
+        }
+        with patch.dict(
+            os.environ,
+            {
+                "OWA_ACTIVE_TASK_CONTRACT_VERSIONS": "task-envelope.v1,task-envelope.v2",
+                "OWA_ACTIVE_AGENT_CONTRACT_VERSIONS": "assistant-decision.v1,assistant-decision.v2",
+                "OWA_ACTIVE_EVENT_SCHEMA_VERSIONS": "event-envelope.v1,event-envelope.v2",
+            },
+            clear=False,
+        ):
+            response = self.client.post(
+                "/v1/runs",
+                json=payload,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        self.assertEqual(response.status_code, 422)
+        detail = str(response.json().get("detail", ""))
+        self.assertIn("task_contract_version=task-envelope.v9 is not in active version pool", detail)
+        self.assertIsNone(self.fake_execution_client.last_submit)
+
     def test_runs_rejects_contract_versions_unknown_fields(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["runs:write"])
         payload = dict(self.payload)
