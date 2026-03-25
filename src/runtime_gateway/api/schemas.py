@@ -11,6 +11,14 @@ class RetryPolicyInput(BaseModel):
     strategy: str = Field(pattern="^(fixed|exponential)$")
 
 
+class ContractVersionsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_contract_version: str | None = Field(default=None, min_length=1)
+    agent_contract_version: str | None = Field(default=None, min_length=1)
+    event_schema_version: str | None = Field(default=None, min_length=1)
+
+
 class CreateRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -19,6 +27,7 @@ class CreateRunRequest(BaseModel):
     session_key: str
     payload: dict
     retry_policy: RetryPolicyInput | None = None
+    contract_versions: ContractVersionsInput | None = None
 
 
 class CreateRunResponse(BaseModel):

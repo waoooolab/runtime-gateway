@@ -6,6 +6,7 @@ from pathlib import Path
 
 from runtime_gateway.contracts.validation import (
     ContractValidationError,
+    validate_command_envelope_contract,
     validate_event_envelope_contract,
     validate_execution_context_contract,
     validate_executor_profile_catalog_contract,
@@ -25,6 +26,49 @@ os.environ["WAOOOOLAB_PLATFORM_CONTRACTS_DIR"] = str(
 
 
 class ContractValidationTests(unittest.TestCase):
+    def test_command_envelope_contract_allows_contract_versions(self) -> None:
+        payload = {
+            "command_id": "cmd-1",
+            "command_type": "run.start",
+            "tenant_id": "t1",
+            "app_id": "covernow",
+            "session_key": "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+            "task_contract_version": "task-envelope.v1",
+            "agent_contract_version": "assistant-decision.v1",
+            "event_schema_version": "event-envelope.v1",
+            "trace_id": "trace-1",
+            "idempotency_key": "idempotent-key-0001",
+            "retry_policy": {
+                "max_attempts": 3,
+                "backoff_ms": 250,
+                "strategy": "fixed",
+            },
+            "ts": "2026-03-01T10:39:00Z",
+            "payload": {"goal": "build feature"},
+        }
+        validate_command_envelope_contract(payload)
+
+    def test_command_envelope_contract_rejects_empty_contract_version(self) -> None:
+        payload = {
+            "command_id": "cmd-1",
+            "command_type": "run.start",
+            "tenant_id": "t1",
+            "app_id": "covernow",
+            "session_key": "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+            "task_contract_version": "",
+            "trace_id": "trace-1",
+            "idempotency_key": "idempotent-key-0001",
+            "retry_policy": {
+                "max_attempts": 3,
+                "backoff_ms": 250,
+                "strategy": "fixed",
+            },
+            "ts": "2026-03-01T10:39:00Z",
+            "payload": {"goal": "build feature"},
+        }
+        with self.assertRaises(ContractValidationError):
+            validate_command_envelope_contract(payload)
+
     def test_token_exchange_request_contract_valid(self) -> None:
         payload = {
             "kind": "request",
@@ -77,6 +121,19 @@ class ContractValidationTests(unittest.TestCase):
         envelope["ts"] = "bad-time"
         with self.assertRaises(ContractValidationError):
             validate_event_envelope_contract(envelope)
+
+    def test_event_envelope_contract_allows_contract_versions(self) -> None:
+        envelope = build_event_envelope(
+            event_type="run.requested",
+            tenant_id="t1",
+            app_id="covernow",
+            session_key="tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+            payload={"run_id": "run-1"},
+            task_contract_version="task-envelope.v1",
+            agent_contract_version="assistant-decision.v1",
+            event_schema_version="event-envelope.v1",
+        )
+        validate_event_envelope_contract(envelope)
 
     def test_execution_context_contract_valid_runtime_workload(self) -> None:
         payload = {

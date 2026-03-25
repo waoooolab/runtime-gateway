@@ -851,6 +851,52 @@ class AppIntegrationTests(unittest.TestCase):
             payload["retry_policy"],
         )
 
+    def test_runs_propagates_contract_versions_to_runtime_execution(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        payload = dict(self.payload)
+        payload["contract_versions"] = {
+            "task_contract_version": "task-envelope.v1",
+            "agent_contract_version": "assistant-decision.v1",
+            "event_schema_version": "event-envelope.v1",
+        }
+        response = self.client.post(
+            "/v1/runs",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        assert self.fake_execution_client.last_submit is not None
+        envelope = self.fake_execution_client.last_submit["envelope"]
+        self.assertEqual(envelope["task_contract_version"], "task-envelope.v1")
+        self.assertEqual(envelope["agent_contract_version"], "assistant-decision.v1")
+        self.assertEqual(envelope["event_schema_version"], "event-envelope.v1")
+
+    def test_runs_rejects_contract_versions_unknown_fields(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        payload = dict(self.payload)
+        payload["contract_versions"] = {
+            "task_contract_version": "task-envelope.v1",
+            "unexpected": "not-allowed",
+        }
+        response = self.client.post(
+            "/v1/runs",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 422)
+        detail = response.json().get("detail")
+        self.assertIsInstance(detail, list)
+        assert isinstance(detail, list)
+        self.assertTrue(
+            any(
+                isinstance(item, dict)
+                and list(item.get("loc", []))[-1:] == ["unexpected"]
+                and item.get("type") == "extra_forbidden"
+                for item in detail
+            )
+        )
+        self.assertIsNone(self.fake_execution_client.last_submit)
+
     def test_runs_rejects_invalid_retry_policy_strategy(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["runs:write"])
         payload = dict(self.payload)
@@ -990,6 +1036,40 @@ class AppIntegrationTests(unittest.TestCase):
         items = recent.json()["items"]
         self.assertGreaterEqual(len(items), 1)
         self.assertEqual(items[-1]["event"]["event_type"], "runtime.run.requested")
+
+    def test_events_publish_accepts_optional_contract_version_fields(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["events:write", "events:read"])
+        envelope = self._event_publish_envelope(
+            event_id="evt-contract-version-1",
+            event_type="runtime.run.status",
+            correlation_id="corr-contract-version-1",
+            payload={"run_id": "run-contract-version-1", "status": "queued"},
+        )
+        envelope["task_contract_version"] = "task-envelope.v1"
+        envelope["agent_contract_version"] = "assistant-decision.v1"
+        envelope["event_schema_version"] = "event-envelope.v1"
+
+        publish = self.client.post(
+            "/v1/events/publish",
+            json=envelope,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(publish.status_code, 200)
+        publish_payload = publish.json()
+        self.assertEqual(publish_payload["accepted"], True)
+        self.assertEqual(publish_payload["event_type"], "runtime.run.status")
+
+        recent = self.client.get(
+            "/v1/events/recent?event_types=runtime.run.status",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(recent.status_code, 200)
+        items = recent.json()["items"]
+        self.assertGreaterEqual(len(items), 1)
+        event = items[-1]["event"]
+        self.assertEqual(event["task_contract_version"], "task-envelope.v1")
+        self.assertEqual(event["agent_contract_version"], "assistant-decision.v1")
+        self.assertEqual(event["event_schema_version"], "event-envelope.v1")
 
     def test_events_publish_accepts_direct_completion_alias_and_normalizes(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["events:write", "events:read"])

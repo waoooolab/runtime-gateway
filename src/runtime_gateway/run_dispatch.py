@@ -44,7 +44,7 @@ def _build_execution_command(req: CreateRunRequest, trace_id: str) -> dict[str, 
             "strategy": "fixed",
         }
     )
-    return {
+    command: dict[str, Any] = {
         "command_id": str(uuid.uuid4()),
         "command_type": "run.start",
         "tenant_id": req.tenant_id,
@@ -56,6 +56,13 @@ def _build_execution_command(req: CreateRunRequest, trace_id: str) -> dict[str, 
         "ts": datetime.now(timezone.utc).isoformat(),
         "payload": req.payload,
     }
+    if req.contract_versions is not None:
+        contract_versions = req.contract_versions.model_dump(exclude_none=True)
+        for key in ("task_contract_version", "agent_contract_version", "event_schema_version"):
+            value = contract_versions.get(key)
+            if isinstance(value, str) and value.strip():
+                command[key] = value
+    return command
 
 
 def _validate_execution_context_payload(req: CreateRunRequest) -> None:
