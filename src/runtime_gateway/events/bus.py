@@ -43,6 +43,8 @@ class InMemoryEventBus:
         tenant_id: str | None = None,
         app_id: str | None = None,
         session_key: str | None = None,
+        scope_id: str | None = None,
+        scope_type: str | None = None,
         event_types: set[str] | None = None,
         run_statuses: set[str] | None = None,
         reason_codes: set[str] | None = None,
@@ -60,6 +62,8 @@ class InMemoryEventBus:
                 tenant_id=tenant_id,
                 app_id=app_id,
                 session_key=session_key,
+                scope_id=scope_id,
+                scope_type=scope_type,
                 event_types=event_types,
                 run_statuses=run_statuses,
                 reason_codes=reason_codes,
@@ -79,6 +83,8 @@ class InMemoryEventBus:
         tenant_id: str | None = None,
         app_id: str | None = None,
         session_key: str | None = None,
+        scope_id: str | None = None,
+        scope_type: str | None = None,
         event_types: set[str] | None = None,
         run_statuses: set[str] | None = None,
         reason_codes: set[str] | None = None,
@@ -97,6 +103,8 @@ class InMemoryEventBus:
                 tenant_id=tenant_id,
                 app_id=app_id,
                 session_key=session_key,
+                scope_id=scope_id,
+                scope_type=scope_type,
                 event_types=event_types,
                 run_statuses=run_statuses,
                 reason_codes=reason_codes,
@@ -131,6 +139,8 @@ def _matches(
     tenant_id: str | None,
     app_id: str | None,
     session_key: str | None,
+    scope_id: str | None,
+    scope_type: str | None,
     event_types: set[str] | None,
     run_statuses: set[str] | None,
     reason_codes: set[str] | None,
@@ -144,6 +154,14 @@ def _matches(
         return False
     if session_key and str(event.get("session_key")) != session_key:
         return False
+    if scope_id:
+        event_scope_id, _ = _resolve_event_scope_axis(event)
+        if event_scope_id != scope_id:
+            return False
+    if scope_type:
+        _, event_scope_type = _resolve_event_scope_axis(event)
+        if event_scope_type != scope_type:
+            return False
     if event_types:
         if str(event.get("event_type")) not in event_types:
             return False
@@ -220,3 +238,14 @@ def _extract_failure_reason_code(event: dict[str, Any]) -> str | None:
         if normalized_route_reason is not None:
             return normalized_route_reason
     return normalize_optional_code_term(payload.get("reason_code"))
+
+
+def _resolve_event_scope_axis(event: dict[str, Any]) -> tuple[str | None, str | None]:
+    raw_scope_id = str(event.get("scope_id") or "").strip() or None
+    raw_scope_type = str(event.get("scope_type") or "").strip() or None
+    if raw_scope_id is not None:
+        return raw_scope_id, raw_scope_type
+    fallback_session_key = str(event.get("session_key") or "").strip() or None
+    if fallback_session_key is not None:
+        return fallback_session_key, raw_scope_type or "session"
+    return None, raw_scope_type

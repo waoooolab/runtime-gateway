@@ -66,6 +66,8 @@ class DurableEventsStorageTests(unittest.TestCase):
                 tenant_id="t1",
                 app_id="covernow",
                 session_key=None,
+                scope_id=None,
+                scope_type=None,
                 event_types=None,
                 run_id=None,
                 since_ts=None,
@@ -86,6 +88,8 @@ class DurableEventsStorageTests(unittest.TestCase):
                 tenant_id="t1",
                 app_id="covernow",
                 session_key=None,
+                scope_id=None,
+                scope_type=None,
                 event_types=None,
                 run_id=None,
                 since_ts=None,
@@ -105,6 +109,8 @@ class DurableEventsStorageTests(unittest.TestCase):
                 tenant_id="t1",
                 app_id="covernow",
                 session_key=None,
+                scope_id=None,
+                scope_type=None,
                 event_types={"runtime.run.status", "runtime.run.completed"},
                 run_id="run-1",
                 since_ts=datetime(2026, 3, 12, 0, 0, 30, tzinfo=timezone.utc),
@@ -114,6 +120,36 @@ class DurableEventsStorageTests(unittest.TestCase):
             self.assertEqual(len(filtered["items"]), 1)
             self.assertEqual(filtered["items"][0]["event"]["event_type"], "runtime.run.status")
             self.assertEqual(filtered["items"][0]["event"]["payload"]["run_id"], "run-1")
+
+            scope_filtered = read_event_page(
+                limit=10,
+                tenant_id="t1",
+                app_id="covernow",
+                session_key=None,
+                scope_id="tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+                scope_type="session",
+                event_types=None,
+                run_id=None,
+                since_ts=None,
+                until_ts=None,
+                cursor=0,
+            )
+            self.assertEqual(len(scope_filtered["items"]), 3)
+
+            wrong_scope_type = read_event_page(
+                limit=10,
+                tenant_id="t1",
+                app_id="covernow",
+                session_key=None,
+                scope_id="tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+                scope_type="workspace",
+                event_types=None,
+                run_id=None,
+                since_ts=None,
+                until_ts=None,
+                cursor=0,
+            )
+            self.assertEqual(len(wrong_scope_type["items"]), 0)
 
     def test_sqlite_durable_uses_persist_root_default_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -131,6 +167,8 @@ class DurableEventsStorageTests(unittest.TestCase):
                 tenant_id="t1",
                 app_id="covernow",
                 session_key=None,
+                scope_id=None,
+                scope_type=None,
                 event_types=None,
                 run_id="run-persist-root",
                 since_ts=None,

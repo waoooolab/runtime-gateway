@@ -108,6 +108,8 @@ def _websocket_filters(
     str,
     str,
     str | None,
+    str | None,
+    str | None,
     set[str] | None,
     str | None,
     int,
@@ -130,6 +132,16 @@ def _websocket_filters(
         query_value=websocket.query_params.get("session_key"),
         claim_value=str(claims.get("session_key", "")),
     )
+    scope_id = _resolve_optional_query_scope(
+        field="scope_id",
+        query_value=websocket.query_params.get("scope_id"),
+        claim_value=str(claims.get("scope_id", "")),
+    )
+    scope_type = _resolve_optional_query_scope(
+        field="scope_type",
+        query_value=websocket.query_params.get("scope_type"),
+        claim_value=str(claims.get("scope_type", "")),
+    )
     event_types = _parse_event_types(websocket.query_params.get("event_types"))
     run_id = _parse_optional_str(websocket.query_params.get("run_id"))
     cursor = _parse_cursor(websocket.query_params.get("cursor"))
@@ -138,7 +150,7 @@ def _websocket_filters(
     until_ts = _parse_optional_ts(websocket.query_params.get("until_ts"), field_name="until_ts")
     if since_ts is not None and until_ts is not None and since_ts > until_ts:
         raise ValueError("since_ts must be <= until_ts")
-    return tenant_id, app_id, session_key, event_types, run_id, cursor, source, since_ts, until_ts
+    return tenant_id, app_id, session_key, scope_id, scope_type, event_types, run_id, cursor, source, since_ts, until_ts
 
 
 async def _send_ready(
@@ -148,6 +160,8 @@ async def _send_ready(
     tenant_id: str,
     app_id: str,
     session_key: str | None,
+    scope_id: str | None,
+    scope_type: str | None,
     run_id: str | None,
     source: str,
     since_ts: datetime | None,
@@ -165,6 +179,10 @@ async def _send_ready(
         payload["run_id"] = run_id
     if session_key is not None:
         payload["session_key"] = session_key
+    if scope_id is not None:
+        payload["scope_id"] = scope_id
+    if scope_type is not None:
+        payload["scope_type"] = scope_type
     if since_ts is not None:
         payload["since_ts"] = since_ts.isoformat()
     if until_ts is not None:
@@ -181,6 +199,8 @@ async def _push_records(
     tenant_id: str,
     app_id: str,
     session_key: str | None,
+    scope_id: str | None,
+    scope_type: str | None,
     event_types: set[str] | None,
     run_id: str | None,
     since_ts: datetime | None,
@@ -191,6 +211,8 @@ async def _push_records(
         tenant_id=tenant_id or None,
         app_id=app_id or None,
         session_key=session_key,
+        scope_id=scope_id,
+        scope_type=scope_type,
         event_types=event_types,
         run_id=run_id,
         since_ts=since_ts,
@@ -220,6 +242,8 @@ async def _replay_durable_records(
     tenant_id: str,
     app_id: str,
     session_key: str | None,
+    scope_id: str | None,
+    scope_type: str | None,
     event_types: set[str] | None,
     run_id: str | None,
     since_ts: datetime | None,
@@ -232,6 +256,8 @@ async def _replay_durable_records(
             tenant_id=tenant_id,
             app_id=app_id,
             session_key=session_key,
+            scope_id=scope_id,
+            scope_type=scope_type,
             event_types=event_types,
             run_id=run_id,
             since_ts=since_ts,
@@ -274,6 +300,8 @@ async def handle_websocket_events(websocket: WebSocket, event_bus: InMemoryEvent
             tenant_id,
             app_id,
             session_key,
+            scope_id,
+            scope_type,
             event_types,
             run_id,
             cursor,
@@ -297,6 +325,8 @@ async def handle_websocket_events(websocket: WebSocket, event_bus: InMemoryEvent
             tenant_id,
             app_id,
             session_key,
+            scope_id,
+            scope_type,
             run_id,
             source,
             since_ts,
@@ -309,6 +339,8 @@ async def handle_websocket_events(websocket: WebSocket, event_bus: InMemoryEvent
                 tenant_id=tenant_id,
                 app_id=app_id,
                 session_key=session_key,
+                scope_id=scope_id,
+                scope_type=scope_type,
                 event_types=event_types,
                 run_id=run_id,
                 since_ts=since_ts,
@@ -325,6 +357,8 @@ async def handle_websocket_events(websocket: WebSocket, event_bus: InMemoryEvent
                 tenant_id,
                 app_id,
                 session_key,
+                scope_id,
+                scope_type,
                 event_types,
                 run_id,
                 since_ts,

@@ -28,6 +28,11 @@ from .contracts import (
 from .events.bus import InMemoryEventBus
 from .events.durable import append_event_record, read_event_page
 from .events.validation import validate_event_envelope
+from .error_budget_policy import (
+    evaluate_error_budget_decision,
+    parse_reason_codes_query,
+    resolve_error_budget_policy_snapshot,
+)
 from .executor_profiles import list_executor_profiles
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
 from .routes_capabilities import register_capability_routes
@@ -533,6 +538,8 @@ def _resolve_event_read_filters(
     tenant_id: str | None,
     app_id: str | None,
     session_key: str | None,
+    scope_id: str | None,
+    scope_type: str | None,
     event_types: str | None,
     run_statuses: str | None,
     reason_codes: str | None,
@@ -542,6 +549,8 @@ def _resolve_event_read_filters(
 ) -> tuple[
     str,
     str,
+    str | None,
+    str | None,
     str | None,
     set[str] | None,
     set[str] | None,
@@ -567,6 +576,16 @@ def _resolve_event_read_filters(
         query_value=session_key,
         claim_value=str(claims.get("session_key", "")),
     )
+    effective_scope_id = _optional_scope_filter_or_forbid(
+        field="scope_id",
+        query_value=scope_id,
+        claim_value=str(claims.get("scope_id", "")),
+    )
+    effective_scope_type = _optional_scope_filter_or_forbid(
+        field="scope_type",
+        query_value=scope_type,
+        claim_value=str(claims.get("scope_type", "")),
+    )
     parsed_types = _parse_event_types_or_none(event_types)
     parsed_run_statuses = _parse_run_statuses_or_none(run_statuses)
     parsed_reason_codes = _parse_reason_codes_or_none(reason_codes)
@@ -584,6 +603,8 @@ def _resolve_event_read_filters(
         effective_tenant,
         effective_app,
         effective_session_key,
+        effective_scope_id,
+        effective_scope_type,
         parsed_types,
         parsed_run_statuses,
         parsed_reason_codes,
@@ -601,6 +622,8 @@ def _read_event_chunk(
     tenant_id: str,
     app_id: str,
     session_key: str | None,
+    scope_id: str | None,
+    scope_type: str | None,
     event_types: set[str] | None,
     run_statuses: set[str] | None,
     reason_codes: set[str] | None,
@@ -616,6 +639,8 @@ def _read_event_chunk(
                 tenant_id=tenant_id or None,
                 app_id=app_id or None,
                 session_key=session_key,
+                scope_id=scope_id,
+                scope_type=scope_type,
                 event_types=event_types,
                 run_statuses=run_statuses,
                 reason_codes=reason_codes,
@@ -631,6 +656,8 @@ def _read_event_chunk(
                 tenant_id=tenant_id or None,
                 app_id=app_id or None,
                 session_key=session_key,
+                scope_id=scope_id,
+                scope_type=scope_type,
                 event_types=event_types,
                 run_statuses=run_statuses,
                 reason_codes=reason_codes,
@@ -654,6 +681,8 @@ def _read_event_chunk(
         tenant_id=tenant_id or None,
         app_id=app_id or None,
         session_key=session_key,
+        scope_id=scope_id,
+        scope_type=scope_type,
         event_types=event_types,
         run_statuses=run_statuses,
         reason_codes=reason_codes,
@@ -1143,6 +1172,25 @@ def runtime_usable() -> Any:
     return response_payload
 
 
+@app.get("/v1/runtime/error-budget/policy")
+def runtime_error_budget_policy(
+    reason_codes: str | None = Query(default=None),
+    anomaly_ratio: float | None = Query(default=None, ge=0.0, le=1.0),
+    saturation_level: str | None = Query(default=None),
+    auth_context: AuthContext = Depends(require_events_read_context),
+) -> dict[str, Any]:
+    _ = auth_context
+    parsed_reason_codes = parse_reason_codes_query(reason_codes)
+    response_payload = resolve_error_budget_policy_snapshot()
+    if parsed_reason_codes or anomaly_ratio is not None or str(saturation_level or "").strip():
+        response_payload["decision"] = evaluate_error_budget_decision(
+            reason_codes=parsed_reason_codes,
+            anomaly_ratio=anomaly_ratio,
+            saturation_level=saturation_level,
+        )
+    return response_payload
+
+
 @app.get("/v1/audit/events")
 def list_audit_events(limit: int = 50, source: str = "memory") -> dict:
     if source == "durable":
@@ -1157,6 +1205,8 @@ def list_recent_events(
     tenant_id: str | None = None,
     app_id: str | None = None,
     session_key: str | None = None,
+    scope_id: str | None = None,
+    scope_type: str | None = None,
     event_types: str | None = None,
     run_statuses: str | None = None,
     reason_codes: str | None = None,
@@ -1170,6 +1220,8 @@ def list_recent_events(
         effective_tenant,
         effective_app,
         effective_session_key,
+        effective_scope_id,
+        effective_scope_type,
         parsed_types,
         parsed_run_statuses,
         parsed_reason_codes,
@@ -1183,6 +1235,8 @@ def list_recent_events(
         tenant_id=tenant_id,
         app_id=app_id,
         session_key=session_key,
+        scope_id=scope_id,
+        scope_type=scope_type,
         event_types=event_types,
         run_statuses=run_statuses,
         reason_codes=reason_codes,
@@ -1196,6 +1250,8 @@ def list_recent_events(
         tenant_id=effective_tenant,
         app_id=effective_app,
         session_key=effective_session_key,
+        scope_id=effective_scope_id,
+        scope_type=effective_scope_type,
         event_types=parsed_types,
         run_statuses=parsed_run_statuses,
         reason_codes=parsed_reason_codes,
@@ -1232,6 +1288,8 @@ async def stream_events_sse(
     tenant_id: str | None = None,
     app_id: str | None = None,
     session_key: str | None = None,
+    scope_id: str | None = None,
+    scope_type: str | None = None,
     event_types: str | None = None,
     run_statuses: str | None = None,
     reason_codes: str | None = None,
@@ -1252,6 +1310,8 @@ async def stream_events_sse(
         effective_tenant,
         effective_app,
         effective_session_key,
+        effective_scope_id,
+        effective_scope_type,
         parsed_types,
         parsed_run_statuses,
         parsed_reason_codes,
@@ -1265,6 +1325,8 @@ async def stream_events_sse(
         tenant_id=tenant_id,
         app_id=app_id,
         session_key=session_key,
+        scope_id=scope_id,
+        scope_type=scope_type,
         event_types=event_types,
         run_statuses=run_statuses,
         reason_codes=reason_codes,
@@ -1288,6 +1350,10 @@ async def stream_events_sse(
         }
         if effective_session_key is not None:
             ready_payload["session_key"] = effective_session_key
+        if effective_scope_id is not None:
+            ready_payload["scope_id"] = effective_scope_id
+        if effective_scope_type is not None:
+            ready_payload["scope_type"] = effective_scope_type
         if run_filter is not None:
             ready_payload["run_id"] = run_filter
         if parsed_since_ts is not None:
@@ -1316,6 +1382,8 @@ async def stream_events_sse(
                 tenant_id=effective_tenant,
                 app_id=effective_app,
                 session_key=effective_session_key,
+                scope_id=effective_scope_id,
+                scope_type=effective_scope_type,
                 event_types=parsed_types,
                 run_statuses=parsed_run_statuses,
                 reason_codes=parsed_reason_codes,

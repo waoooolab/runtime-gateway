@@ -31,6 +31,8 @@ def _event_envelope(
     run_id: str | None = None,
     *,
     session_key: str | None = None,
+    scope_id: str | None = None,
+    scope_type: str | None = None,
 ) -> dict:
     payload: dict = {
         "task_id": "task-1",
@@ -38,7 +40,7 @@ def _event_envelope(
     }
     if run_id is not None:
         payload["run_id"] = run_id
-    return {
+    envelope = {
         "event_id": str(uuid4()),
         "event_type": event_type,
         "tenant_id": "t1",
@@ -50,6 +52,11 @@ def _event_envelope(
         "ts": datetime.now(timezone.utc).isoformat(),
         "payload": payload,
     }
+    if scope_id is not None:
+        envelope["scope_id"] = scope_id
+    if scope_type is not None:
+        envelope["scope_type"] = scope_type
+    return envelope
 
 
 def _capability_event_envelope(
@@ -185,6 +192,39 @@ class EventBusWebsocketTests(unittest.TestCase):
         self.assertEqual(items[-1]["event"]["event_type"], "runtime.route.decided")
         self.assertFalse(payload["has_more"])
         self.assertEqual(payload["recommended_poll_after_ms"], 1500)
+
+    def test_runtime_error_budget_policy_returns_surface_and_decision(self) -> None:
+        token = self._token(scope=["runs:read"])
+        policy = self.client.get(
+            "/v1/runtime/error-budget/policy",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(policy.status_code, 200)
+        payload = policy.json()
+        self.assertEqual(payload["schema_version"], "runtime.error_budget_policy.v1")
+        self.assertEqual(payload["compatibility_aliases"]["normal"], "green")
+        self.assertEqual(payload["compatibility_aliases"]["warning"], "yellow")
+        self.assertEqual(payload["compatibility_aliases"]["hard_stop"], "red")
+        self.assertEqual(payload["actions"]["green"], "allow_new_dispatch")
+        self.assertEqual(payload["actions"]["yellow"], "defer_new_dispatch")
+        self.assertEqual(payload["actions"]["red"], "pause_new_dispatch")
+        self.assertEqual(payload["thresholds"]["yellow_anomaly_ratio"], 0.7)
+        self.assertEqual(payload["thresholds"]["red_anomaly_ratio"], 0.9)
+        self.assertIn("worker_stalled", payload["reason_taxonomy"]["red"])
+
+        decision_response = self.client.get(
+            "/v1/runtime/error-budget/policy?reason_codes=worker_stalled&anomaly_ratio=0.95",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(decision_response.status_code, 200)
+        decision_payload = decision_response.json()
+        self.assertIn("decision", decision_payload)
+        decision = decision_payload["decision"]
+        self.assertEqual(decision["schema_version"], "runtime.error_budget_decision.v1")
+        self.assertEqual(decision["level"], "red")
+        self.assertEqual(decision["action"], "pause_new_dispatch")
+        self.assertEqual(decision["saturation_level"], "hard_stop")
+        self.assertIn("worker_stalled", decision["matched_reason_codes"])
 
     def test_recent_and_sse_preserve_control_ingress_projection(self) -> None:
         token = self._token(scope=["runs:write", "runs:read"])
@@ -467,6 +507,43 @@ class EventBusWebsocketTests(unittest.TestCase):
         items = filtered.json()["items"]
         self.assertEqual(len(items), 2)
         self.assertTrue(all(i["event"]["session_key"] == session_a for i in items))
+
+    def test_recent_events_can_filter_by_scope_axis(self) -> None:
+        token = self._token(scope=["runs:write"])
+        scope_a = "scope:tenant:t1:workspace:creative-a"
+        scope_b = "scope:tenant:t1:workspace:creative-b"
+        self.client.post(
+            "/v1/events/publish",
+            json=_event_envelope(
+                "runtime.run.started",
+                run_id="run-scope-1",
+                scope_id=scope_a,
+                scope_type="workspace",
+            ),
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.client.post(
+            "/v1/events/publish",
+            json=_event_envelope(
+                "runtime.run.started",
+                run_id="run-scope-2",
+                scope_id=scope_b,
+                scope_type="workspace",
+            ),
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        filtered = self.client.get(
+            f"/v1/events/recent?scope_id={scope_a}&scope_type=workspace",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(filtered.status_code, 200)
+        items = filtered.json()["items"]
+        self.assertEqual(len(items), 1)
+        event = items[0]["event"]
+        self.assertEqual(event["payload"]["run_id"], "run-scope-1")
+        self.assertEqual(event["scope_id"], scope_a)
+        self.assertEqual(event["scope_type"], "workspace")
 
     def test_recent_events_reject_cross_session_override_when_claim_bound(self) -> None:
         claim_session = "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm"
@@ -909,6 +986,40 @@ class EventBusWebsocketTests(unittest.TestCase):
         )
         self.assertTrue(any(frame["event"] == "runtime.run.status" for frame in frames))
 
+    def test_sse_stream_can_filter_by_scope_axis(self) -> None:
+        write_token = self._token(scope=["runs:write"])
+        read_token = self._token(scope=["runs:read"])
+        scope_a = "scope:tenant:t1:workspace:creative-a"
+        scope_b = "scope:tenant:t1:workspace:creative-b"
+        for run_id, scope_id in (("run-sse-scope-a", scope_a), ("run-sse-scope-b", scope_b)):
+            publish = self.client.post(
+                "/v1/events/publish",
+                json=_event_envelope(
+                    "runtime.run.status",
+                    run_id=run_id,
+                    scope_id=scope_id,
+                    scope_type="workspace",
+                ),
+                headers={"Authorization": f"Bearer {write_token}"},
+            )
+            self.assertEqual(publish.status_code, 200)
+
+        frames = self._read_sse_events(
+            url=(
+                f"/v1/events/sse?cursor=0&follow=false&scope_id={scope_a}"
+                "&scope_type=workspace&event_types=runtime.run.status"
+            ),
+            headers={"Authorization": f"Bearer {read_token}"},
+            max_data_frames=6,
+        )
+        self.assertGreaterEqual(len(frames), 2)
+        self.assertEqual(frames[0]["event"], "ready")
+        self.assertEqual(frames[0]["payload"]["scope_id"], scope_a)
+        self.assertEqual(frames[0]["payload"]["scope_type"], "workspace")
+        runtime_frames = [frame for frame in frames if frame["event"] == "runtime.run.status"]
+        self.assertEqual(len(runtime_frames), 1)
+        self.assertEqual(runtime_frames[0]["payload"]["event"]["payload"]["run_id"], "run-sse-scope-a")
+
     def test_sse_stream_rejects_cross_tenant_override(self) -> None:
         read_token = self._token(scope=["runs:read"])
         response = self.client.get(
@@ -1137,6 +1248,52 @@ class EventBusWebsocketTests(unittest.TestCase):
             event = ws.receive_json()
             self.assertEqual(event["event"]["session_key"], session_a)
             self.assertEqual(event["event"]["payload"]["run_id"], "run-session-ws-2")
+
+    def test_websocket_can_filter_by_scope_axis(self) -> None:
+        ws_token = self._token(scope=["runs:read"])
+        publish_token = self._token(scope=["runs:write"])
+        scope_a = "scope:tenant:t1:workspace:creative-a"
+        scope_b = "scope:tenant:t1:workspace:creative-b"
+
+        with self.client.websocket_connect(
+            (
+                f"/v1/ws/events?access_token={ws_token}&tenant_id=t1&app_id=covernow"
+                f"&scope_id={scope_a}&scope_type=workspace"
+            )
+        ) as ws:
+            ready = ws.receive_json()
+            self.assertEqual(ready["kind"], "ws.ready")
+            self.assertEqual(ready["scope_id"], scope_a)
+            self.assertEqual(ready["scope_type"], "workspace")
+
+            first = self.client.post(
+                "/v1/events/publish",
+                json=_event_envelope(
+                    "runtime.run.status",
+                    run_id="run-ws-scope-b",
+                    scope_id=scope_b,
+                    scope_type="workspace",
+                ),
+                headers={"Authorization": f"Bearer {publish_token}"},
+            )
+            self.assertEqual(first.status_code, 200)
+
+            second = self.client.post(
+                "/v1/events/publish",
+                json=_event_envelope(
+                    "runtime.run.status",
+                    run_id="run-ws-scope-a",
+                    scope_id=scope_a,
+                    scope_type="workspace",
+                ),
+                headers={"Authorization": f"Bearer {publish_token}"},
+            )
+            self.assertEqual(second.status_code, 200)
+
+            event = ws.receive_json()
+            self.assertEqual(event["event"]["payload"]["run_id"], "run-ws-scope-a")
+            self.assertEqual(event["event"]["scope_id"], scope_a)
+            self.assertEqual(event["event"]["scope_type"], "workspace")
 
     def test_websocket_can_replay_durable_source_after_memory_reset(self) -> None:
         ws_token = self._token(scope=["runs:read"])
