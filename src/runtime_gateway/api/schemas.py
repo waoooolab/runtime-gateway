@@ -25,6 +25,8 @@ class CreateRunRequest(BaseModel):
     tenant_id: str
     app_id: str
     session_key: str
+    scope_id: str | None = Field(default=None, min_length=1)
+    scope_type: str | None = Field(default=None, min_length=1)
     payload: dict
     retry_policy: RetryPolicyInput | None = None
     contract_versions: ContractVersionsInput | None = None

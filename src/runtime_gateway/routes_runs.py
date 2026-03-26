@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, Callable
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Header
 
 from .api.schemas import CreateRunRequest, CreateRunResponse
+from .audit.emitter import emit_audit_event
+from .error_budget_policy import error_budget_level_from_saturation, parse_reason_codes_query
 from .integration import RuntimeExecutionClient
 from .run_approval import dispatch_approve_run, dispatch_reject_run
 from .run_control import (
@@ -38,6 +41,97 @@ from .run_worker import (
 )
 from .security import AuthContext, require_runs_read_context, require_runs_write_context
 
+_ERROR_BUDGET_ACTIONS = {
+    "green": "allow_new_dispatch",
+    "yellow": "defer_new_dispatch",
+    "red": "pause_new_dispatch",
+}
+_ERROR_BUDGET_REASON_CODE_RED = "error_budget_red_dispatch_paused"
+
+
+def _normalize_error_budget_level(value: str | None) -> str | None:
+    token = str(value or "").strip().lower()
+    if not token:
+        return None
+    if token in _ERROR_BUDGET_ACTIONS:
+        return token
+    return error_budget_level_from_saturation(token)
+
+
+def _resolve_runtime_dispatch_error_budget_decision(
+    *,
+    level_header: str | None,
+    action_header: str | None,
+    reason_codes_header: str | None,
+) -> dict[str, Any]:
+    level = _normalize_error_budget_level(level_header)
+    if level is None:
+        level = _normalize_error_budget_level(os.environ.get("RUNTIME_GATEWAY_ERROR_BUDGET_FORCE_LEVEL"))
+    if level is None:
+        level = "green"
+
+    action = str(action_header or "").strip()
+    if action not in set(_ERROR_BUDGET_ACTIONS.values()):
+        action = _ERROR_BUDGET_ACTIONS[level]
+    return {
+        "level": level,
+        "action": action,
+        "reason_codes": parse_reason_codes_query(reason_codes_header),
+    }
+
+
+def _enforce_runtime_dispatch_error_budget_gate_or_raise(
+    *,
+    claims: dict[str, Any],
+    gate_action: str,
+    resource: str,
+    level_header: str | None,
+    action_header: str | None,
+    reason_codes_header: str | None,
+) -> dict[str, Any]:
+    decision = _resolve_runtime_dispatch_error_budget_decision(
+        level_header=level_header,
+        action_header=action_header,
+        reason_codes_header=reason_codes_header,
+    )
+    level = str(decision.get("level", "green")).strip().lower()
+    metadata = {
+        "error_budget_level": level,
+        "error_budget_action": str(decision.get("action", _ERROR_BUDGET_ACTIONS["green"])),
+        "error_budget_reason_codes": list(decision.get("reason_codes", [])),
+    }
+    actor_id = str(claims.get("sub", "unknown"))
+    trace_id = str(claims.get("trace_id", ""))
+    if level == "red":
+        metadata["error_budget_reason_code"] = _ERROR_BUDGET_REASON_CODE_RED
+        emit_audit_event(
+            action=gate_action,
+            decision="deny",
+            actor_id=actor_id,
+            trace_id=trace_id,
+            resource=resource,
+            metadata=metadata,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": _ERROR_BUDGET_REASON_CODE_RED,
+                "message": "dispatch paused by error-budget policy",
+                "error_budget_level": "red",
+                "error_budget_action": metadata["error_budget_action"],
+                "error_budget_reason_codes": metadata["error_budget_reason_codes"],
+            },
+        )
+    emit_audit_event(
+        action=gate_action,
+        decision="allow",
+        actor_id=actor_id,
+        trace_id=trace_id,
+        resource=resource,
+        metadata=metadata,
+    )
+    return decision
+
 
 def _register_run_create_route(
     *,
@@ -49,7 +143,18 @@ def _register_run_create_route(
     def create_run(
         req: CreateRunRequest,
         auth_context: AuthContext = Depends(require_runs_write_context),
+        error_budget_level: str | None = Header(default=None, alias="X-OWA-Error-Budget-Level"),
+        error_budget_action: str | None = Header(default=None, alias="X-OWA-Error-Budget-Action"),
+        error_budget_reason_codes: str | None = Header(default=None, alias="X-OWA-Error-Budget-Reason-Codes"),
     ) -> CreateRunResponse:
+        _enforce_runtime_dispatch_error_budget_gate_or_raise(
+            claims=auth_context.claims,
+            gate_action="runs.create.error_budget_gate",
+            resource="/v1/runs",
+            level_header=error_budget_level,
+            action_header=error_budget_action,
+            reason_codes_header=error_budget_reason_codes,
+        )
         return dispatch_create_run(
             req=req,
             claims=auth_context.claims,
@@ -351,6 +456,9 @@ def _register_scheduler_routes(
     def scheduler_enqueue(
         body: dict[str, Any] | None = None,
         auth_context: AuthContext = Depends(require_runs_write_context),
+        error_budget_level: str | None = Header(default=None, alias="X-OWA-Error-Budget-Level"),
+        error_budget_action: str | None = Header(default=None, alias="X-OWA-Error-Budget-Action"),
+        error_budget_reason_codes: str | None = Header(default=None, alias="X-OWA-Error-Budget-Reason-Codes"),
     ) -> dict[str, Any]:
         payload = body or {}
         run_id = str(payload.get("run_id", "")).strip()
@@ -366,6 +474,14 @@ def _register_scheduler_routes(
             str(misfire_policy_value).strip()
             if isinstance(misfire_policy_value, str)
             else None
+        )
+        _enforce_runtime_dispatch_error_budget_gate_or_raise(
+            claims=auth_context.claims,
+            gate_action="scheduler.enqueue.error_budget_gate",
+            resource="/v1/orchestration/scheduler:enqueue",
+            level_header=error_budget_level,
+            action_header=error_budget_action,
+            reason_codes_header=error_budget_reason_codes,
         )
         misfire_grace_ms = payload.get("misfire_grace_ms")
         cron_interval_ms = payload.get("cron_interval_ms")

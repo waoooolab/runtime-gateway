@@ -21,6 +21,11 @@ class EventEnvelopeValidationTests(unittest.TestCase):
             session_key="tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
             payload={"run_id": "run-1"},
         )
+        self.assertEqual(
+            envelope["scope_id"],
+            "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+        )
+        self.assertEqual(envelope["scope_type"], "session")
         validate_event_envelope(envelope)
 
     def test_trace_id_can_be_injected(self) -> None:
@@ -51,6 +56,20 @@ class EventEnvelopeValidationTests(unittest.TestCase):
         self.assertEqual(envelope["task_contract_version"], "task-envelope.v1")
         self.assertEqual(envelope["agent_contract_version"], "assistant-decision.v1")
         self.assertEqual(envelope["event_schema_version"], "event-envelope.v1")
+        validate_event_envelope(envelope)
+
+    def test_scope_axis_can_be_overridden(self) -> None:
+        envelope = build_event_envelope(
+            event_type="run.requested",
+            tenant_id="t1",
+            app_id="covernow",
+            session_key="tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+            payload={"run_id": "run-1"},
+            scope_id="scope:tenant:t1:workspace:creative-lab",
+            scope_type="workspace",
+        )
+        self.assertEqual(envelope["scope_id"], "scope:tenant:t1:workspace:creative-lab")
+        self.assertEqual(envelope["scope_type"], "workspace")
         validate_event_envelope(envelope)
 
     def test_missing_required_field(self) -> None:

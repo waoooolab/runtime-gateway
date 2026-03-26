@@ -464,6 +464,51 @@ class AppIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
+    def test_runs_blocks_on_error_budget_red_header_gate(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        response = self.client.post(
+            "/v1/runs",
+            json=self.payload,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-OWA-Error-Budget-Level": "red",
+                "X-OWA-Error-Budget-Action": "pause_new_dispatch",
+                "X-OWA-Error-Budget-Reason-Codes": "worker_stalled",
+            },
+        )
+        self.assertEqual(response.status_code, 503)
+        detail = response.json().get("detail", {})
+        self.assertEqual(detail.get("code"), "error_budget_red_dispatch_paused")
+        self.assertEqual(detail.get("error_budget_level"), "red")
+        self.assertEqual(detail.get("error_budget_action"), "pause_new_dispatch")
+        self.assertIn("worker_stalled", detail.get("error_budget_reason_codes", []))
+        self.assertIsNone(self.fake_execution_client.last_submit)
+        audit_latest = get_audit_events(1)[0]
+        self.assertEqual(audit_latest["action"], "runs.create.error_budget_gate")
+        self.assertEqual(audit_latest["decision"], "deny")
+        self.assertEqual(audit_latest["metadata"]["error_budget_reason_code"], "error_budget_red_dispatch_paused")
+
+    def test_scheduler_enqueue_blocks_on_error_budget_red_header_gate(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        response = self.client.post(
+            "/v1/orchestration/scheduler:enqueue",
+            json={"run_id": "run-budget-blocked"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-OWA-Error-Budget-Level": "red",
+                "X-OWA-Error-Budget-Action": "pause_new_dispatch",
+                "X-OWA-Error-Budget-Reason-Codes": "worker_stalled",
+            },
+        )
+        self.assertEqual(response.status_code, 503)
+        detail = response.json().get("detail", {})
+        self.assertEqual(detail.get("code"), "error_budget_red_dispatch_paused")
+        self.assertEqual(detail.get("error_budget_level"), "red")
+        audit_latest = get_audit_events(1)[0]
+        self.assertEqual(audit_latest["action"], "scheduler.enqueue.error_budget_gate")
+        self.assertEqual(audit_latest["decision"], "deny")
+        self.assertEqual(audit_latest["metadata"]["error_budget_reason_code"], "error_budget_red_dispatch_paused")
+
     @patch("runtime_gateway.app.urllib.request.urlopen")
     def test_readyz_reports_runtime_execution_dependency_ok(self, mock_urlopen) -> None:
         with patch.dict(
@@ -908,6 +953,61 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(envelope["task_contract_version"], "task-envelope.v1")
         self.assertEqual(envelope["agent_contract_version"], "assistant-decision.v1")
         self.assertEqual(envelope["event_schema_version"], "event-envelope.v1")
+
+    def test_runs_derives_scope_axis_from_session_key_by_default(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        response = self.client.post(
+            "/v1/runs",
+            json=self.payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        assert self.fake_execution_client.last_submit is not None
+        envelope = self.fake_execution_client.last_submit["envelope"]
+        self.assertEqual(
+            envelope["scope_id"],
+            "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+        )
+        self.assertEqual(envelope["scope_type"], "session")
+
+    def test_runs_accepts_explicit_scope_axis(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        payload = dict(self.payload)
+        payload["scope_id"] = "scope:tenant:t1:workspace:creative-lab"
+        payload["scope_type"] = "workspace"
+        response = self.client.post(
+            "/v1/runs",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        assert self.fake_execution_client.last_submit is not None
+        envelope = self.fake_execution_client.last_submit["envelope"]
+        self.assertEqual(envelope["scope_id"], "scope:tenant:t1:workspace:creative-lab")
+        self.assertEqual(envelope["scope_type"], "workspace")
+
+    def test_runs_projects_scope_axis_on_downstream_event_when_missing(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write", "runs:read"])
+        response = self.client.post(
+            "/v1/runs",
+            json=self.payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+
+        recent = self.client.get(
+            "/v1/events/recent?event_types=runtime.run.requested",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(recent.status_code, 200)
+        items = recent.json()["items"]
+        self.assertGreaterEqual(len(items), 1)
+        event = items[-1]["event"]
+        self.assertEqual(
+            event["scope_id"],
+            "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+        )
+        self.assertEqual(event["scope_type"], "session")
 
     def test_runs_rejects_downstream_contract_version_drift(self) -> None:
         gateway_app_module._execution_client = _FakeExecutionClientContractVersionDrift()

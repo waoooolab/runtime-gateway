@@ -39,6 +39,7 @@ _ACTIVE_EVENT_SCHEMA_VERSIONS_ENV = "OWA_ACTIVE_EVENT_SCHEMA_VERSIONS"
 _DEFAULT_TASK_CONTRACT_VERSION = "task-envelope.v1"
 _DEFAULT_AGENT_CONTRACT_VERSION = "assistant-decision.v1"
 _DEFAULT_EVENT_SCHEMA_VERSION = "event-envelope.v1"
+_DEFAULT_SCOPE_TYPE = "session"
 _DEFAULT_ACTIVE_TASK_CONTRACT_VERSIONS = ("task-envelope.v1", "task-envelope.v2")
 _DEFAULT_ACTIVE_AGENT_CONTRACT_VERSIONS = ("assistant-decision.v1", "assistant-decision.v2")
 _DEFAULT_ACTIVE_EVENT_SCHEMA_VERSIONS = ("event-envelope.v1", "event-envelope.v2")
@@ -46,6 +47,17 @@ _DEFAULT_ACTIVE_EVENT_SCHEMA_VERSIONS = ("event-envelope.v1", "event-envelope.v2
 
 def _resolve_trace_id(claims: Mapping[str, Any]) -> str:
     return str(claims.get("trace_id", "")).strip() or str(uuid.uuid4())
+
+
+def _resolve_scope_axis(req: CreateRunRequest) -> dict[str, str]:
+    scope_id = str(req.scope_id or "").strip() or str(req.session_key).strip()
+    if not scope_id:
+        raise HTTPException(status_code=422, detail="scope_id cannot be empty")
+    scope_type = str(req.scope_type or "").strip() or _DEFAULT_SCOPE_TYPE
+    return {
+        "scope_id": scope_id,
+        "scope_type": scope_type,
+    }
 
 
 def _resolve_bound_contract_versions(req: CreateRunRequest) -> dict[str, str]:
@@ -153,8 +165,22 @@ def _build_execution_command(req: CreateRunRequest, trace_id: str) -> dict[str, 
         "ts": datetime.now(timezone.utc).isoformat(),
         "payload": req.payload,
     }
+    command.update(_resolve_scope_axis(req))
     command.update(_resolve_bound_contract_versions(req))
     return command
+
+
+def _project_scope_axis_onto_event(
+    *,
+    event: dict[str, Any],
+    command: Mapping[str, Any],
+) -> None:
+    scope_id = str(command.get("scope_id", "")).strip() or str(command.get("session_key", "")).strip()
+    scope_type = str(command.get("scope_type", "")).strip() or _DEFAULT_SCOPE_TYPE
+    if scope_id and not str(event.get("scope_id", "")).strip():
+        event["scope_id"] = scope_id
+    if scope_type and not str(event.get("scope_type", "")).strip():
+        event["scope_type"] = scope_type
 
 
 def _validate_execution_context_payload(req: CreateRunRequest) -> None:
@@ -532,6 +558,10 @@ def _submit_command(
         )
         if isinstance(exc.response_body, dict):
             try:
+                _project_scope_axis_onto_event(
+                    event=exc.response_body,
+                    command=command,
+                )
                 _enforce_event_contract_versions(
                     event=exc.response_body,
                     bound_versions=bound_contract_versions,
@@ -629,6 +659,10 @@ def _validate_execution_event(
     trace_id: str,
 ) -> None:
     try:
+        _project_scope_axis_onto_event(
+            event=execution_event,
+            command=command,
+        )
         _enforce_event_contract_versions(
             event=execution_event,
             bound_versions=_bound_contract_versions_from_command(command),

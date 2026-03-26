@@ -33,6 +33,8 @@ class ContractValidationTests(unittest.TestCase):
             "tenant_id": "t1",
             "app_id": "covernow",
             "session_key": "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+            "scope_id": "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+            "scope_type": "session",
             "task_contract_version": "task-envelope.v1",
             "agent_contract_version": "assistant-decision.v1",
             "event_schema_version": "event-envelope.v1",
@@ -47,6 +49,28 @@ class ContractValidationTests(unittest.TestCase):
             "payload": {"goal": "build feature"},
         }
         validate_command_envelope_contract(payload)
+
+    def test_command_envelope_contract_rejects_empty_scope_type_when_present(self) -> None:
+        payload = {
+            "command_id": "cmd-1",
+            "command_type": "run.start",
+            "tenant_id": "t1",
+            "app_id": "covernow",
+            "session_key": "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+            "scope_id": "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+            "scope_type": "",
+            "trace_id": "trace-1",
+            "idempotency_key": "idempotent-key-0001",
+            "retry_policy": {
+                "max_attempts": 3,
+                "backoff_ms": 250,
+                "strategy": "fixed",
+            },
+            "ts": "2026-03-01T10:39:00Z",
+            "payload": {"goal": "build feature"},
+        }
+        with self.assertRaises(ContractValidationError):
+            validate_command_envelope_contract(payload)
 
     def test_command_envelope_contract_rejects_empty_contract_version(self) -> None:
         payload = {
@@ -129,6 +153,8 @@ class ContractValidationTests(unittest.TestCase):
             app_id="covernow",
             session_key="tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
             payload={"run_id": "run-1"},
+            scope_id="scope:tenant:t1:app:covernow",
+            scope_type="workspace",
             task_contract_version="task-envelope.v1",
             agent_contract_version="assistant-decision.v1",
             event_schema_version="event-envelope.v1",

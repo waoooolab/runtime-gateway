@@ -37,6 +37,14 @@
       "type": "string",
       "minLength": 1
     },
+    "scope_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scope_type": {
+      "type": "string",
+      "minLength": 1
+    },
     "task_contract_version": {
       "type": "string",
       "minLength": 1
