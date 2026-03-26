@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import os
+import tempfile
 import urllib.error
 import unittest
 from dataclasses import dataclass, field
@@ -1729,6 +1730,82 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(payload["items"][0]["event"]["event_type"], "runtime.run.status")
         self.assertEqual(payload["recommended_poll_after_ms"], 1500)
         mock_read_event_page.assert_called_once()
+
+    def test_event_consumer_ack_roundtrip_and_recent_resume_cursor(self) -> None:
+        read_token = self._token(audience="runtime-gateway", scope=["events:read"])
+        write_token = self._token(audience="runtime-gateway", scope=["events:write", "events:read"])
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = os.path.join(tmp, "runtime-events.sqlite")
+            with patch.dict(os.environ, {"RUNTIME_GATEWAY_EVENT_DB_PATH": db_path}, clear=False):
+                for idx, event_type in enumerate(
+                    ["runtime.run.started", "runtime.run.status", "runtime.run.completed"],
+                    start=1,
+                ):
+                    envelope = self._event_publish_envelope(
+                        event_id=f"evt-ack-resume-{idx}",
+                        event_type=event_type,
+                        correlation_id=f"corr-ack-resume-{idx}",
+                        payload={"run_id": "run-ack-resume", "status": "queued"},
+                    )
+                    publish = self.client.post(
+                        "/v1/events/publish",
+                        json=envelope,
+                        headers={"Authorization": f"Bearer {write_token}"},
+                    )
+                    self.assertEqual(publish.status_code, 200)
+
+                pre_ack = self.client.get(
+                    "/v1/events/ack?source=durable&consumer_id=consumer-r1&run_id=run-ack-resume",
+                    headers={"Authorization": f"Bearer {read_token}"},
+                )
+                self.assertEqual(pre_ack.status_code, 200)
+                self.assertEqual(pre_ack.json()["ack_cursor"], 0)
+                self.assertEqual(pre_ack.json()["has_ack"], False)
+
+                ack = self.client.post(
+                    "/v1/events/ack",
+                    json={
+                        "source": "durable",
+                        "consumer_id": "consumer-r1",
+                        "cursor": 1,
+                        "run_id": "run-ack-resume",
+                    },
+                    headers={"Authorization": f"Bearer {read_token}"},
+                )
+                self.assertEqual(ack.status_code, 200)
+                ack_payload = ack.json()
+                self.assertEqual(ack_payload["ack_cursor"], 1)
+                self.assertTrue(ack_payload["applied"])
+
+                post_ack = self.client.get(
+                    "/v1/events/ack?source=durable&consumer_id=consumer-r1&run_id=run-ack-resume",
+                    headers={"Authorization": f"Bearer {read_token}"},
+                )
+                self.assertEqual(post_ack.status_code, 200)
+                self.assertEqual(post_ack.json()["ack_cursor"], 1)
+                self.assertEqual(post_ack.json()["has_ack"], True)
+
+                resumed = self.client.get(
+                    "/v1/events/recent?source=durable&consumer_id=consumer-r1&run_id=run-ack-resume&limit=10",
+                    headers={"Authorization": f"Bearer {read_token}"},
+                )
+                self.assertEqual(resumed.status_code, 200)
+                resumed_payload = resumed.json()
+                items = resumed_payload["items"]
+                self.assertEqual(len(items), 2)
+                self.assertEqual(items[0]["event"]["event_type"], "runtime.run.status")
+                self.assertEqual(items[1]["event"]["event_type"], "runtime.run.completed")
+                self.assertEqual(resumed_payload["consumer_cursor"]["resume_strategy"], "consumer_ack_cursor")
+                self.assertEqual(resumed_payload["consumer_cursor"]["resume_cursor"], 1)
+
+    def test_recent_events_rejects_consumer_id_on_memory_source(self) -> None:
+        read_token = self._token(audience="runtime-gateway", scope=["events:read"])
+        response = self.client.get(
+            "/v1/events/recent?consumer_id=consumer-r1&source=memory",
+            headers={"Authorization": f"Bearer {read_token}"},
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("consumer_id requires source=durable", str(response.json().get("detail", "")))
 
     def test_runs_connection_error_returns_structured_retryable_detail(self) -> None:
         gateway_app_module._execution_client = _FakeExecutionClientTransportUnavailable()

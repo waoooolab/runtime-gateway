@@ -28,6 +28,16 @@ def _event_db_path() -> Path | None:
     return resolve_event_db_path()
 
 
+def _event_ack_db_path() -> Path | None:
+    db_path = _event_db_path()
+    if db_path is not None:
+        return db_path
+    log_path = _event_log_path()
+    if log_path is None:
+        return None
+    return log_path.with_suffix(".ack.sqlite")
+
+
 def _connect_event_db(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path.as_posix())
@@ -45,6 +55,34 @@ def _ensure_event_db_schema(path: Path) -> None:
                 memory_bus_seq INTEGER NOT NULL,
                 event_json TEXT NOT NULL,
                 created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS runtime_gateway_event_consumer_acks (
+                ack_key TEXT PRIMARY KEY,
+                consumer_id TEXT NOT NULL,
+                source TEXT NOT NULL,
+                tenant_id TEXT NOT NULL,
+                app_id TEXT NOT NULL,
+                session_key TEXT NOT NULL,
+                scope_id TEXT NOT NULL,
+                scope_type TEXT NOT NULL,
+                run_id TEXT NOT NULL,
+                ack_cursor INTEGER NOT NULL CHECK (ack_cursor >= 0),
+                acked_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_runtime_gateway_event_consumer_acks_lookup
+            ON runtime_gateway_event_consumer_acks (
+                consumer_id,
+                source,
+                tenant_id,
+                app_id
             )
             """
         )
@@ -105,6 +143,206 @@ def _append_event_record_sqlite(*, db_path: Path, bus_seq: int, event: dict[str,
                 (int(bus_seq), payload, created_at),
             )
             conn.commit()
+
+
+def _normalize_required_token(raw: str, *, field: str) -> str:
+    value = str(raw or "").strip()
+    if not value:
+        raise ValueError(f"{field} is required")
+    return value
+
+
+def _normalize_optional_token(raw: str | None) -> str:
+    return str(raw or "").strip()
+
+
+def _normalize_ack_source(raw: str | None) -> str:
+    value = str(raw or "durable").strip().lower()
+    if value not in {"durable"}:
+        raise ValueError("source must be durable")
+    return value
+
+
+def _build_consumer_ack_key(
+    *,
+    consumer_id: str,
+    source: str,
+    tenant_id: str,
+    app_id: str,
+    session_key: str,
+    scope_id: str,
+    scope_type: str,
+    run_id: str,
+) -> str:
+    return "\x1f".join(
+        [
+            consumer_id,
+            source,
+            tenant_id,
+            app_id,
+            session_key,
+            scope_id,
+            scope_type,
+            run_id,
+        ]
+    )
+
+
+def read_event_consumer_ack_cursor(
+    *,
+    consumer_id: str,
+    source: str,
+    tenant_id: str,
+    app_id: str,
+    session_key: str | None = None,
+    scope_id: str | None = None,
+    scope_type: str | None = None,
+    run_id: str | None = None,
+) -> int | None:
+    normalized_consumer_id = _normalize_required_token(consumer_id, field="consumer_id")
+    normalized_source = _normalize_ack_source(source)
+    normalized_tenant = _normalize_required_token(tenant_id, field="tenant_id")
+    normalized_app = _normalize_required_token(app_id, field="app_id")
+    normalized_session_key = _normalize_optional_token(session_key)
+    normalized_scope_id = _normalize_optional_token(scope_id)
+    normalized_scope_type = _normalize_optional_token(scope_type)
+    normalized_run_id = _normalize_optional_token(run_id)
+    db_path = _event_ack_db_path()
+    if db_path is None:
+        return None
+    ack_key = _build_consumer_ack_key(
+        consumer_id=normalized_consumer_id,
+        source=normalized_source,
+        tenant_id=normalized_tenant,
+        app_id=normalized_app,
+        session_key=normalized_session_key,
+        scope_id=normalized_scope_id,
+        scope_type=normalized_scope_type,
+        run_id=normalized_run_id,
+    )
+    with _FILE_LOCK:
+        _ensure_event_db_schema(db_path)
+        with closing(_connect_event_db(db_path)) as conn:
+            row = conn.execute(
+                """
+                SELECT ack_cursor
+                FROM runtime_gateway_event_consumer_acks
+                WHERE ack_key = ?
+                """,
+                (ack_key,),
+            ).fetchone()
+    if row is None or not isinstance(row[0], int):
+        return None
+    if row[0] < 0:
+        return None
+    return int(row[0])
+
+
+def acknowledge_event_consumer_cursor(
+    *,
+    consumer_id: str,
+    source: str,
+    tenant_id: str,
+    app_id: str,
+    cursor: int,
+    session_key: str | None = None,
+    scope_id: str | None = None,
+    scope_type: str | None = None,
+    run_id: str | None = None,
+) -> dict[str, Any]:
+    normalized_consumer_id = _normalize_required_token(consumer_id, field="consumer_id")
+    normalized_source = _normalize_ack_source(source)
+    normalized_tenant = _normalize_required_token(tenant_id, field="tenant_id")
+    normalized_app = _normalize_required_token(app_id, field="app_id")
+    normalized_session_key = _normalize_optional_token(session_key)
+    normalized_scope_id = _normalize_optional_token(scope_id)
+    normalized_scope_type = _normalize_optional_token(scope_type)
+    normalized_run_id = _normalize_optional_token(run_id)
+    requested_cursor = int(cursor)
+    if requested_cursor < 0:
+        raise ValueError("cursor must be integer >= 0")
+    db_path = _event_ack_db_path()
+    if db_path is None:
+        raise ValueError("durable event ack storage is not configured")
+
+    ack_key = _build_consumer_ack_key(
+        consumer_id=normalized_consumer_id,
+        source=normalized_source,
+        tenant_id=normalized_tenant,
+        app_id=normalized_app,
+        session_key=normalized_session_key,
+        scope_id=normalized_scope_id,
+        scope_type=normalized_scope_type,
+        run_id=normalized_run_id,
+    )
+    acked_at = datetime.now(timezone.utc).isoformat()
+    previous_cursor: int | None = None
+    resolved_cursor = requested_cursor
+    applied = True
+
+    with _FILE_LOCK:
+        _ensure_event_db_schema(db_path)
+        with closing(_connect_event_db(db_path)) as conn:
+            row = conn.execute(
+                """
+                SELECT ack_cursor
+                FROM runtime_gateway_event_consumer_acks
+                WHERE ack_key = ?
+                """,
+                (ack_key,),
+            ).fetchone()
+            if row is not None and isinstance(row[0], int) and row[0] >= 0:
+                previous_cursor = int(row[0])
+                if requested_cursor <= previous_cursor:
+                    resolved_cursor = previous_cursor
+                    applied = False
+            conn.execute(
+                """
+                INSERT INTO runtime_gateway_event_consumer_acks (
+                    ack_key,
+                    consumer_id,
+                    source,
+                    tenant_id,
+                    app_id,
+                    session_key,
+                    scope_id,
+                    scope_type,
+                    run_id,
+                    ack_cursor,
+                    acked_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(ack_key) DO UPDATE SET
+                    ack_cursor = excluded.ack_cursor,
+                    acked_at = excluded.acked_at
+                """,
+                (
+                    ack_key,
+                    normalized_consumer_id,
+                    normalized_source,
+                    normalized_tenant,
+                    normalized_app,
+                    normalized_session_key,
+                    normalized_scope_id,
+                    normalized_scope_type,
+                    normalized_run_id,
+                    int(resolved_cursor),
+                    acked_at,
+                ),
+            )
+            conn.commit()
+
+    return {
+        "schema_version": "runtime.events.consumer_ack.v1",
+        "consumer_id": normalized_consumer_id,
+        "source": normalized_source,
+        "requested_cursor": requested_cursor,
+        "previous_cursor": previous_cursor,
+        "ack_cursor": int(resolved_cursor),
+        "applied": applied,
+        "reason_code": None if applied else "ack_cursor_regression_ignored",
+        "acked_at": acked_at,
+    }
 
 
 def read_event_page(

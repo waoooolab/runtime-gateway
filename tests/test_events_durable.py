@@ -5,7 +5,12 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 
-from runtime_gateway.events.durable import append_event_record, read_event_page
+from runtime_gateway.events.durable import (
+    acknowledge_event_consumer_cursor,
+    append_event_record,
+    read_event_consumer_ack_cursor,
+    read_event_page,
+)
 
 
 def _event(*, event_type: str, run_id: str, ts: str) -> dict:
@@ -179,6 +184,58 @@ class DurableEventsStorageTests(unittest.TestCase):
             self.assertEqual(page["stats"]["buffered_events"], 1)
             expected_db_path = os.path.join(tmp, "runtime-gateway", "runtime-events.sqlite")
             self.assertTrue(os.path.exists(expected_db_path))
+
+    def test_sqlite_durable_consumer_ack_cursor_roundtrip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = os.path.join(tmp, "events", "runtime-events.sqlite")
+            os.environ["RUNTIME_GATEWAY_EVENT_DB_PATH"] = db_path
+
+            first = acknowledge_event_consumer_cursor(
+                consumer_id="consumer-a",
+                source="durable",
+                tenant_id="t1",
+                app_id="covernow",
+                run_id="run-ack-1",
+                cursor=7,
+            )
+            self.assertEqual(first["requested_cursor"], 7)
+            self.assertEqual(first["ack_cursor"], 7)
+            self.assertTrue(first["applied"])
+            self.assertEqual(first["previous_cursor"], None)
+
+            stored = read_event_consumer_ack_cursor(
+                consumer_id="consumer-a",
+                source="durable",
+                tenant_id="t1",
+                app_id="covernow",
+                run_id="run-ack-1",
+            )
+            self.assertEqual(stored, 7)
+
+            second = acknowledge_event_consumer_cursor(
+                consumer_id="consumer-a",
+                source="durable",
+                tenant_id="t1",
+                app_id="covernow",
+                run_id="run-ack-1",
+                cursor=3,
+            )
+            self.assertEqual(second["previous_cursor"], 7)
+            self.assertEqual(second["ack_cursor"], 7)
+            self.assertFalse(second["applied"])
+            self.assertEqual(second["reason_code"], "ack_cursor_regression_ignored")
+
+            third = acknowledge_event_consumer_cursor(
+                consumer_id="consumer-a",
+                source="durable",
+                tenant_id="t1",
+                app_id="covernow",
+                run_id="run-ack-1",
+                cursor=10,
+            )
+            self.assertEqual(third["previous_cursor"], 7)
+            self.assertEqual(third["ack_cursor"], 10)
+            self.assertTrue(third["applied"])
 
 
 if __name__ == "__main__":

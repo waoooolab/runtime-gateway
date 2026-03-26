@@ -26,7 +26,12 @@ from .contracts import (
     validate_runtime_events_page_contract,
 )
 from .events.bus import InMemoryEventBus
-from .events.durable import append_event_record, read_event_page
+from .events.durable import (
+    acknowledge_event_consumer_cursor,
+    append_event_record,
+    read_event_consumer_ack_cursor,
+    read_event_page,
+)
 from .events.validation import validate_event_envelope
 from .error_budget_policy import (
     evaluate_error_budget_decision,
@@ -511,6 +516,30 @@ def _parse_source_or_raise(raw_source: str) -> str:
     if normalized not in {"memory", "durable"}:
         raise HTTPException(status_code=422, detail="source must be one of: memory, durable")
     return normalized
+
+
+def _body_optional_str(payload: dict[str, Any], *, field: str) -> str | None:
+    raw = payload.get(field)
+    if raw is None:
+        return None
+    if not isinstance(raw, str):
+        raise HTTPException(status_code=422, detail=f"{field} must be string when provided")
+    normalized = raw.strip()
+    return normalized or None
+
+
+def _body_required_str(payload: dict[str, Any], *, field: str) -> str:
+    value = _body_optional_str(payload, field=field)
+    if value is None:
+        raise HTTPException(status_code=422, detail=f"{field} is required")
+    return value
+
+
+def _body_required_nonnegative_int(payload: dict[str, Any], *, field: str) -> int:
+    raw = payload.get(field)
+    if not isinstance(raw, int) or raw < 0:
+        raise HTTPException(status_code=422, detail=f"{field} must be integer >= 0")
+    return int(raw)
 
 
 def _resolve_events_read_auth_context(
@@ -1202,6 +1231,7 @@ def list_audit_events(limit: int = 50, source: str = "memory") -> dict:
 def list_recent_events(
     limit: int = Query(default=50, ge=1, le=500),
     source: str = Query(default="memory"),
+    consumer_id: str | None = Query(default=None),
     tenant_id: str | None = None,
     app_id: str | None = None,
     session_key: str | None = None,
@@ -1244,6 +1274,26 @@ def list_recent_events(
         since_ts=since_ts,
         until_ts=until_ts,
     )
+    normalized_consumer_id = (consumer_id or "").strip() or None
+    read_cursor = cursor
+    resume_strategy = "query_cursor" if cursor is not None else "recent_window"
+    ack_cursor: int | None = None
+    if normalized_consumer_id is not None:
+        if source_value != "durable":
+            raise HTTPException(status_code=422, detail="consumer_id requires source=durable")
+        ack_cursor = read_event_consumer_ack_cursor(
+            consumer_id=normalized_consumer_id,
+            source=source_value,
+            tenant_id=effective_tenant,
+            app_id=effective_app,
+            session_key=effective_session_key,
+            scope_id=effective_scope_id,
+            scope_type=effective_scope_type,
+            run_id=run_filter,
+        )
+        if cursor is None:
+            read_cursor = int(ack_cursor or 0)
+            resume_strategy = "consumer_ack_cursor" if ack_cursor is not None else "consumer_ack_default"
     items, has_more, next_cursor, stats = _read_event_chunk(
         source=source_value,
         limit=limit,
@@ -1256,7 +1306,7 @@ def list_recent_events(
         run_statuses=parsed_run_statuses,
         reason_codes=parsed_reason_codes,
         run_id=run_filter,
-        cursor=cursor,
+        cursor=read_cursor,
         since_ts=parsed_since_ts,
         until_ts=parsed_until_ts,
     )
@@ -1273,10 +1323,156 @@ def list_recent_events(
         "source": source_value,
         "dlq_projection": _build_dlq_projection(items),
     }
+    if normalized_consumer_id is not None:
+        response_payload["consumer_cursor"] = {
+            "consumer_id": normalized_consumer_id,
+            "ack_cursor": int(ack_cursor or 0),
+            "resume_cursor": int(read_cursor or 0),
+            "resume_strategy": resume_strategy,
+        }
     try:
         validate_runtime_events_page_contract(response_payload)
     except ContractValidationError as exc:
         raise HTTPException(status_code=500, detail=f"invalid recent events response: {exc}") from exc
+    return response_payload
+
+
+@app.get("/v1/events/ack")
+def get_event_consumer_ack(
+    consumer_id: str = Query(min_length=1),
+    source: str = Query(default="durable"),
+    tenant_id: str | None = None,
+    app_id: str | None = None,
+    session_key: str | None = None,
+    scope_id: str | None = None,
+    scope_type: str | None = None,
+    run_id: str | None = None,
+    auth_context: AuthContext = Depends(require_events_read_context),
+) -> dict[str, Any]:
+    (
+        effective_tenant,
+        effective_app,
+        effective_session_key,
+        effective_scope_id,
+        effective_scope_type,
+        _parsed_types,
+        _parsed_run_statuses,
+        _parsed_reason_codes,
+        run_filter,
+        source_value,
+        _parsed_since_ts,
+        _parsed_until_ts,
+    ) = _resolve_event_read_filters(
+        auth_context=auth_context,
+        source=source,
+        tenant_id=tenant_id,
+        app_id=app_id,
+        session_key=session_key,
+        scope_id=scope_id,
+        scope_type=scope_type,
+        event_types=None,
+        run_statuses=None,
+        reason_codes=None,
+        run_id=run_id,
+        since_ts=None,
+        until_ts=None,
+    )
+    if source_value != "durable":
+        raise HTTPException(status_code=422, detail="event consumer ack supports source=durable only")
+    normalized_consumer_id = consumer_id.strip()
+    if not normalized_consumer_id:
+        raise HTTPException(status_code=422, detail="consumer_id is required")
+    ack_cursor = read_event_consumer_ack_cursor(
+        consumer_id=normalized_consumer_id,
+        source=source_value,
+        tenant_id=effective_tenant,
+        app_id=effective_app,
+        session_key=effective_session_key,
+        scope_id=effective_scope_id,
+        scope_type=effective_scope_type,
+        run_id=run_filter,
+    )
+    payload: dict[str, Any] = {
+        "schema_version": "runtime.events.consumer_ack_cursor.v1",
+        "consumer_id": normalized_consumer_id,
+        "source": source_value,
+        "ack_cursor": int(ack_cursor or 0),
+        "has_ack": ack_cursor is not None,
+    }
+    if run_filter is not None:
+        payload["run_id"] = run_filter
+    if effective_session_key is not None:
+        payload["session_key"] = effective_session_key
+    if effective_scope_id is not None:
+        payload["scope_id"] = effective_scope_id
+    if effective_scope_type is not None:
+        payload["scope_type"] = effective_scope_type
+    return payload
+
+
+@app.post("/v1/events/ack")
+def acknowledge_event_consumer(
+    body: dict[str, Any] | None = None,
+    auth_context: AuthContext = Depends(require_events_read_context),
+) -> dict[str, Any]:
+    payload = body if isinstance(body, dict) else {}
+    source_raw = _body_optional_str(payload, field="source") or "durable"
+    run_id_raw = _body_optional_str(payload, field="run_id")
+    (
+        effective_tenant,
+        effective_app,
+        effective_session_key,
+        effective_scope_id,
+        effective_scope_type,
+        _parsed_types,
+        _parsed_run_statuses,
+        _parsed_reason_codes,
+        run_filter,
+        source_value,
+        _parsed_since_ts,
+        _parsed_until_ts,
+    ) = _resolve_event_read_filters(
+        auth_context=auth_context,
+        source=source_raw,
+        tenant_id=_body_optional_str(payload, field="tenant_id"),
+        app_id=_body_optional_str(payload, field="app_id"),
+        session_key=_body_optional_str(payload, field="session_key"),
+        scope_id=_body_optional_str(payload, field="scope_id"),
+        scope_type=_body_optional_str(payload, field="scope_type"),
+        event_types=None,
+        run_statuses=None,
+        reason_codes=None,
+        run_id=run_id_raw,
+        since_ts=None,
+        until_ts=None,
+    )
+    if source_value != "durable":
+        raise HTTPException(status_code=422, detail="event consumer ack supports source=durable only")
+    consumer_id = _body_required_str(payload, field="consumer_id")
+    cursor = _body_required_nonnegative_int(payload, field="cursor")
+    try:
+        ack_result = acknowledge_event_consumer_cursor(
+            consumer_id=consumer_id,
+            source=source_value,
+            tenant_id=effective_tenant,
+            app_id=effective_app,
+            session_key=effective_session_key,
+            scope_id=effective_scope_id,
+            scope_type=effective_scope_type,
+            run_id=run_filter,
+            cursor=cursor,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    response_payload = dict(ack_result)
+    if run_filter is not None:
+        response_payload["run_id"] = run_filter
+    if effective_session_key is not None:
+        response_payload["session_key"] = effective_session_key
+    if effective_scope_id is not None:
+        response_payload["scope_id"] = effective_scope_id
+    if effective_scope_type is not None:
+        response_payload["scope_type"] = effective_scope_type
     return response_payload
 
 
