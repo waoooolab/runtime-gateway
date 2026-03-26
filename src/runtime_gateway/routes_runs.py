@@ -332,6 +332,34 @@ def _register_run_query_routes(
         )
 
 
+def _register_contract_retirement_routes(
+    *,
+    app: FastAPI,
+    get_execution_client: Callable[[], RuntimeExecutionClient],
+) -> None:
+    @app.get("/v1/contracts/retirement:status")
+    def contract_retirement_status(
+        version_type: str | None = None,
+        version: str | None = None,
+        auth_context: AuthContext = Depends(require_runs_read_context),
+    ) -> dict[str, Any]:
+        return get_execution_client().contract_retirement_status(
+            auth_token=auth_context.subject_token,
+            version_type=version_type,
+            version=version,
+        )
+
+    @app.post("/v1/contracts/retirement:validate")
+    def contract_retirement_validate(
+        body: dict[str, Any] | None = None,
+        auth_context: AuthContext = Depends(require_runs_read_context),
+    ) -> dict[str, Any]:
+        return get_execution_client().contract_retirement_validate(
+            auth_token=auth_context.subject_token,
+            body=body,
+        )
+
+
 def _register_worker_routes(
     *,
     app: FastAPI,
@@ -574,6 +602,10 @@ def register_run_routes(
         publish_gateway_event=publish_gateway_event,
     )
     _register_run_query_routes(
+        app=app,
+        get_execution_client=get_execution_client,
+    )
+    _register_contract_retirement_routes(
         app=app,
         get_execution_client=get_execution_client,
     )

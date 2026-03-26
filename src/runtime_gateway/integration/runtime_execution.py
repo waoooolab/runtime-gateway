@@ -626,6 +626,36 @@ class RuntimeExecutionClient:
             body=body,
         )
 
+    def contract_retirement_status(
+        self,
+        *,
+        auth_token: str,
+        version_type: str | None = None,
+        version: str | None = None,
+    ) -> dict[str, Any]:
+        query: dict[str, Any] = {
+            "version_type": version_type,
+            "version": version,
+        }
+        return self._get_json(
+            path="v1/contracts/retirement:status",
+            auth_token=auth_token,
+            query=query,
+        )
+
+    def contract_retirement_validate(
+        self,
+        *,
+        auth_token: str,
+        body: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload = body if isinstance(body, dict) else {}
+        return self._post_json(
+            path="v1/contracts/retirement:validate",
+            auth_token=auth_token,
+            body=payload,
+        )
+
     def get_run_status(
         self,
         *,

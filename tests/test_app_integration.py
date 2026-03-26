@@ -29,6 +29,8 @@ else:
 @dataclass
 class _FakeExecutionClient:
     last_submit: dict | None = None
+    last_contract_retirement_status: dict | None = None
+    last_contract_retirement_validate: dict | None = None
 
     def submit_command(self, *, envelope: dict, auth_token: str) -> dict:
         self.last_submit = {
@@ -49,6 +51,76 @@ class _FakeExecutionClient:
                 "status": "queued",
                 "retry_attempts": 0,
             },
+        }
+
+    def contract_retirement_status(
+        self,
+        *,
+        auth_token: str,
+        version_type: str | None = None,
+        version: str | None = None,
+    ) -> dict:
+        self.last_contract_retirement_status = {
+            "auth_token": auth_token,
+            "version_type": version_type,
+            "version": version,
+        }
+        return {
+            "schema_version": "runtime.contract_retirement_status.v1",
+            "observed_at": "2026-03-26T00:00:00+00:00",
+            "version_type_filter": version_type,
+            "version_filter": version,
+            "versions": {
+                "task_contract_version": [
+                    {
+                        "version_type": "task_contract_version",
+                        "version": "task-envelope.v1",
+                        "total_runs": 2,
+                        "active_runs": 1,
+                        "terminal_runs": 1,
+                        "status_counts": {
+                            "requested": 0,
+                            "queued": 0,
+                            "dispatching": 0,
+                            "running": 1,
+                            "waiting_approval": 0,
+                            "retrying": 0,
+                            "succeeded": 1,
+                            "failed": 0,
+                            "dlq": 0,
+                            "canceled": 0,
+                            "timed_out": 0,
+                        },
+                    }
+                ]
+            },
+        }
+
+    def contract_retirement_validate(
+        self,
+        *,
+        auth_token: str,
+        body: dict | None = None,
+    ) -> dict:
+        self.last_contract_retirement_validate = {
+            "auth_token": auth_token,
+            "body": body if isinstance(body, dict) else {},
+        }
+        return {
+            "schema_version": "runtime.contract_retirement_gate.v1",
+            "observed_at": "2026-03-26T00:00:00+00:00",
+            "requested": body if isinstance(body, dict) else {},
+            "eligible_to_retire": False,
+            "eligible": [],
+            "blocked": [
+                {
+                    "version_type": "task_contract_version",
+                    "version": "task-envelope.v1",
+                    "active_runs": 1,
+                    "total_runs": 2,
+                    "reason_code": "contract_retirement_blocked_active_bindings",
+                }
+            ],
         }
 
 
@@ -1008,6 +1080,48 @@ class AppIntegrationTests(unittest.TestCase):
             "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
         )
         self.assertEqual(event["scope_type"], "session")
+
+    def test_contract_retirement_status_forwards_scope_and_filters(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:read"])
+        response = self.client.get(
+            "/v1/contracts/retirement:status?version_type=task_contract_version&version=task-envelope.v1",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["schema_version"], "runtime.contract_retirement_status.v1")
+        self.assertEqual(body["version_type_filter"], "task_contract_version")
+        self.assertEqual(body["version_filter"], "task-envelope.v1")
+        assert self.fake_execution_client.last_contract_retirement_status is not None
+        self.assertEqual(
+            self.fake_execution_client.last_contract_retirement_status["version_type"],
+            "task_contract_version",
+        )
+        self.assertEqual(
+            self.fake_execution_client.last_contract_retirement_status["version"],
+            "task-envelope.v1",
+        )
+
+    def test_contract_retirement_validate_forwards_body(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:read"])
+        response = self.client.post(
+            "/v1/contracts/retirement:validate",
+            json={"task_contract_versions": ["task-envelope.v1"]},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["schema_version"], "runtime.contract_retirement_gate.v1")
+        self.assertFalse(body["eligible_to_retire"])
+        self.assertEqual(
+            body["blocked"][0]["reason_code"],
+            "contract_retirement_blocked_active_bindings",
+        )
+        assert self.fake_execution_client.last_contract_retirement_validate is not None
+        self.assertEqual(
+            self.fake_execution_client.last_contract_retirement_validate["body"],
+            {"task_contract_versions": ["task-envelope.v1"]},
+        )
 
     def test_runs_rejects_downstream_contract_version_drift(self) -> None:
         gateway_app_module._execution_client = _FakeExecutionClientContractVersionDrift()

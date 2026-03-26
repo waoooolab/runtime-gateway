@@ -1039,6 +1039,77 @@ class RuntimeExecutionClientTests(unittest.TestCase):
         self.assertIn("/v1/capabilities/cap.demo:invoke", captured[2]["url"])
         self.assertIn('"version":"1.0.0"', captured[2]["body"])
 
+    def test_contract_retirement_status_forwards_query_filters(self) -> None:
+        captured: dict[str, str] = {}
+
+        class _Response:
+            def getcode(self) -> int:
+                return 200
+
+            def read(self) -> bytes:
+                return (
+                    b'{"schema_version":"runtime.contract_retirement_status.v1","versions":{"task_contract_version":[]}}'
+                )
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+                return None
+
+        def transport(request, timeout=10.0):
+            _ = timeout
+            captured["url"] = request.full_url
+            captured["method"] = request.get_method()
+            return _Response()
+
+        client = RuntimeExecutionClient(base_url="http://runtime-execution.test", _transport=transport)
+        payload = client.contract_retirement_status(
+            auth_token="token-1",
+            version_type="task_contract_version",
+            version="task-envelope.v1",
+        )
+        self.assertEqual(payload["schema_version"], "runtime.contract_retirement_status.v1")
+        self.assertEqual(captured["method"], "GET")
+        self.assertIn("/v1/contracts/retirement:status", captured["url"])
+        self.assertIn("version_type=task_contract_version", captured["url"])
+        self.assertIn("version=task-envelope.v1", captured["url"])
+
+    def test_contract_retirement_validate_posts_payload(self) -> None:
+        captured: dict[str, str] = {}
+
+        class _Response:
+            def getcode(self) -> int:
+                return 200
+
+            def read(self) -> bytes:
+                return b'{"schema_version":"runtime.contract_retirement_gate.v1","eligible_to_retire":false}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+                return None
+
+        def transport(request, timeout=10.0):
+            _ = timeout
+            captured["url"] = request.full_url
+            captured["method"] = request.get_method()
+            captured["body"] = request.data.decode("utf-8")
+            return _Response()
+
+        client = RuntimeExecutionClient(base_url="http://runtime-execution.test", _transport=transport)
+        payload = client.contract_retirement_validate(
+            auth_token="token-1",
+            body={"task_contract_versions": ["task-envelope.v1"]},
+        )
+        self.assertEqual(payload["schema_version"], "runtime.contract_retirement_gate.v1")
+        self.assertEqual(captured["method"], "POST")
+        self.assertIn("/v1/contracts/retirement:validate", captured["url"])
+        self.assertIn('"task_contract_versions":["task-envelope.v1"]', captured["body"])
+
 
 if __name__ == "__main__":
     unittest.main()
