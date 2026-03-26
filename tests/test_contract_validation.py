@@ -278,12 +278,39 @@ class ContractValidationTests(unittest.TestCase):
             "priority_score": 42,
             "tenant_tier": "enterprise",
             "deadline_at": "2026-03-04T08:00:00Z",
+            "nested_leader_contract": {
+                "delegation_mode": "nested",
+                "lifecycle_ack_mode": "progress_and_completion",
+                "failure_takeover_mode": "outer_failover",
+                "completion_aggregation_mode": "both",
+                "ack_timeout_ms": 3000,
+                "max_failure_takeovers": 2,
+            },
+            "nested_autonomy_policy": {
+                "autonomy_level": "guided",
+                "suggestion_trigger_mode": "on_blocker",
+                "handoff_mode": "plan_and_constraints",
+                "max_inner_steps": 8,
+                "allow_inner_replan": True,
+                "require_outer_approval": False,
+            },
         }
         validate_orchestration_hints_contract(payload)
 
     def test_orchestration_hints_contract_rejects_orphan_parent_task(self) -> None:
         payload = {
             "parent_task_id": "orphan:root",
+        }
+        with self.assertRaises(ContractValidationError):
+            validate_orchestration_hints_contract(payload)
+
+    def test_orchestration_hints_contract_rejects_invalid_nested_autonomy_mode(self) -> None:
+        payload = {
+            "nested_autonomy_policy": {
+                "autonomy_level": "guided",
+                "suggestion_trigger_mode": "on_blocker",
+                "handoff_mode": "provider_native",
+            }
         }
         with self.assertRaises(ContractValidationError):
             validate_orchestration_hints_contract(payload)

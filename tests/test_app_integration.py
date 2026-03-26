@@ -867,6 +867,48 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertIn("orchestration-hints.v1.json", response.json()["detail"])
         self.assertIsNone(self.fake_execution_client.last_submit)
 
+    def test_runs_forwards_nested_orchestration_contracts(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        payload = dict(self.payload)
+        payload["payload"] = {
+            "goal": "build feature",
+            "orchestration": {
+                "nested_leader_contract": {
+                    "delegation_mode": "nested",
+                    "lifecycle_ack_mode": "progress_and_completion",
+                    "failure_takeover_mode": "outer_failover",
+                    "completion_aggregation_mode": "both",
+                    "ack_timeout_ms": 3000,
+                    "max_failure_takeovers": 2,
+                },
+                "nested_autonomy_policy": {
+                    "autonomy_level": "guided",
+                    "suggestion_trigger_mode": "on_blocker",
+                    "handoff_mode": "plan_and_constraints",
+                    "max_inner_steps": 8,
+                    "allow_inner_replan": True,
+                    "require_outer_approval": False,
+                },
+            },
+        }
+        response = self.client.post(
+            "/v1/runs",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        assert self.fake_execution_client.last_submit is not None
+        envelope = self.fake_execution_client.last_submit["envelope"]
+        forwarded_orchestration = envelope["payload"]["orchestration"]
+        self.assertEqual(
+            forwarded_orchestration["nested_leader_contract"]["delegation_mode"],
+            "nested",
+        )
+        self.assertEqual(
+            forwarded_orchestration["nested_autonomy_policy"]["handoff_mode"],
+            "plan_and_constraints",
+        )
+
     def test_runs_rejects_execution_context_mode_mismatch(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["runs:write"])
         payload = dict(self.payload)

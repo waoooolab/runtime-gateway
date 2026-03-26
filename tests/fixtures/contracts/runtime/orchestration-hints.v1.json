@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://waoooolab.dev/contracts/runtime/orchestration-hints.v1.json",
   "title": "OrchestrationHintsV1",
-  "description": "Optional run orchestration hints for hierarchy, queue priority and scheduling.",
+  "description": "Optional run orchestration hints for hierarchy, queue priority, scheduling, and nested delegation/autonomy governance.",
   "type": "object",
   "properties": {
     "task_id": {
@@ -43,6 +43,105 @@
     "deadline_at": {
       "type": "string",
       "format": "date-time"
+    },
+    "nested_leader_contract": {
+      "type": "object",
+      "required": [
+        "delegation_mode",
+        "lifecycle_ack_mode",
+        "failure_takeover_mode",
+        "completion_aggregation_mode"
+      ],
+      "properties": {
+        "delegation_mode": {
+          "type": "string",
+          "enum": [
+            "none",
+            "platform",
+            "nested"
+          ]
+        },
+        "lifecycle_ack_mode": {
+          "type": "string",
+          "enum": [
+            "none",
+            "completion",
+            "progress",
+            "progress_and_completion"
+          ]
+        },
+        "failure_takeover_mode": {
+          "type": "string",
+          "enum": [
+            "none",
+            "outer_retry",
+            "outer_failover"
+          ]
+        },
+        "completion_aggregation_mode": {
+          "type": "string",
+          "enum": [
+            "outer_terminal",
+            "inner_summary",
+            "both"
+          ]
+        },
+        "ack_timeout_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_failure_takeovers": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "nested_autonomy_policy": {
+      "type": "object",
+      "required": [
+        "autonomy_level",
+        "suggestion_trigger_mode",
+        "handoff_mode"
+      ],
+      "properties": {
+        "autonomy_level": {
+          "type": "string",
+          "enum": [
+            "strict",
+            "guided",
+            "full"
+          ]
+        },
+        "suggestion_trigger_mode": {
+          "type": "string",
+          "enum": [
+            "none",
+            "on_blocker",
+            "on_uncertainty",
+            "always"
+          ]
+        },
+        "handoff_mode": {
+          "type": "string",
+          "enum": [
+            "constraints_only",
+            "plan_and_constraints",
+            "micro_steps"
+          ]
+        },
+        "max_inner_steps": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "allow_inner_replan": {
+          "type": "boolean"
+        },
+        "require_outer_approval": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "allOf": [
