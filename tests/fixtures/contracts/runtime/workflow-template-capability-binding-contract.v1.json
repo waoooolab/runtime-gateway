@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://waoooolab.dev/contracts/runtime/workflow-template-capability-binding-contract.v1.json",
+  "title": "WorkflowTemplateCapabilityBindingContractV1",
+  "description": "Canonical Product Builder template-package and capability-binding contract for reusable workflow assembly.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "template_package",
+    "capability_bindings",
+    "resolution_policy",
+    "acceptance_criteria"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "workflow_template_capability_binding_contract.v1"
+    },
+    "template_package": {
+      "type": "object",
+      "required": [
+        "package_id",
+        "package_version",
+        "template_id",
+        "template_version",
+        "lifecycle_stage"
+      ],
+      "properties": {
+        "package_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "package_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "template_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "template_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lifecycle_stage": {
+          "type": "string",
+          "enum": [
+            "draft",
+            "candidate",
+            "published",
+            "deprecated"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "capability_bindings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "binding_id",
+          "step_id",
+          "capability_id",
+          "capability_version",
+          "binding_mode",
+          "executor_profile"
+        ],
+        "properties": {
+          "binding_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "step_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "capability_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "capability_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "binding_mode": {
+            "type": "string",
+            "enum": [
+              "required",
+              "preferred",
+              "fallback"
+            ]
+          },
+          "executor_profile": {
+            "type": "object",
+            "required": [
+              "family",
+              "engine",
+              "adapter"
+            ],
+            "properties": {
+              "family": {
+                "type": "string",
+                "minLength": 1
+              },
+              "engine": {
+                "type": "string",
+                "minLength": 1
+              },
+              "adapter": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "resolution_policy": {
+      "type": "object",
+      "required": [
+        "on_missing_capability",
+        "on_version_mismatch",
+        "on_compile_failure"
+      ],
+      "properties": {
+        "on_missing_capability": {
+          "type": "string",
+          "enum": [
+            "deny",
+            "fallback"
+          ]
+        },
+        "on_version_mismatch": {
+          "type": "string",
+          "enum": [
+            "deny",
+            "prefer_compatible"
+          ]
+        },
+        "on_compile_failure": {
+          "type": "string",
+          "enum": [
+            "halt",
+            "retry",
+            "manual_review"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "string",
+        "enum": [
+          "binding_references_resolvable",
+          "package_lifecycle_declared",
+          "version_pinning_enforced",
+          "executor_profile_compatible",
+          "reuse_before_generate"
+        ]
+      },
+      "uniqueItems": true
+    }
+  },
+  "additionalProperties": false
+}

@@ -18,6 +18,7 @@ from .contracts.validation import (
     validate_command_envelope_contract,
     validate_execution_context_contract,
     validate_orchestration_hints_contract,
+    validate_template_capability_binding_contract,
 )
 from .executor_profiles import validate_executor_profile
 from .events.validation import validate_event_envelope
@@ -43,6 +44,7 @@ _DEFAULT_SCOPE_TYPE = "session"
 _DEFAULT_ACTIVE_TASK_CONTRACT_VERSIONS = ("task-envelope.v1", "task-envelope.v2")
 _DEFAULT_ACTIVE_AGENT_CONTRACT_VERSIONS = ("assistant-decision.v1", "assistant-decision.v2")
 _DEFAULT_ACTIVE_EVENT_SCHEMA_VERSIONS = ("event-envelope.v1", "event-envelope.v2")
+_ALLOWED_INGRESS_MODES = frozenset({"assistant", "workflow", "tools", "mixed"})
 
 
 def _resolve_trace_id(claims: Mapping[str, Any]) -> str:
@@ -79,6 +81,96 @@ def _resolve_bound_contract_versions(req: CreateRunRequest) -> dict[str, str]:
         "agent_contract_version": agent_contract_version,
         "event_schema_version": event_schema_version,
     }
+
+
+def _normalize_optional_str(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    return normalized
+
+
+def _normalize_ingress_mode(value: Any) -> str | None:
+    normalized = _normalize_optional_str(value)
+    if normalized is None:
+        return None
+    lowered = normalized.lower()
+    if lowered not in _ALLOWED_INGRESS_MODES:
+        return None
+    return lowered
+
+
+def _extract_payload_ingress_mode(payload: Mapping[str, Any]) -> str | None:
+    control_ingress = payload.get("control_ingress")
+    if isinstance(control_ingress, Mapping):
+        mode = _normalize_ingress_mode(control_ingress.get("entry_mode"))
+        if mode is not None:
+            return mode
+        mode = _normalize_ingress_mode(control_ingress.get("mode"))
+        if mode is not None:
+            return mode
+    mode = _normalize_ingress_mode(payload.get("ingress_mode"))
+    if mode is not None:
+        return mode
+    return _normalize_ingress_mode(payload.get("entry_mode"))
+
+
+def _build_control_ingress_contract(
+    *,
+    req: CreateRunRequest,
+    payload: Mapping[str, Any],
+    scope_axis: Mapping[str, str],
+    trace_id: str,
+) -> dict[str, Any]:
+    normalized_requested_trace_id = _normalize_optional_str(req.ingress_trace_id)
+    if normalized_requested_trace_id is not None and normalized_requested_trace_id != trace_id:
+        raise HTTPException(
+            status_code=422,
+            detail="ingress_trace_id must match authenticated trace_id",
+        )
+
+    existing_control_ingress_raw = payload.get("control_ingress")
+    existing_control_ingress = (
+        dict(existing_control_ingress_raw)
+        if isinstance(existing_control_ingress_raw, Mapping)
+        else {}
+    )
+    entry_mode = _normalize_ingress_mode(req.ingress_mode)
+    if entry_mode is None:
+        entry_mode = _extract_payload_ingress_mode(payload) or "assistant"
+    lifecycle_id = _normalize_optional_str(req.ingress_lifecycle_id)
+    if lifecycle_id is None:
+        lifecycle_id = _normalize_optional_str(existing_control_ingress.get("lifecycle_id"))
+
+    control_ingress = dict(existing_control_ingress)
+    control_ingress["entry_mode"] = entry_mode
+    control_ingress["trace_id"] = trace_id
+    control_ingress["tenant_id"] = req.tenant_id
+    control_ingress["app_id"] = req.app_id
+    control_ingress["session_key"] = req.session_key
+    control_ingress["scope_id"] = str(scope_axis["scope_id"])
+    control_ingress["scope_type"] = str(scope_axis["scope_type"])
+    if lifecycle_id is not None:
+        control_ingress["lifecycle_id"] = lifecycle_id
+    return control_ingress
+
+
+def _build_payload(
+    *,
+    req: CreateRunRequest,
+    trace_id: str,
+    scope_axis: Mapping[str, str],
+) -> dict[str, Any]:
+    payload: dict[str, Any] = dict(req.payload)
+    payload["control_ingress"] = _build_control_ingress_contract(
+        req=req,
+        payload=payload,
+        scope_axis=scope_axis,
+        trace_id=trace_id,
+    )
+    return payload
 
 
 def _parse_active_version_pool(env_name: str, defaults: tuple[str, ...]) -> set[str]:
@@ -153,6 +245,7 @@ def _build_execution_command(req: CreateRunRequest, trace_id: str) -> dict[str, 
             "strategy": "fixed",
         }
     )
+    scope_axis = _resolve_scope_axis(req)
     command: dict[str, Any] = {
         "command_id": str(uuid.uuid4()),
         "command_type": "run.start",
@@ -163,9 +256,13 @@ def _build_execution_command(req: CreateRunRequest, trace_id: str) -> dict[str, 
         "idempotency_key": str(uuid.uuid4()),
         "retry_policy": retry_policy,
         "ts": datetime.now(timezone.utc).isoformat(),
-        "payload": req.payload,
+        "payload": _build_payload(
+            req=req,
+            trace_id=trace_id,
+            scope_axis=scope_axis,
+        ),
     }
-    command.update(_resolve_scope_axis(req))
+    command.update(scope_axis)
     command.update(_resolve_bound_contract_versions(req))
     return command
 
@@ -237,9 +334,25 @@ def _validate_orchestration_payload(req: CreateRunRequest) -> None:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+def _validate_template_capability_binding_payload(req: CreateRunRequest) -> None:
+    raw_binding = req.payload.get("template_capability_binding")
+    if raw_binding is None:
+        return
+    if not isinstance(raw_binding, dict):
+        raise HTTPException(
+            status_code=422,
+            detail="template_capability_binding must be an object",
+        )
+    try:
+        validate_template_capability_binding_contract(raw_binding)
+    except ContractValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 def _build_validated_command(req: CreateRunRequest, trace_id: str) -> dict[str, Any]:
     _validate_execution_context_payload(req)
     _validate_orchestration_payload(req)
+    _validate_template_capability_binding_payload(req)
     command = _build_execution_command(req, trace_id)
     _validate_bound_versions_in_active_pool(_bound_contract_versions_from_command(command))
     try:

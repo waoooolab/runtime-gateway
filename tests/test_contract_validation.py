@@ -11,6 +11,7 @@ from runtime_gateway.contracts.validation import (
     validate_execution_context_contract,
     validate_executor_profile_catalog_contract,
     validate_orchestration_hints_contract,
+    validate_template_capability_binding_contract,
     validate_runtime_worker_drain_contract,
     validate_runtime_events_page_contract,
     validate_runtime_worker_health_contract,
@@ -23,6 +24,39 @@ from runtime_gateway.events.envelope import build_event_envelope
 os.environ["WAOOOOLAB_PLATFORM_CONTRACTS_DIR"] = str(
     Path(__file__).resolve().parent / "fixtures" / "contracts"
 )
+
+
+def _communication_memory_trace(*, correlation_id: str) -> dict:
+    return {
+        "plane": "communication_memory",
+        "authority": "runtime_orchestrator",
+        "memory_scope": "session",
+        "relay_path": ["user", "leader", "worker"],
+        "correlation_id": correlation_id,
+        "trace_ref": "mem-trace-001",
+    }
+
+
+def _runtime_state_assembly(*, correlation_id: str) -> dict:
+    return {
+        "plane": "runtime_state",
+        "run_id": "run-1",
+        "task_id": "task-1",
+        "trace_id": "trace-1",
+        "session_key": "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+        "correlation_id": correlation_id,
+        "assembly_order": [
+            "registry_index",
+            "session_pointer",
+            "event_snapshot",
+            "task_snapshot",
+            "context_rehydrate",
+        ],
+        "pointer_validity": "strict",
+        "fallback_strategy": "rehydrate_context",
+        "orchestration_role": "leader",
+        "assistant_identity": "assistant.main",
+    }
 
 
 class ContractValidationTests(unittest.TestCase):
@@ -87,6 +121,52 @@ class ContractValidationTests(unittest.TestCase):
                 "backoff_ms": 250,
                 "strategy": "fixed",
             },
+            "ts": "2026-03-01T10:39:00Z",
+            "payload": {"goal": "build feature"},
+        }
+        with self.assertRaises(ContractValidationError):
+            validate_command_envelope_contract(payload)
+
+    def test_command_envelope_contract_allows_split_plane_blocks(self) -> None:
+        correlation_id = "corr-1"
+        payload = {
+            "command_id": "cmd-1",
+            "command_type": "run.start",
+            "tenant_id": "t1",
+            "app_id": "covernow",
+            "session_key": "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+            "trace_id": "trace-1",
+            "correlation_id": correlation_id,
+            "idempotency_key": "idempotent-key-0001",
+            "retry_policy": {
+                "max_attempts": 3,
+                "backoff_ms": 250,
+                "strategy": "fixed",
+            },
+            "communication_memory_trace": _communication_memory_trace(correlation_id=correlation_id),
+            "runtime_state_assembly": _runtime_state_assembly(correlation_id=correlation_id),
+            "ts": "2026-03-01T10:39:00Z",
+            "payload": {"goal": "build feature"},
+        }
+        validate_command_envelope_contract(payload)
+
+    def test_command_envelope_contract_rejects_partial_split_plane_blocks(self) -> None:
+        correlation_id = "corr-1"
+        payload = {
+            "command_id": "cmd-1",
+            "command_type": "run.start",
+            "tenant_id": "t1",
+            "app_id": "covernow",
+            "session_key": "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+            "trace_id": "trace-1",
+            "correlation_id": correlation_id,
+            "idempotency_key": "idempotent-key-0001",
+            "retry_policy": {
+                "max_attempts": 3,
+                "backoff_ms": 250,
+                "strategy": "fixed",
+            },
+            "communication_memory_trace": _communication_memory_trace(correlation_id=correlation_id),
             "ts": "2026-03-01T10:39:00Z",
             "payload": {"goal": "build feature"},
         }
@@ -160,6 +240,40 @@ class ContractValidationTests(unittest.TestCase):
             event_schema_version="event-envelope.v1",
         )
         validate_event_envelope_contract(envelope)
+
+    def test_event_envelope_contract_allows_split_plane_blocks(self) -> None:
+        correlation_id = "corr-split-1"
+        envelope = build_event_envelope(
+            event_type="run.requested",
+            tenant_id="t1",
+            app_id="covernow",
+            session_key="tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+            payload={"run_id": "run-1"},
+            trace_id="trace-1",
+            correlation_id=correlation_id,
+        )
+        envelope["communication_memory_trace"] = _communication_memory_trace(
+            correlation_id=correlation_id
+        )
+        envelope["runtime_state_assembly"] = _runtime_state_assembly(correlation_id=correlation_id)
+        validate_event_envelope_contract(envelope)
+
+    def test_event_envelope_contract_rejects_partial_split_plane_blocks(self) -> None:
+        correlation_id = "corr-split-1"
+        envelope = build_event_envelope(
+            event_type="run.requested",
+            tenant_id="t1",
+            app_id="covernow",
+            session_key="tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+            payload={"run_id": "run-1"},
+            trace_id="trace-1",
+            correlation_id=correlation_id,
+        )
+        envelope["communication_memory_trace"] = _communication_memory_trace(
+            correlation_id=correlation_id
+        )
+        with self.assertRaises(ContractValidationError):
+            validate_event_envelope_contract(envelope)
 
     def test_execution_context_contract_valid_runtime_workload(self) -> None:
         payload = {
@@ -314,6 +428,80 @@ class ContractValidationTests(unittest.TestCase):
         }
         with self.assertRaises(ContractValidationError):
             validate_orchestration_hints_contract(payload)
+
+    def test_template_capability_binding_contract_valid(self) -> None:
+        payload = {
+            "schema_version": "workflow_template_capability_binding_contract.v1",
+            "template_package": {
+                "package_id": "pkg.visual-starter",
+                "package_version": "1.0.0",
+                "template_id": "tpl.visual.pipeline",
+                "template_version": "2026.03.27",
+                "lifecycle_stage": "draft",
+            },
+            "capability_bindings": [
+                {
+                    "binding_id": "bind-1",
+                    "step_id": "phase-1:step-1",
+                    "capability_id": "cap.image.upscale",
+                    "capability_version": "1.2.0",
+                    "binding_mode": "required",
+                    "executor_profile": {
+                        "family": "python",
+                        "engine": "default",
+                        "adapter": "runtime_api",
+                    },
+                }
+            ],
+            "resolution_policy": {
+                "on_missing_capability": "deny",
+                "on_version_mismatch": "deny",
+                "on_compile_failure": "halt",
+            },
+            "acceptance_criteria": [
+                "binding_references_resolvable",
+                "package_lifecycle_declared",
+                "version_pinning_enforced",
+            ],
+        }
+        validate_template_capability_binding_contract(payload)
+
+    def test_template_capability_binding_contract_rejects_missing_capability_version(self) -> None:
+        payload = {
+            "schema_version": "workflow_template_capability_binding_contract.v1",
+            "template_package": {
+                "package_id": "pkg.visual-starter",
+                "package_version": "1.0.0",
+                "template_id": "tpl.visual.pipeline",
+                "template_version": "2026.03.27",
+                "lifecycle_stage": "draft",
+            },
+            "capability_bindings": [
+                {
+                    "binding_id": "bind-1",
+                    "step_id": "phase-1:step-1",
+                    "capability_id": "cap.image.upscale",
+                    "binding_mode": "required",
+                    "executor_profile": {
+                        "family": "python",
+                        "engine": "default",
+                        "adapter": "runtime_api",
+                    },
+                }
+            ],
+            "resolution_policy": {
+                "on_missing_capability": "deny",
+                "on_version_mismatch": "deny",
+                "on_compile_failure": "halt",
+            },
+            "acceptance_criteria": [
+                "binding_references_resolvable",
+                "package_lifecycle_declared",
+                "version_pinning_enforced",
+            ],
+        }
+        with self.assertRaises(ContractValidationError):
+            validate_template_capability_binding_contract(payload)
 
     def test_runtime_events_page_contract_valid(self) -> None:
         payload = {

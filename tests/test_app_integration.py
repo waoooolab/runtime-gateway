@@ -909,6 +909,109 @@ class AppIntegrationTests(unittest.TestCase):
             "plan_and_constraints",
         )
 
+    def test_runs_forwards_template_capability_binding_contract(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        payload = dict(self.payload)
+        payload["payload"] = {
+            "goal": "build feature",
+            "template_capability_binding": {
+                "schema_version": "workflow_template_capability_binding_contract.v1",
+                "template_package": {
+                    "package_id": "pkg.visual-starter",
+                    "package_version": "1.0.0",
+                    "template_id": "tpl.visual.pipeline",
+                    "template_version": "2026.03.27",
+                    "lifecycle_stage": "draft",
+                },
+                "capability_bindings": [
+                    {
+                        "binding_id": "bind-1",
+                        "step_id": "phase-1:step-1",
+                        "capability_id": "cap.image.upscale",
+                        "capability_version": "1.2.0",
+                        "binding_mode": "required",
+                        "executor_profile": {
+                            "family": "python",
+                            "engine": "default",
+                            "adapter": "runtime_api",
+                        },
+                    }
+                ],
+                "resolution_policy": {
+                    "on_missing_capability": "deny",
+                    "on_version_mismatch": "deny",
+                    "on_compile_failure": "halt",
+                },
+                "acceptance_criteria": [
+                    "binding_references_resolvable",
+                    "package_lifecycle_declared",
+                    "version_pinning_enforced",
+                ],
+            },
+        }
+        response = self.client.post(
+            "/v1/runs",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        assert self.fake_execution_client.last_submit is not None
+        envelope = self.fake_execution_client.last_submit["envelope"]
+        binding = envelope["payload"]["template_capability_binding"]
+        self.assertEqual(binding["template_package"]["package_id"], "pkg.visual-starter")
+        self.assertEqual(binding["capability_bindings"][0]["capability_id"], "cap.image.upscale")
+
+    def test_runs_rejects_invalid_template_capability_binding_contract(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        payload = dict(self.payload)
+        payload["payload"] = {
+            "goal": "build feature",
+            "template_capability_binding": {
+                "schema_version": "workflow_template_capability_binding_contract.v1",
+                "template_package": {
+                    "package_id": "pkg.visual-starter",
+                    "package_version": "1.0.0",
+                    "template_id": "tpl.visual.pipeline",
+                    "template_version": "2026.03.27",
+                    "lifecycle_stage": "draft",
+                },
+                "capability_bindings": [
+                    {
+                        "binding_id": "bind-1",
+                        "step_id": "phase-1:step-1",
+                        "capability_id": "cap.image.upscale",
+                        "binding_mode": "required",
+                        "executor_profile": {
+                            "family": "python",
+                            "engine": "default",
+                            "adapter": "runtime_api",
+                        },
+                    }
+                ],
+                "resolution_policy": {
+                    "on_missing_capability": "deny",
+                    "on_version_mismatch": "deny",
+                    "on_compile_failure": "halt",
+                },
+                "acceptance_criteria": [
+                    "binding_references_resolvable",
+                    "package_lifecycle_declared",
+                    "version_pinning_enforced",
+                ],
+            },
+        }
+        response = self.client.post(
+            "/v1/runs",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn(
+            "workflow-template-capability-binding-contract.v1.json",
+            str(response.json()["detail"]),
+        )
+        self.assertIsNone(self.fake_execution_client.last_submit)
+
     def test_runs_rejects_execution_context_mode_mismatch(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["runs:write"])
         payload = dict(self.payload)
@@ -1100,6 +1203,73 @@ class AppIntegrationTests(unittest.TestCase):
         envelope = self.fake_execution_client.last_submit["envelope"]
         self.assertEqual(envelope["scope_id"], "scope:tenant:t1:workspace:creative-lab")
         self.assertEqual(envelope["scope_type"], "workspace")
+
+    def test_runs_freezes_control_ingress_contract_for_entry_modes(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        for mode in ("assistant", "workflow", "tools", "mixed"):
+            payload = dict(self.payload)
+            payload["ingress_mode"] = mode
+            payload["ingress_lifecycle_id"] = f"lifecycle-{mode}"
+            response = self.client.post(
+                "/v1/runs",
+                json=payload,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            self.assertEqual(response.status_code, 200)
+            assert self.fake_execution_client.last_submit is not None
+            envelope = self.fake_execution_client.last_submit["envelope"]
+            control_ingress = envelope["payload"].get("control_ingress")
+            self.assertIsInstance(control_ingress, dict)
+            assert isinstance(control_ingress, dict)
+            self.assertEqual(control_ingress.get("entry_mode"), mode)
+            self.assertEqual(control_ingress.get("trace_id"), "trace-1")
+            self.assertEqual(control_ingress.get("tenant_id"), "t1")
+            self.assertEqual(control_ingress.get("app_id"), "covernow")
+            self.assertEqual(
+                control_ingress.get("session_key"),
+                "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+            )
+            self.assertEqual(
+                control_ingress.get("scope_id"),
+                "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+            )
+            self.assertEqual(control_ingress.get("scope_type"), "session")
+            self.assertEqual(control_ingress.get("lifecycle_id"), f"lifecycle-{mode}")
+
+    def test_runs_projects_explicit_scope_axis_to_control_ingress_contract(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        payload = dict(self.payload)
+        payload["scope_id"] = "scope:tenant:t1:workspace:creative-lab"
+        payload["scope_type"] = "workspace"
+        payload["ingress_mode"] = "workflow"
+        response = self.client.post(
+            "/v1/runs",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        assert self.fake_execution_client.last_submit is not None
+        envelope = self.fake_execution_client.last_submit["envelope"]
+        control_ingress = envelope["payload"].get("control_ingress")
+        self.assertIsInstance(control_ingress, dict)
+        assert isinstance(control_ingress, dict)
+        self.assertEqual(control_ingress.get("entry_mode"), "workflow")
+        self.assertEqual(control_ingress.get("scope_id"), "scope:tenant:t1:workspace:creative-lab")
+        self.assertEqual(control_ingress.get("scope_type"), "workspace")
+
+    def test_runs_rejects_mismatched_ingress_trace_id(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        payload = dict(self.payload)
+        payload["ingress_mode"] = "assistant"
+        payload["ingress_trace_id"] = "trace-2"
+        response = self.client.post(
+            "/v1/runs",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("ingress_trace_id", str(response.json().get("detail")))
+        self.assertIsNone(self.fake_execution_client.last_submit)
 
     def test_runs_projects_scope_axis_on_downstream_event_when_missing(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["runs:write", "runs:read"])
