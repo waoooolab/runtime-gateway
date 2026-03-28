@@ -5,11 +5,7 @@ import re
 
 
 FORBIDDEN_PATTERNS = [
-    re.compile(r'app:waoooo'),
-    re.compile(r'"app_id"\s*:\s*"waoooo"'),
-    re.compile(r"app_id='waoooo'"),
-    re.compile(r'app_id="waoooo"'),
-    re.compile(r"\bapp_id=waoooo\b"),
+    re.compile(r"\bwaoooo(?:-shell)?\b"),
 ]
 
 

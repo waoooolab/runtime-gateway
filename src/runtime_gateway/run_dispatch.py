@@ -262,7 +262,7 @@ def _build_execution_command(req: CreateRunRequest, trace_id: str) -> dict[str, 
             scope_axis=scope_axis,
         ),
     }
-    command.update(scope_axis)
+    command.update(_resolve_scope_axis(req))
     command.update(_resolve_bound_contract_versions(req))
     return command
 
