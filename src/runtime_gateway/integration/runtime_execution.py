@@ -13,8 +13,12 @@ from urllib.parse import urlencode, urljoin, urlparse
 from runtime_gateway.code_terms import normalize_optional_code_term
 
 TransportCallable = Callable[..., Any]
+ClientFactory = Callable[[str, str], "RuntimeExecutionClient"]
 _REQUIRE_INTERNAL_TLS_ENV = "OWA_REQUIRE_INTERNAL_TLS"
 _REQUIRE_INTERNAL_TLS_ENV_LEGACY = "WAOOOOLAB_REQUIRE_INTERNAL_TLS"
+_RUNTIME_ROUTE_TABLE_ENV = "RUNTIME_EXECUTION_ROUTE_TABLE_JSON"
+_RUNTIME_ROUTE_TABLE_ENV_LEGACY = "OWA_RUNTIME_EXECUTION_ROUTE_TABLE_JSON"
+_DEFAULT_RUNTIME_ID = "runtime-default"
 
 
 class RuntimeExecutionClientError(RuntimeError):
@@ -769,3 +773,408 @@ class RuntimeExecutionClient:
             auth_token=auth_token,
             body=payload,
         )
+
+
+def _normalize_runtime_id(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.strip().lower()
+
+
+def _normalize_label_values(values: Any) -> set[str]:
+    if not isinstance(values, list):
+        return set()
+    normalized: set[str] = set()
+    for item in values:
+        token = _normalize_runtime_id(item)
+        if token:
+            normalized.add(token)
+    return normalized
+
+
+def _normalize_route_entry(raw: Any, *, index: int) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ValueError(f"runtime route entry[{index}] must be object")
+    runtime_id = _normalize_runtime_id(raw.get("runtime_id"))
+    if not runtime_id:
+        raise ValueError(f"runtime route entry[{index}] missing runtime_id")
+    base_url = str(raw.get("base_url", "")).strip()
+    if not base_url:
+        raise ValueError(f"runtime route entry[{index}] missing base_url")
+    return {
+        "runtime_id": runtime_id,
+        "base_url": base_url,
+        "default": bool(raw.get("default", False)),
+        "tenants": _normalize_label_values(raw.get("tenants")),
+        "apps": _normalize_label_values(raw.get("apps")),
+    }
+
+
+def _parse_runtime_route_table(raw_route_table: Any) -> tuple[list[dict[str, Any]], str | None]:
+    default_runtime_id: str | None = None
+    entries_raw: list[Any] = []
+    if isinstance(raw_route_table, list):
+        entries_raw = raw_route_table
+    elif isinstance(raw_route_table, dict):
+        explicit_default = _normalize_runtime_id(
+            raw_route_table.get("default_runtime_id") or raw_route_table.get("default")
+        )
+        if explicit_default:
+            default_runtime_id = explicit_default
+        runtimes = raw_route_table.get("runtimes")
+        if isinstance(runtimes, list):
+            entries_raw = runtimes
+        elif runtimes is None:
+            mapping_entries: list[dict[str, Any]] = []
+            for key, value in raw_route_table.items():
+                if key in {"default", "default_runtime_id", "runtimes"}:
+                    continue
+                runtime_id = _normalize_runtime_id(key)
+                if not runtime_id:
+                    continue
+                if isinstance(value, str):
+                    mapping_entries.append(
+                        {
+                            "runtime_id": runtime_id,
+                            "base_url": value,
+                        }
+                    )
+                elif isinstance(value, dict):
+                    merged = dict(value)
+                    merged.setdefault("runtime_id", runtime_id)
+                    mapping_entries.append(merged)
+            entries_raw = mapping_entries
+        else:
+            raise ValueError("runtime route table field 'runtimes' must be array")
+    elif raw_route_table is None:
+        entries_raw = []
+    else:
+        raise ValueError("runtime route table must be array or object")
+
+    entries = [_normalize_route_entry(item, index=index) for index, item in enumerate(entries_raw)]
+    if not default_runtime_id:
+        for entry in entries:
+            if entry["default"]:
+                default_runtime_id = str(entry["runtime_id"])
+                break
+    return entries, default_runtime_id
+
+
+def _load_runtime_route_table_from_env() -> tuple[list[dict[str, Any]], str | None]:
+    raw = os.environ.get(_RUNTIME_ROUTE_TABLE_ENV)
+    if raw is None:
+        raw = os.environ.get(_RUNTIME_ROUTE_TABLE_ENV_LEGACY)
+    if raw is None or not raw.strip():
+        return [], None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("runtime route table env is invalid JSON") from exc
+    return _parse_runtime_route_table(parsed)
+
+
+def _resolve_runtime_id_from_command(command: dict[str, Any]) -> str:
+    payload = command.get("payload")
+    if not isinstance(payload, dict):
+        return ""
+    execution_context = payload.get("execution_context")
+    if isinstance(execution_context, dict):
+        runtime = execution_context.get("runtime")
+        if isinstance(runtime, dict):
+            candidate = _normalize_runtime_id(runtime.get("runtime_id") or runtime.get("id"))
+            if candidate:
+                return candidate
+    runtime_payload = payload.get("runtime")
+    if isinstance(runtime_payload, dict):
+        candidate = _normalize_runtime_id(runtime_payload.get("runtime_id") or runtime_payload.get("id"))
+        if candidate:
+            return candidate
+    return _normalize_runtime_id(payload.get("runtime_id"))
+
+
+def _normalize_runtime_route_labels(command: dict[str, Any]) -> tuple[str | None, str | None]:
+    tenant_id = _normalize_runtime_id(command.get("tenant_id"))
+    app_id = _normalize_runtime_id(command.get("app_id"))
+    return tenant_id or None, app_id or None
+
+
+def _record_run_route_from_event(*, event: dict[str, Any], runtime_id: str, index: dict[str, str]) -> None:
+    payload = event.get("payload")
+    if not isinstance(payload, dict):
+        return
+    run_id = payload.get("run_id")
+    if isinstance(run_id, str) and run_id.strip():
+        index[run_id.strip()] = runtime_id
+
+
+def _project_route_target(*, event: dict[str, Any], runtime_id: str) -> None:
+    payload = event.get("payload")
+    if not isinstance(payload, dict):
+        return
+    route = payload.get("route")
+    if not isinstance(route, dict):
+        route = {}
+        payload["route"] = route
+    if not isinstance(route.get("route_target"), str) or not str(route.get("route_target")).strip():
+        route["route_target"] = runtime_id
+    if not isinstance(route.get("routing_strategy"), str) or not str(route.get("routing_strategy")).strip():
+        route["routing_strategy"] = "runtime_route_table"
+
+
+class RuntimeExecutionClientPool:
+    """Multi-runtime router with run-id sticky mapping on top of RuntimeExecutionClient."""
+
+    def __init__(
+        self,
+        *,
+        route_table: dict[str, Any] | list[dict[str, Any]] | None = None,
+        default_runtime_id: str | None = None,
+        timeout_seconds: float = 10.0,
+        require_https: bool | None = None,
+        client_factory: ClientFactory | None = None,
+    ) -> None:
+        if route_table is None:
+            entries, env_default_runtime_id = _load_runtime_route_table_from_env()
+        else:
+            entries, env_default_runtime_id = _parse_runtime_route_table(route_table)
+        configured_default = _normalize_runtime_id(default_runtime_id) or env_default_runtime_id
+        fallback_base_url = str(os.environ.get("RUNTIME_EXECUTION_BASE_URL", "http://localhost:8003")).strip()
+
+        if not entries:
+            entries = [
+                {
+                    "runtime_id": _DEFAULT_RUNTIME_ID,
+                    "base_url": fallback_base_url,
+                    "default": True,
+                    "tenants": set(),
+                    "apps": set(),
+                }
+            ]
+
+        if not configured_default:
+            configured_default = _normalize_runtime_id(entries[0].get("runtime_id"))
+        if configured_default not in {str(item["runtime_id"]) for item in entries}:
+            raise ValueError(f"default runtime_id '{configured_default}' not found in route table")
+
+        self._routes = entries
+        self._default_runtime_id = configured_default
+        self._run_route_index: dict[str, str] = {}
+
+        resolved_require_https = (
+            require_https
+            if isinstance(require_https, bool)
+            else _env_truthy_with_alias(
+                canonical_name=_REQUIRE_INTERNAL_TLS_ENV,
+                legacy_name=_REQUIRE_INTERNAL_TLS_ENV_LEGACY,
+                default=False,
+            )
+        )
+        if client_factory is None:
+            client_factory = lambda _runtime_id, base_url: RuntimeExecutionClient(
+                base_url=base_url,
+                require_https=resolved_require_https,
+                timeout_seconds=timeout_seconds,
+            )
+        self._clients: dict[str, RuntimeExecutionClient] = {}
+        for entry in entries:
+            runtime_id = str(entry["runtime_id"])
+            self._clients[runtime_id] = client_factory(runtime_id, str(entry["base_url"]))
+        self._default_client = self._clients[self._default_runtime_id]
+
+    @property
+    def base_url(self) -> str:
+        return self._default_client.base_url
+
+    @property
+    def default_runtime_id(self) -> str:
+        return self._default_runtime_id
+
+    def list_runtime_routes(self) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for entry in self._routes:
+            rows.append(
+                {
+                    "runtime_id": str(entry["runtime_id"]),
+                    "base_url": str(entry["base_url"]),
+                    "default": str(entry["runtime_id"]) == self._default_runtime_id,
+                    "tenants": sorted(str(item) for item in set(entry["tenants"])),
+                    "apps": sorted(str(item) for item in set(entry["apps"])),
+                }
+            )
+        return rows
+
+    def _client_for_runtime_id(self, runtime_id: str) -> RuntimeExecutionClient:
+        client = self._clients.get(runtime_id)
+        if client is None:
+            raise RuntimeExecutionClientError(
+                f"unknown runtime target: {runtime_id}",
+                status_code=422,
+                detail={
+                    "error": "runtime_target_unknown",
+                    "category": "validation",
+                    "code": "runtime_target_unknown",
+                    "retryable": False,
+                    "runtime_id": runtime_id,
+                },
+            )
+        return client
+
+    def _resolve_runtime_id_for_command(self, command: dict[str, Any]) -> str:
+        explicit_runtime_id = _resolve_runtime_id_from_command(command)
+        if explicit_runtime_id:
+            if explicit_runtime_id in self._clients:
+                return explicit_runtime_id
+            raise RuntimeExecutionClientError(
+                f"unknown runtime target: {explicit_runtime_id}",
+                status_code=422,
+                detail={
+                    "error": "runtime_target_unknown",
+                    "category": "validation",
+                    "code": "runtime_target_unknown",
+                    "retryable": False,
+                    "runtime_id": explicit_runtime_id,
+                },
+            )
+
+        tenant_id, app_id = _normalize_runtime_route_labels(command)
+        if tenant_id:
+            for entry in self._routes:
+                if tenant_id in set(entry["tenants"]):
+                    return str(entry["runtime_id"])
+        if app_id:
+            for entry in self._routes:
+                if app_id in set(entry["apps"]):
+                    return str(entry["runtime_id"])
+        return self._default_runtime_id
+
+    def _resolve_runtime_id_for_run(self, run_id: str) -> str:
+        normalized_run_id = run_id.strip()
+        if not normalized_run_id:
+            return self._default_runtime_id
+        return self._run_route_index.get(normalized_run_id, self._default_runtime_id)
+
+    def _run_scoped_call(self, *, run_id: str, method_name: str, **kwargs: Any) -> dict[str, Any]:
+        runtime_id = self._resolve_runtime_id_for_run(run_id)
+        client = self._client_for_runtime_id(runtime_id)
+        method = getattr(client, method_name)
+        response = method(run_id=run_id, **kwargs)
+        if isinstance(response, dict):
+            _record_run_route_from_event(event=response, runtime_id=runtime_id, index=self._run_route_index)
+        return response
+
+    def submit_command(self, *, envelope: dict[str, Any], auth_token: str) -> dict[str, Any]:
+        runtime_id = self._resolve_runtime_id_for_command(envelope)
+        client = self._client_for_runtime_id(runtime_id)
+        try:
+            response = client.submit_command(envelope=envelope, auth_token=auth_token)
+        except RuntimeExecutionClientError as exc:
+            if isinstance(exc.response_body, dict):
+                _project_route_target(event=exc.response_body, runtime_id=runtime_id)
+                _record_run_route_from_event(
+                    event=exc.response_body,
+                    runtime_id=runtime_id,
+                    index=self._run_route_index,
+                )
+            raise
+        _project_route_target(event=response, runtime_id=runtime_id)
+        _record_run_route_from_event(event=response, runtime_id=runtime_id, index=self._run_route_index)
+        return response
+
+    def approve_run(self, *, run_id: str, auth_token: str) -> dict[str, Any]:
+        return self._run_scoped_call(run_id=run_id, method_name="approve_run", auth_token=auth_token)
+
+    def reject_run(self, *, run_id: str, auth_token: str) -> dict[str, Any]:
+        return self._run_scoped_call(run_id=run_id, method_name="reject_run", auth_token=auth_token)
+
+    def complete_run(
+        self,
+        *,
+        run_id: str,
+        auth_token: str,
+        success: bool,
+        failure_reason_code: str | None = None,
+    ) -> dict[str, Any]:
+        return self._run_scoped_call(
+            run_id=run_id,
+            method_name="complete_run",
+            auth_token=auth_token,
+            success=success,
+            failure_reason_code=failure_reason_code,
+        )
+
+    def renew_run_lease(
+        self,
+        *,
+        run_id: str,
+        auth_token: str,
+        lease_ttl_seconds: int | None = None,
+    ) -> dict[str, Any]:
+        return self._run_scoped_call(
+            run_id=run_id,
+            method_name="renew_run_lease",
+            auth_token=auth_token,
+            lease_ttl_seconds=lease_ttl_seconds,
+        )
+
+    def cancel_run(
+        self,
+        *,
+        run_id: str,
+        auth_token: str,
+        reason: str | None = None,
+        cascade_children: bool | None = None,
+        canceled_by_run_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self._run_scoped_call(
+            run_id=run_id,
+            method_name="cancel_run",
+            auth_token=auth_token,
+            reason=reason,
+            cascade_children=cascade_children,
+            canceled_by_run_id=canceled_by_run_id,
+        )
+
+    def timeout_run(
+        self,
+        *,
+        run_id: str,
+        auth_token: str,
+        reason: str | None = None,
+        cascade_children: bool | None = None,
+        timed_out_by_run_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self._run_scoped_call(
+            run_id=run_id,
+            method_name="timeout_run",
+            auth_token=auth_token,
+            reason=reason,
+            cascade_children=cascade_children,
+            timed_out_by_run_id=timed_out_by_run_id,
+        )
+
+    def preempt_run(
+        self,
+        *,
+        run_id: str,
+        auth_token: str,
+        reason: str | None = None,
+        cascade_children: bool | None = None,
+        preempted_by_run_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self._run_scoped_call(
+            run_id=run_id,
+            method_name="preempt_run",
+            auth_token=auth_token,
+            reason=reason,
+            cascade_children=cascade_children,
+            preempted_by_run_id=preempted_by_run_id,
+        )
+
+    def get_run_status(self, *, run_id: str, auth_token: str) -> dict[str, Any]:
+        return self._run_scoped_call(run_id=run_id, method_name="get_run_status", auth_token=auth_token)
+
+    def get_run_lease(self, *, run_id: str, auth_token: str) -> dict[str, Any]:
+        return self._run_scoped_call(run_id=run_id, method_name="get_run_lease", auth_token=auth_token)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._default_client, name)
