@@ -11,6 +11,7 @@ from unittest.mock import patch
 from runtime_gateway.integration.runtime_execution import (
     RuntimeExecutionClient,
     RuntimeExecutionClientError,
+    RuntimeExecutionClientPool,
 )
 
 class RuntimeExecutionClientTests(unittest.TestCase):
@@ -1109,6 +1110,148 @@ class RuntimeExecutionClientTests(unittest.TestCase):
         self.assertEqual(captured["method"], "POST")
         self.assertIn("/v1/contracts/retirement:validate", captured["url"])
         self.assertIn('"task_contract_versions":["task-envelope.v1"]', captured["body"])
+
+    def test_client_pool_routes_submit_by_explicit_runtime_id_and_sticks_run(self) -> None:
+        calls: list[tuple[str, str, str]] = []
+
+        class _FakeClient:
+            def __init__(self, runtime_id: str, base_url: str):
+                self.runtime_id = runtime_id
+                self.base_url = base_url
+
+            def submit_command(self, *, envelope: dict[str, object], auth_token: str) -> dict[str, object]:
+                _ = auth_token
+                calls.append(("submit", self.runtime_id, str(envelope.get("tenant_id", ""))))
+                return {
+                    "event_id": "evt-submit",
+                    "event_type": "runtime.run.accepted",
+                    "tenant_id": "t2",
+                    "app_id": "demo",
+                    "session_key": "s",
+                    "trace_id": "trace",
+                    "correlation_id": "corr",
+                    "ts": "2026-04-01T00:00:00+00:00",
+                    "payload": {"run_id": "run-b"},
+                }
+
+            def get_run_status(self, *, run_id: str, auth_token: str) -> dict[str, object]:
+                _ = auth_token
+                calls.append(("status", self.runtime_id, run_id))
+                return {"run_id": run_id, "status": "queued"}
+
+        pool = RuntimeExecutionClientPool(
+            route_table={
+                "default_runtime_id": "rt-a",
+                "runtimes": [
+                    {"runtime_id": "rt-a", "base_url": "http://rt-a.local"},
+                    {"runtime_id": "rt-b", "base_url": "http://rt-b.local"},
+                ],
+            },
+            client_factory=lambda runtime_id, base_url: _FakeClient(runtime_id, base_url),
+        )
+
+        response = pool.submit_command(
+            envelope={
+                "tenant_id": "t2",
+                "app_id": "demo",
+                "payload": {
+                    "execution_context": {
+                        "runtime": {"runtime_id": "rt-b"},
+                    }
+                },
+            },
+            auth_token="token-1",
+        )
+        self.assertEqual(calls[0], ("submit", "rt-b", "t2"))
+        payload = response["payload"]
+        assert isinstance(payload, dict)
+        route = payload.get("route")
+        assert isinstance(route, dict)
+        self.assertEqual(route.get("route_target"), "rt-b")
+        self.assertEqual(route.get("routing_strategy"), "runtime_route_table")
+
+        status = pool.get_run_status(run_id="run-b", auth_token="token-1")
+        self.assertEqual(calls[1], ("status", "rt-b", "run-b"))
+        self.assertEqual(status["status"], "queued")
+
+    def test_client_pool_routes_submit_by_tenant_mapping(self) -> None:
+        calls: list[tuple[str, str]] = []
+
+        class _FakeClient:
+            def __init__(self, runtime_id: str, base_url: str):
+                self.runtime_id = runtime_id
+                self.base_url = base_url
+
+            def submit_command(self, *, envelope: dict[str, object], auth_token: str) -> dict[str, object]:
+                _ = (auth_token, envelope)
+                calls.append(("submit", self.runtime_id))
+                return {
+                    "event_id": "evt-submit",
+                    "event_type": "runtime.run.accepted",
+                    "tenant_id": "tenant-b",
+                    "app_id": "demo",
+                    "session_key": "s",
+                    "trace_id": "trace",
+                    "correlation_id": "corr",
+                    "ts": "2026-04-01T00:00:00+00:00",
+                    "payload": {"run_id": "run-tenant-b"},
+                }
+
+        pool = RuntimeExecutionClientPool(
+            route_table={
+                "default_runtime_id": "rt-a",
+                "runtimes": [
+                    {"runtime_id": "rt-a", "base_url": "http://rt-a.local"},
+                    {"runtime_id": "rt-b", "base_url": "http://rt-b.local", "tenants": ["tenant-b"]},
+                ],
+            },
+            client_factory=lambda runtime_id, base_url: _FakeClient(runtime_id, base_url),
+        )
+        pool.submit_command(
+            envelope={"tenant_id": "tenant-b", "app_id": "demo", "payload": {}},
+            auth_token="token-1",
+        )
+        self.assertEqual(calls[0], ("submit", "rt-b"))
+
+    def test_client_pool_unknown_explicit_runtime_id_raises_client_error(self) -> None:
+        class _FakeClient:
+            def __init__(self, runtime_id: str, base_url: str):
+                self.runtime_id = runtime_id
+                self.base_url = base_url
+
+            def submit_command(self, *, envelope: dict[str, object], auth_token: str) -> dict[str, object]:
+                _ = (envelope, auth_token)
+                return {}
+
+        pool = RuntimeExecutionClientPool(
+            route_table={
+                "default_runtime_id": "rt-a",
+                "runtimes": [
+                    {"runtime_id": "rt-a", "base_url": "http://rt-a.local"},
+                ],
+            },
+            client_factory=lambda runtime_id, base_url: _FakeClient(runtime_id, base_url),
+        )
+        with self.assertRaises(RuntimeExecutionClientError) as ctx:
+            pool.submit_command(
+                envelope={
+                    "tenant_id": "t1",
+                    "app_id": "demo",
+                    "payload": {
+                        "execution_context": {
+                            "runtime": {"runtime_id": "rt-b"},
+                        }
+                    },
+                },
+                auth_token="token-1",
+            )
+
+        exc = ctx.exception
+        self.assertEqual(exc.status_code, 422)
+        self.assertIsInstance(exc.detail, dict)
+        assert isinstance(exc.detail, dict)
+        self.assertEqual(exc.detail.get("code"), "runtime_target_unknown")
+        self.assertFalse(exc.retryable)
 
 
 if __name__ == "__main__":

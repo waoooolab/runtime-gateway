@@ -39,7 +39,11 @@ from .error_budget_policy import (
     resolve_error_budget_policy_snapshot,
 )
 from .executor_profiles import list_executor_profiles
-from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
+from .integration import (
+    RuntimeExecutionClient,
+    RuntimeExecutionClientError,
+    RuntimeExecutionClientPool,
+)
 from .routes_capabilities import register_capability_routes
 from .routes_runs import register_run_routes
 from .security import (
@@ -56,7 +60,7 @@ from .token_exchange_api import token_exchange_response
 from .ws_events import handle_websocket_events
 
 app = FastAPI(title="runtime-gateway", version="0.1.0")
-_execution_client = RuntimeExecutionClient()
+_execution_client: RuntimeExecutionClient | RuntimeExecutionClientPool = RuntimeExecutionClientPool()
 _event_bus = InMemoryEventBus()
 _VALID_CONTROL_OUTCOMES = {"dispatch", "queue", "defer", "reject"}
 _DIRECT_COMPLETION_ALIAS_EVENT_TYPE = "direct_completion.v1"
@@ -1078,7 +1082,7 @@ def _runtime_gateway_workspace_scope() -> dict[str, str | None]:
 
 
 def _runtime_gateway_routing_policy() -> dict[str, Any]:
-    return {
+    policy: dict[str, Any] = {
         "mode": _optional_env_str("RUNTIME_GATEWAY_FEDERATION_ROUTING_MODE") or "local_preferred",
         "failover_mode": _optional_env_str("RUNTIME_GATEWAY_FEDERATION_FAILOVER_MODE")
         or "prefer_primary_then_spillover",
@@ -1088,6 +1092,14 @@ def _runtime_gateway_routing_policy() -> dict[str, Any]:
             default=900,
         ),
     }
+    list_routes = getattr(_execution_client, "list_runtime_routes", None)
+    if callable(list_routes):
+        routes = list_routes()
+        policy["runtime_routes"] = routes
+        default_runtime_id = getattr(_execution_client, "default_runtime_id", None)
+        if isinstance(default_runtime_id, str) and default_runtime_id.strip():
+            policy["default_runtime_id"] = default_runtime_id.strip()
+    return policy
 
 
 def _build_runtime_gateway_federation_node_contract(
