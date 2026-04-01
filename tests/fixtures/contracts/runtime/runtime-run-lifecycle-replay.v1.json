@@ -1,0 +1,293 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://waoooolab.dev/contracts/runtime/runtime-run-lifecycle-replay.v1.json",
+  "title": "RuntimeRunLifecycleReplayV1",
+  "description": "Run-scoped lifecycle replay response contract for truth-loop reads.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "items",
+    "next_cursor",
+    "has_more",
+    "stats",
+    "source",
+    "lifecycle_projection",
+    "dlq_projection"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "runtime.run.lifecycle_replay.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/replay_item"
+      }
+    },
+    "next_cursor": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "has_more": {
+      "type": "boolean"
+    },
+    "recommended_poll_after_ms": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 60000
+    },
+    "stats": {
+      "$ref": "#/$defs/event_stats"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "memory",
+        "durable"
+      ]
+    },
+    "lifecycle_projection": {
+      "$ref": "#/$defs/lifecycle_projection"
+    },
+    "dlq_projection": {
+      "$ref": "#/$defs/dlq_projection"
+    },
+    "consumer_cursor": {
+      "$ref": "#/$defs/consumer_cursor"
+    }
+  },
+  "$defs": {
+    "replay_item": {
+      "type": "object",
+      "required": [
+        "bus_seq",
+        "event"
+      ],
+      "properties": {
+        "bus_seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "event": {
+          "$ref": "#/$defs/event_envelope"
+        }
+      },
+      "additionalProperties": false
+    },
+    "event_envelope": {
+      "type": "object",
+      "required": [
+        "event_id",
+        "event_type",
+        "tenant_id",
+        "app_id",
+        "session_key",
+        "trace_id",
+        "correlation_id",
+        "ts",
+        "payload"
+      ],
+      "properties": {
+        "event_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "event_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tenant_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "app_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "session_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "correlation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "payload": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true
+    },
+    "event_stats": {
+      "type": "object",
+      "required": [
+        "connections",
+        "buffered_events",
+        "next_seq"
+      ],
+      "properties": {
+        "connections": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "buffered_events": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "next_seq": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "count_map": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "lifecycle_projection": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "run_id",
+        "event_count",
+        "latest_status",
+        "latest_failure_reason_code",
+        "is_terminal",
+        "run_status_counts",
+        "failure_reason_counts",
+        "first_event_ts",
+        "last_event_ts"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "runtime.run.lifecycle_projection.v1"
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "event_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "latest_status": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "latest_failure_reason_code": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "is_terminal": {
+          "type": "boolean"
+        },
+        "run_status_counts": {
+          "$ref": "#/$defs/count_map"
+        },
+        "failure_reason_counts": {
+          "$ref": "#/$defs/count_map"
+        },
+        "first_event_ts": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "last_event_ts": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": true
+    },
+    "dlq_projection": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "dlq_events",
+        "run_status_counts",
+        "failure_reason_counts"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "runtime.events.dlq_projection.v1"
+        },
+        "dlq_events": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "run_status_counts": {
+          "$ref": "#/$defs/count_map"
+        },
+        "failure_reason_counts": {
+          "$ref": "#/$defs/count_map"
+        }
+      },
+      "additionalProperties": true
+    },
+    "consumer_cursor": {
+      "type": "object",
+      "required": [
+        "consumer_id",
+        "ack_cursor",
+        "resume_cursor",
+        "resume_strategy"
+      ],
+      "properties": {
+        "consumer_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ack_cursor": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resume_cursor": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resume_strategy": {
+          "type": "string",
+          "enum": [
+            "query_cursor",
+            "recent_window",
+            "consumer_ack_cursor",
+            "consumer_ack_default"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": true
+}

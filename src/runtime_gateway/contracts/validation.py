@@ -20,6 +20,7 @@ TOOL_CATALOG_SCHEMA = "runtime/tool-catalog.v1.json"
 ORCHESTRATION_HINTS_SCHEMA = "runtime/orchestration-hints.v1.json"
 TEMPLATE_CAPABILITY_BINDING_SCHEMA = "runtime/workflow-template-capability-binding-contract.v1.json"
 RUNTIME_EVENTS_PAGE_SCHEMA = "runtime/runtime-events-page.v1.json"
+RUNTIME_RUN_LIFECYCLE_REPLAY_SCHEMA = "runtime/runtime-run-lifecycle-replay.v1.json"
 RUNTIME_RUN_LEASE_SCHEMA = "runtime/runtime-run-lease.v1.json"
 RUNTIME_WORKER_HEALTH_SCHEMA = "runtime/runtime-worker-health.v1.json"
 RUNTIME_WORKER_STATUS_SCHEMA = "runtime/runtime-worker-status.v1.json"
@@ -143,6 +144,10 @@ def validate_template_capability_binding_contract(payload: dict[str, Any]) -> No
 
 def validate_runtime_events_page_contract(payload: dict[str, Any]) -> None:
     validate_contract(RUNTIME_EVENTS_PAGE_SCHEMA, payload)
+
+
+def validate_runtime_run_lifecycle_replay_contract(payload: dict[str, Any]) -> None:
+    validate_contract(RUNTIME_RUN_LIFECYCLE_REPLAY_SCHEMA, payload)
 
 
 def validate_runtime_run_lease_contract(payload: dict[str, Any]) -> None:

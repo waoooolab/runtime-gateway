@@ -24,6 +24,7 @@ from .contracts import (
     ContractValidationError,
     validate_executor_profile_catalog_contract,
     validate_runtime_events_page_contract,
+    validate_runtime_run_lifecycle_replay_contract,
 )
 from .events.bus import InMemoryEventBus
 from .events.durable import (
@@ -1518,7 +1519,7 @@ def replay_run_lifecycle(
             "resume_strategy": resume_strategy,
         }
     try:
-        validate_runtime_events_page_contract(response_payload)
+        validate_runtime_run_lifecycle_replay_contract(response_payload)
     except ContractValidationError as exc:
         raise HTTPException(status_code=500, detail=f"invalid lifecycle replay response: {exc}") from exc
     return response_payload

@@ -14,6 +14,7 @@ from runtime_gateway.contracts.validation import (
     validate_template_capability_binding_contract,
     validate_runtime_worker_drain_contract,
     validate_runtime_events_page_contract,
+    validate_runtime_run_lifecycle_replay_contract,
     validate_runtime_worker_health_contract,
     validate_runtime_worker_status_contract,
     validate_tool_catalog_contract,
@@ -557,6 +558,77 @@ class ContractValidationTests(unittest.TestCase):
         }
         with self.assertRaises(ContractValidationError):
             validate_runtime_events_page_contract(payload)
+
+    def test_runtime_run_lifecycle_replay_contract_valid(self) -> None:
+        payload = {
+            "schema_version": "runtime.run.lifecycle_replay.v1",
+            "run_id": "run-1",
+            "items": [
+                {
+                    "bus_seq": 1,
+                    "event": {
+                        "event_id": "evt-1",
+                        "event_type": "runtime.run.status",
+                        "tenant_id": "t1",
+                        "app_id": "covernow",
+                        "session_key": "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
+                        "trace_id": "trace-1",
+                        "correlation_id": "run-1",
+                        "ts": "2026-03-12T00:00:00Z",
+                        "payload": {"run_id": "run-1", "status": "queued"},
+                    },
+                }
+            ],
+            "next_cursor": 1,
+            "has_more": False,
+            "recommended_poll_after_ms": 1500,
+            "stats": {"connections": 0, "buffered_events": 1, "next_seq": 2},
+            "source": "durable",
+            "lifecycle_projection": {
+                "schema_version": "runtime.run.lifecycle_projection.v1",
+                "run_id": "run-1",
+                "event_count": 1,
+                "latest_status": "queued",
+                "latest_failure_reason_code": None,
+                "is_terminal": False,
+                "run_status_counts": {"queued": 1},
+                "failure_reason_counts": {},
+                "first_event_ts": "2026-03-12T00:00:00Z",
+                "last_event_ts": "2026-03-12T00:00:00Z",
+            },
+            "dlq_projection": {
+                "schema_version": "runtime.events.dlq_projection.v1",
+                "dlq_events": 0,
+                "run_status_counts": {"queued": 1},
+                "failure_reason_counts": {},
+            },
+            "consumer_cursor": {
+                "consumer_id": "consumer-a",
+                "ack_cursor": 1,
+                "resume_cursor": 1,
+                "resume_strategy": "query_cursor",
+            },
+        }
+        validate_runtime_run_lifecycle_replay_contract(payload)
+
+    def test_runtime_run_lifecycle_replay_contract_rejects_missing_projection(self) -> None:
+        payload = {
+            "schema_version": "runtime.run.lifecycle_replay.v1",
+            "run_id": "run-1",
+            "items": [],
+            "next_cursor": 0,
+            "has_more": False,
+            "stats": {"connections": 0, "buffered_events": 0, "next_seq": 1},
+            "source": "memory",
+            "dlq_projection": {
+                "schema_version": "runtime.events.dlq_projection.v1",
+                "dlq_events": 0,
+                "run_status_counts": {},
+                "failure_reason_counts": {},
+            },
+        }
+        with self.assertRaises(ContractValidationError):
+            validate_runtime_run_lifecycle_replay_contract(payload)
 
     def test_runtime_worker_health_contract_valid(self) -> None:
         payload = {
