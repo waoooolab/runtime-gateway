@@ -448,6 +448,10 @@
                     "control",
                     "compute"
                   ]
+                },
+                "runtime_id": {
+                  "type": "string",
+                  "minLength": 1
                 }
               },
               "additionalProperties": false
