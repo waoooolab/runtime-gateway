@@ -119,6 +119,13 @@ def test_worker_health_happy_path(
         "health_state": "healthy",
         "lifecycle_state": "running",
         "is_running": True,
+        "pool_last_control_counts": {"queue": 0, "defer": 0, "reject": 0},
+        "pool_last_control_outcome": "dispatch",
+        "pool_last_control_signal": {
+            "queue_pending": False,
+            "defer_pending": False,
+            "reject_pending": False,
+        },
         "last_transition": "start",
         "last_transition_at": "2026-03-12T03:00:00+00:00",
         "start_total": 1,
@@ -177,7 +184,22 @@ def test_worker_drain_happy_path(
         "queue_depth_after": 1,
         "remaining": 1,
         "should_continue": True,
-        "anomaly_counts": {"missing_run": 0, "skipped": 0, "total": 0},
+        "anomaly_counts": {
+            "missing_run": 0,
+            "skipped": 0,
+            "dispatch_retry_deferred": 0,
+            "dispatch_retry_failed": 0,
+            "total": 0,
+        },
+        "retry_deferred_total": 0,
+        "retry_rejected_total": 0,
+        "control_counts": {"queue": 0, "defer": 0, "reject": 0},
+        "control_outcome": "dispatch",
+        "control_signal": {
+            "queue_pending": False,
+            "defer_pending": False,
+            "reject_pending": False,
+        },
         "recommended_poll_after_ms": 250,
         "outcome_counts": {"progressed": 2, "missing_run": 0, "skipped": 0},
         "anomaly_ratio": 0.0,
@@ -191,6 +213,15 @@ def test_worker_drain_happy_path(
             "remaining": 1,
             "should_continue": True,
             "stalled_signal": False,
+            "retry_deferred_total": 0,
+            "retry_rejected_total": 0,
+            "control_counts": {"queue": 0, "defer": 0, "reject": 0},
+            "control_outcome": "dispatch",
+            "control_signal": {
+                "queue_pending": False,
+                "defer_pending": False,
+                "reject_pending": False,
+            },
             "anomaly_ratio": 0.0,
             "recommended_poll_after_ms": 250,
         },
@@ -319,6 +350,13 @@ def test_worker_lifecycle_happy_path(
         "is_running": True,
         "lifecycle_health": "healthy",
         "queue_depth": 0,
+        "pool_last_control_counts": {"queue": 0, "defer": 0, "reject": 0},
+        "pool_last_control_outcome": "dispatch",
+        "pool_last_control_signal": {
+            "queue_pending": False,
+            "defer_pending": False,
+            "reject_pending": False,
+        },
         "last_transition": "restart",
         "last_transition_at": "2026-03-12T03:02:00+00:00",
         "last_heartbeat_at": "2026-03-12T03:02:00+00:00",
@@ -380,7 +418,13 @@ def test_worker_drain_downstream_4xx_error(
             "anomaly_ratio": 1.0,
             "progressed_ratio": 0.0,
             "outcome_counts": {"progressed": 0, "missing_run": 2, "skipped": 1},
-            "anomaly_counts": {"missing_run": 2, "skipped": 1, "total": 3},
+            "anomaly_counts": {
+                "missing_run": 2,
+                "skipped": 1,
+                "dispatch_retry_deferred": 0,
+                "dispatch_retry_failed": 0,
+                "total": 3,
+            },
             "lease_renew_signal": {
                 "attempted": 1,
                 "renewed": 0,
@@ -417,7 +461,13 @@ def test_worker_drain_downstream_4xx_error(
     assert detail["anomaly_ratio"] == 1.0
     assert detail["progressed_ratio"] == 0.0
     assert detail["outcome_counts"] == {"progressed": 0, "missing_run": 2, "skipped": 1}
-    assert detail["anomaly_counts"] == {"missing_run": 2, "skipped": 1, "total": 3}
+    assert detail["anomaly_counts"] == {
+        "missing_run": 2,
+        "skipped": 1,
+        "dispatch_retry_deferred": 0,
+        "dispatch_retry_failed": 0,
+        "total": 3,
+    }
     assert detail["lease_renew_signal"] == {
         "attempted": 1,
         "renewed": 0,
@@ -444,7 +494,13 @@ def test_worker_drain_downstream_4xx_error(
     assert audit["metadata"]["anomaly_ratio"] == 1.0
     assert audit["metadata"]["progressed_ratio"] == 0.0
     assert audit["metadata"]["outcome_counts"] == {"progressed": 0, "missing_run": 2, "skipped": 1}
-    assert audit["metadata"]["anomaly_counts"] == {"missing_run": 2, "skipped": 1, "total": 3}
+    assert audit["metadata"]["anomaly_counts"] == {
+        "missing_run": 2,
+        "skipped": 1,
+        "dispatch_retry_deferred": 0,
+        "dispatch_retry_failed": 0,
+        "total": 3,
+    }
     assert audit["metadata"]["lease_renew_signal"] == {
         "attempted": 1,
         "renewed": 0,
