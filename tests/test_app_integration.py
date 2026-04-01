@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from runtime_gateway.audit.emitter import clear_audit_events, get_audit_events
 from runtime_gateway.auth.tokens import issue_token
-from runtime_gateway.integration import RuntimeExecutionClientError
+from runtime_gateway.integration import RuntimeExecutionClientError, RuntimeExecutionClientPool
 
 os.environ["WAOOOOLAB_PLATFORM_CONTRACTS_DIR"] = str(
     Path(__file__).resolve().parent / "fixtures" / "contracts"
@@ -1042,6 +1042,77 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertIn("must match execution_profile.execution_mode", response.json()["detail"])
         self.assertIsNone(self.fake_execution_client.last_submit)
+
+    def test_runs_accepts_runtime_id_hint_and_routes_pool_submit(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        calls: list[tuple[str, dict]] = []
+
+        class _PoolFakeClient:
+            def __init__(self, runtime_id: str, base_url: str):
+                self.runtime_id = runtime_id
+                self.base_url = base_url
+
+            def submit_command(self, *, envelope: dict, auth_token: str) -> dict:
+                _ = auth_token
+                calls.append((self.runtime_id, envelope))
+                return {
+                    "event_id": "evt-run-runtime-hint-1",
+                    "event_type": "runtime.run.requested",
+                    "tenant_id": str(envelope["tenant_id"]),
+                    "app_id": str(envelope["app_id"]),
+                    "session_key": str(envelope["session_key"]),
+                    "trace_id": str(envelope["trace_id"]),
+                    "correlation_id": str(envelope["command_id"]),
+                    "ts": "2026-04-01T00:00:00+00:00",
+                    "payload": {
+                        "run_id": f"run-{self.runtime_id}",
+                        "status": "queued",
+                        "retry_attempts": 0,
+                    },
+                }
+
+        gateway_app_module._execution_client = RuntimeExecutionClientPool(
+            route_table={
+                "default_runtime_id": "rt-a",
+                "runtimes": [
+                    {"runtime_id": "rt-a", "base_url": "http://rt-a.local"},
+                    {"runtime_id": "rt-b", "base_url": "http://rt-b.local"},
+                ],
+            },
+            client_factory=lambda runtime_id, base_url: _PoolFakeClient(runtime_id, base_url),
+        )
+        payload = dict(self.payload)
+        payload["payload"] = {
+            "goal": "build feature",
+            "execution_context": {
+                "task_plane": "runtime_workload",
+                "runtime": {
+                    "execution_mode": "control",
+                    "runtime_id": "rt-b",
+                },
+            },
+        }
+        response = self.client.post(
+            "/v1/runs",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["run_id"], "run-rt-b")
+        self.assertEqual(response.json()["status"], "queued")
+
+        self.assertEqual(len(calls), 1)
+        selected_runtime_id, forwarded_envelope = calls[0]
+        self.assertEqual(selected_runtime_id, "rt-b")
+        self.assertEqual(
+            forwarded_envelope["payload"]["execution_context"]["runtime"]["runtime_id"],
+            "rt-b",
+        )
+
+        audit_latest = get_audit_events(limit=1)[0]
+        self.assertEqual(audit_latest["action"], "runs.dispatch")
+        self.assertEqual(audit_latest["decision"], "allow")
+        self.assertEqual(audit_latest["metadata"]["route_target"], "rt-b")
 
     def test_runs_rejects_unsupported_executor_engine_profile(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["runs:write"])

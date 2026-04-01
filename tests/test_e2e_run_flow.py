@@ -1035,7 +1035,16 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertEqual(int(detail["remaining"]), 0)
         self.assertIs(detail["should_continue"], False)
         self.assertEqual(detail["outcome_counts"], {"progressed": 0, "missing_run": 0, "skipped": 0})
-        self.assertEqual(detail["anomaly_counts"], {"missing_run": 0, "skipped": 0, "total": 0})
+        self.assertEqual(
+            detail["anomaly_counts"],
+            {
+                "missing_run": 0,
+                "skipped": 0,
+                "dispatch_retry_deferred": 0,
+                "dispatch_retry_failed": 0,
+                "total": 0,
+            },
+        )
         self.assertAlmostEqual(float(detail["anomaly_ratio"]), 0.0, places=6)
         self.assertAlmostEqual(float(detail["progressed_ratio"]), 0.0, places=6)
         self.assertIs(detail["stalled_signal"], False)
@@ -2999,7 +3008,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         assert isinstance(detail, dict)
         second_run_id = str(detail.get("run_id"))
         self.assertEqual(detail.get("placement_reason_code"), "capacity_exhausted")
-        self.assertEqual(detail.get("run_status"), "failed")
+        self.assertEqual(detail.get("run_status"), "dlq")
         self.assertEqual(detail.get("retryable"), False)
         self.assertEqual(
             detail.get("retry_policy"),
@@ -3013,7 +3022,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         )
         self.assertEqual(second_status.status_code, 200)
         status_payload = second_status.json()["payload"]
-        self.assertEqual(status_payload["status"], "failed")
+        self.assertEqual(status_payload["status"], "dlq")
         self.assertEqual(
             status_payload["orchestration"]["failure_reason_code"],
             "capacity_exhausted",
@@ -4537,7 +4546,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
             headers={"Authorization": f"Bearer {token}"},
         )
         self.assertEqual(final_complete.status_code, 200)
-        self.assertEqual(final_complete.json()["payload"]["status"], "failed")
+        self.assertEqual(final_complete.json()["payload"]["status"], "dlq")
         self.assertEqual(
             final_complete.json()["payload"]["orchestration"]["failure_reason_code"],
             "tool_contract_violation",
@@ -4549,7 +4558,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         )
         self.assertEqual(status_failed.status_code, 200)
         self.assertEqual(status_failed.json()["payload"]["run_id"], run_id)
-        self.assertEqual(status_failed.json()["payload"]["status"], "failed")
+        self.assertEqual(status_failed.json()["payload"]["status"], "dlq")
         self.assertEqual(status_failed.json()["recommended_poll_after_ms"], 10000)
         self.assertEqual(
             status_failed.json()["payload"]["orchestration"]["failure_reason_code"],

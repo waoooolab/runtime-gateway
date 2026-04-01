@@ -284,6 +284,16 @@ class ContractValidationTests(unittest.TestCase):
         }
         validate_execution_context_contract(payload)
 
+    def test_execution_context_contract_valid_runtime_workload_with_runtime_id_hint(self) -> None:
+        payload = {
+            "task_plane": "runtime_workload",
+            "runtime": {
+                "execution_mode": "control",
+                "runtime_id": "rt-b",
+            },
+        }
+        validate_execution_context_contract(payload)
+
     def test_execution_context_contract_rejects_runtime_workload_with_executor(self) -> None:
         payload = {
             "task_plane": "runtime_workload",
