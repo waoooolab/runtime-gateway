@@ -1780,6 +1780,65 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(projection["is_terminal"], True)
         self.assertEqual(projection["event_count"], 2)
 
+    def test_run_lifecycle_replay_durable_consumer_resume_cursor(self) -> None:
+        read_token = self._token(audience="runtime-gateway", scope=["events:read"])
+        write_token = self._token(audience="runtime-gateway", scope=["events:write", "events:read"])
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = os.path.join(tmp, "runtime-events.sqlite")
+            with patch.dict(os.environ, {"RUNTIME_GATEWAY_EVENT_DB_PATH": db_path}, clear=False):
+                for idx, status in enumerate(["queued", "running", "succeeded"], start=1):
+                    envelope = self._event_publish_envelope(
+                        event_id=f"evt-lifecycle-ack-{idx}",
+                        event_type="runtime.run.status",
+                        correlation_id=f"corr-lifecycle-ack-{idx}",
+                        payload={"run_id": "run-lifecycle-ack", "status": status},
+                    )
+                    publish = self.client.post(
+                        "/v1/events/publish",
+                        json=envelope,
+                        headers={"Authorization": f"Bearer {write_token}"},
+                    )
+                    self.assertEqual(publish.status_code, 200)
+
+                ack = self.client.post(
+                    "/v1/events/ack",
+                    json={
+                        "source": "durable",
+                        "consumer_id": "consumer-lifecycle-r1",
+                        "cursor": 1,
+                        "run_id": "run-lifecycle-ack",
+                    },
+                    headers={"Authorization": f"Bearer {read_token}"},
+                )
+                self.assertEqual(ack.status_code, 200)
+                self.assertEqual(ack.json()["ack_cursor"], 1)
+
+                replay = self.client.get(
+                    "/v1/runs/run-lifecycle-ack/lifecycle/replay?source=durable&consumer_id=consumer-lifecycle-r1&limit=10",
+                    headers={"Authorization": f"Bearer {read_token}"},
+                )
+                self.assertEqual(replay.status_code, 200)
+                payload = replay.json()
+                items = payload["items"]
+                self.assertEqual(len(items), 2)
+                self.assertEqual([item["event"]["payload"]["status"] for item in items], ["running", "succeeded"])
+                consumer_cursor = payload.get("consumer_cursor") or {}
+                self.assertEqual(consumer_cursor.get("resume_strategy"), "consumer_ack_cursor")
+                self.assertEqual(consumer_cursor.get("ack_cursor"), 1)
+                self.assertEqual(consumer_cursor.get("resume_cursor"), 1)
+                projection = payload["lifecycle_projection"]
+                self.assertEqual(projection["latest_status"], "succeeded")
+                self.assertEqual(projection["is_terminal"], True)
+
+    def test_run_lifecycle_replay_rejects_consumer_id_on_memory_source(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["events:read"])
+        response = self.client.get(
+            "/v1/runs/run-consumer-mem/lifecycle/replay?consumer_id=consumer-r1&source=memory",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("consumer_id requires source=durable", str(response.json().get("detail", "")))
+
     def test_events_publish_accepts_direct_completion_alias_and_normalizes(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["events:write", "events:read"])
         envelope = self._event_publish_envelope(

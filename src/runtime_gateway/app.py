@@ -1408,6 +1408,7 @@ def replay_run_lifecycle(
     run_id: str,
     limit: int = Query(default=100, ge=1, le=500),
     source: str = Query(default="memory"),
+    consumer_id: str | None = Query(default=None),
     tenant_id: str | None = None,
     app_id: str | None = None,
     session_key: str | None = None,
@@ -1454,6 +1455,26 @@ def replay_run_lifecycle(
     )
     if run_filter is None:
         raise HTTPException(status_code=422, detail="run_id path parameter must not be empty")
+    normalized_consumer_id = (consumer_id or "").strip() or None
+    read_cursor = cursor
+    resume_strategy = "query_cursor" if cursor is not None else "recent_window"
+    ack_cursor: int | None = None
+    if normalized_consumer_id is not None:
+        if source_value != "durable":
+            raise HTTPException(status_code=422, detail="consumer_id requires source=durable")
+        ack_cursor = read_event_consumer_ack_cursor(
+            consumer_id=normalized_consumer_id,
+            source=source_value,
+            tenant_id=effective_tenant,
+            app_id=effective_app,
+            session_key=effective_session_key,
+            scope_id=effective_scope_id,
+            scope_type=effective_scope_type,
+            run_id=run_filter,
+        )
+        if cursor is None:
+            read_cursor = int(ack_cursor or 0)
+            resume_strategy = "consumer_ack_cursor" if ack_cursor is not None else "consumer_ack_default"
     items, has_more, next_cursor, stats = _read_event_chunk(
         source=source_value,
         limit=limit,
@@ -1466,7 +1487,7 @@ def replay_run_lifecycle(
         run_statuses=parsed_run_statuses,
         reason_codes=parsed_reason_codes,
         run_id=run_filter,
-        cursor=cursor,
+        cursor=read_cursor,
         since_ts=parsed_since_ts,
         until_ts=parsed_until_ts,
     )
@@ -1489,6 +1510,13 @@ def replay_run_lifecycle(
         ),
         "dlq_projection": _build_dlq_projection(ordered_items),
     }
+    if normalized_consumer_id is not None:
+        response_payload["consumer_cursor"] = {
+            "consumer_id": normalized_consumer_id,
+            "ack_cursor": int(ack_cursor or 0),
+            "resume_cursor": int(read_cursor or 0),
+            "resume_strategy": resume_strategy,
+        }
     try:
         validate_runtime_events_page_contract(response_payload)
     except ContractValidationError as exc:
