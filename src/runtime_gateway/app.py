@@ -97,6 +97,7 @@ _direct_idempotency_index: dict[str, dict[str, Any]] = {}
 _direct_idempotency_order: deque[str] = deque()
 _direct_idempotency_lock = threading.Lock()
 _PROBE_APP_ID_DEFAULT = "owa-runtime"
+_TERMINAL_RUN_STATUSES = {"succeeded", "failed", "dlq", "canceled", "timed_out"}
 _PROBE_APP_ID_LEGACY_ALIASES = {
     "waoooolab-runtime": _PROBE_APP_ID_DEFAULT,
 }
@@ -512,6 +513,59 @@ def _build_dlq_projection(items: list[dict[str, Any]]) -> dict[str, Any]:
         "dlq_events": dlq_events,
         "run_status_counts": dict(sorted(run_status_counts.items())),
         "failure_reason_counts": dict(sorted(failure_reason_counts.items())),
+    }
+
+
+def _sorted_event_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _bus_seq(item: dict[str, Any]) -> int:
+        raw = item.get("bus_seq")
+        if isinstance(raw, int):
+            return raw
+        return 0
+
+    return sorted(items, key=_bus_seq)
+
+
+def _build_run_lifecycle_projection(*, run_id: str, items: list[dict[str, Any]]) -> dict[str, Any]:
+    run_status_counts: dict[str, int] = {}
+    failure_reason_counts: dict[str, int] = {}
+    latest_status: str | None = None
+    latest_failure_reason_code: str | None = None
+    first_event_ts: str | None = None
+    last_event_ts: str | None = None
+
+    for item in items:
+        event = item.get("event")
+        if not isinstance(event, dict):
+            continue
+        event_ts = event.get("ts")
+        if isinstance(event_ts, str) and event_ts.strip():
+            if first_event_ts is None:
+                first_event_ts = event_ts
+            last_event_ts = event_ts
+
+        run_status = _extract_event_run_status(event)
+        if run_status is not None:
+            run_status_counts[run_status] = run_status_counts.get(run_status, 0) + 1
+            latest_status = run_status
+
+        failure_reason_code = _extract_event_failure_reason_code(event)
+        if failure_reason_code is not None:
+            failure_reason_counts[failure_reason_code] = failure_reason_counts.get(failure_reason_code, 0) + 1
+            latest_failure_reason_code = failure_reason_code
+
+    is_terminal = latest_status in _TERMINAL_RUN_STATUSES if latest_status is not None else False
+    return {
+        "schema_version": "runtime.run.lifecycle_projection.v1",
+        "run_id": run_id,
+        "event_count": len(items),
+        "latest_status": latest_status,
+        "latest_failure_reason_code": latest_failure_reason_code,
+        "is_terminal": is_terminal,
+        "run_status_counts": dict(sorted(run_status_counts.items())),
+        "failure_reason_counts": dict(sorted(failure_reason_counts.items())),
+        "first_event_ts": first_event_ts,
+        "last_event_ts": last_event_ts,
     }
 
 
@@ -1346,6 +1400,99 @@ def list_recent_events(
         validate_runtime_events_page_contract(response_payload)
     except ContractValidationError as exc:
         raise HTTPException(status_code=500, detail=f"invalid recent events response: {exc}") from exc
+    return response_payload
+
+
+@app.get("/v1/runs/{run_id}/lifecycle/replay")
+def replay_run_lifecycle(
+    run_id: str,
+    limit: int = Query(default=100, ge=1, le=500),
+    source: str = Query(default="memory"),
+    tenant_id: str | None = None,
+    app_id: str | None = None,
+    session_key: str | None = None,
+    scope_id: str | None = None,
+    scope_type: str | None = None,
+    event_types: str | None = None,
+    run_statuses: str | None = None,
+    reason_codes: str | None = None,
+    cursor: int | None = Query(default=None, ge=0),
+    since_ts: str | None = Query(default=None),
+    until_ts: str | None = Query(default=None),
+    auth_context: AuthContext = Depends(require_events_read_context),
+) -> dict[str, Any]:
+    normalized_run_id = run_id.strip()
+    if not normalized_run_id:
+        raise HTTPException(status_code=422, detail="run_id path parameter must not be empty")
+    (
+        effective_tenant,
+        effective_app,
+        effective_session_key,
+        effective_scope_id,
+        effective_scope_type,
+        parsed_types,
+        parsed_run_statuses,
+        parsed_reason_codes,
+        run_filter,
+        source_value,
+        parsed_since_ts,
+        parsed_until_ts,
+    ) = _resolve_event_read_filters(
+        auth_context=auth_context,
+        source=source,
+        tenant_id=tenant_id,
+        app_id=app_id,
+        session_key=session_key,
+        scope_id=scope_id,
+        scope_type=scope_type,
+        event_types=event_types,
+        run_statuses=run_statuses,
+        reason_codes=reason_codes,
+        run_id=normalized_run_id,
+        since_ts=since_ts,
+        until_ts=until_ts,
+    )
+    if run_filter is None:
+        raise HTTPException(status_code=422, detail="run_id path parameter must not be empty")
+    items, has_more, next_cursor, stats = _read_event_chunk(
+        source=source_value,
+        limit=limit,
+        tenant_id=effective_tenant,
+        app_id=effective_app,
+        session_key=effective_session_key,
+        scope_id=effective_scope_id,
+        scope_type=effective_scope_type,
+        event_types=parsed_types,
+        run_statuses=parsed_run_statuses,
+        reason_codes=parsed_reason_codes,
+        run_id=run_filter,
+        cursor=cursor,
+        since_ts=parsed_since_ts,
+        until_ts=parsed_until_ts,
+    )
+    ordered_items = _sorted_event_items(items)
+    response_payload: dict[str, Any] = {
+        "schema_version": "runtime.run.lifecycle_replay.v1",
+        "run_id": run_filter,
+        "items": ordered_items,
+        "next_cursor": next_cursor,
+        "has_more": has_more,
+        "recommended_poll_after_ms": _recommended_poll_after_ms_for_recent_events(
+            has_more=has_more,
+            item_count=len(ordered_items),
+        ),
+        "stats": stats,
+        "source": source_value,
+        "lifecycle_projection": _build_run_lifecycle_projection(
+            run_id=run_filter,
+            items=ordered_items,
+        ),
+        "dlq_projection": _build_dlq_projection(ordered_items),
+    }
+    try:
+        validate_runtime_events_page_contract(response_payload)
+    except ContractValidationError as exc:
+        raise HTTPException(status_code=500, detail=f"invalid lifecycle replay response: {exc}") from exc
     return response_payload
 
 

@@ -1680,6 +1680,106 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(event["agent_contract_version"], "assistant-decision.v1")
         self.assertEqual(event["event_schema_version"], "event-envelope.v1")
 
+    def test_run_lifecycle_replay_filters_single_run(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["events:write", "events:read"])
+        publish_payloads = [
+            self._event_publish_envelope(
+                event_id="evt-run-a-queued",
+                event_type="runtime.run.status",
+                correlation_id="corr-run-a",
+                payload={"run_id": "run-a", "status": "queued"},
+            ),
+            self._event_publish_envelope(
+                event_id="evt-run-b-queued",
+                event_type="runtime.run.status",
+                correlation_id="corr-run-b",
+                payload={"run_id": "run-b", "status": "queued"},
+            ),
+            self._event_publish_envelope(
+                event_id="evt-run-a-running",
+                event_type="runtime.run.status",
+                correlation_id="corr-run-a",
+                payload={"run_id": "run-a", "status": "running"},
+            ),
+        ]
+        for envelope in publish_payloads:
+            publish = self.client.post(
+                "/v1/events/publish",
+                json=envelope,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            self.assertEqual(publish.status_code, 200)
+
+        replay = self.client.get(
+            "/v1/runs/run-a/lifecycle/replay",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(replay.status_code, 200)
+        body = replay.json()
+        self.assertEqual(body["schema_version"], "runtime.run.lifecycle_replay.v1")
+        self.assertEqual(body["run_id"], "run-a")
+        items = body["items"]
+        self.assertEqual(len(items), 2)
+        self.assertTrue(all(item["event"]["payload"]["run_id"] == "run-a" for item in items))
+        projection = body["lifecycle_projection"]
+        self.assertEqual(projection["latest_status"], "running")
+        self.assertEqual(projection["is_terminal"], False)
+        self.assertEqual(projection["run_status_counts"]["queued"], 1)
+        self.assertEqual(projection["run_status_counts"]["running"], 1)
+
+    def test_run_lifecycle_replay_supports_cursor_and_terminal_projection(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["events:write", "events:read"])
+        publish_payloads = [
+            self._event_publish_envelope(
+                event_id="evt-run-c-queued",
+                event_type="runtime.run.status",
+                correlation_id="corr-run-c",
+                payload={"run_id": "run-c", "status": "queued"},
+            ),
+            self._event_publish_envelope(
+                event_id="evt-run-c-running",
+                event_type="runtime.run.status",
+                correlation_id="corr-run-c",
+                payload={"run_id": "run-c", "status": "running"},
+            ),
+            self._event_publish_envelope(
+                event_id="evt-run-c-succeeded",
+                event_type="runtime.run.status",
+                correlation_id="corr-run-c",
+                payload={"run_id": "run-c", "status": "succeeded"},
+            ),
+        ]
+        for envelope in publish_payloads:
+            publish = self.client.post(
+                "/v1/events/publish",
+                json=envelope,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            self.assertEqual(publish.status_code, 200)
+
+        initial = self.client.get(
+            "/v1/runs/run-c/lifecycle/replay?limit=10",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(initial.status_code, 200)
+        initial_body = initial.json()
+        self.assertEqual(len(initial_body["items"]), 3)
+        resume_cursor = int(initial_body["items"][0]["bus_seq"])
+
+        replay = self.client.get(
+            f"/v1/runs/run-c/lifecycle/replay?cursor={resume_cursor}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(replay.status_code, 200)
+        body = replay.json()
+        items = body["items"]
+        self.assertEqual(len(items), 2)
+        self.assertEqual([item["event"]["payload"]["status"] for item in items], ["running", "succeeded"])
+        projection = body["lifecycle_projection"]
+        self.assertEqual(projection["latest_status"], "succeeded")
+        self.assertEqual(projection["is_terminal"], True)
+        self.assertEqual(projection["event_count"], 2)
+
     def test_events_publish_accepts_direct_completion_alias_and_normalizes(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["events:write", "events:read"])
         envelope = self._event_publish_envelope(
