@@ -26,10 +26,13 @@ from .contracts import (
     validate_runtime_events_page_contract,
     validate_runtime_run_lifecycle_replay_contract,
 )
+from .event_transport_backend import (
+    normalize_event_transport_backend_name,
+    resolve_event_transport_backend,
+)
 from .events.bus import InMemoryEventBus
 from .events.durable import (
     acknowledge_event_consumer_cursor,
-    append_event_record,
     read_event_consumer_ack_cursor,
     read_event_page,
 )
@@ -63,6 +66,22 @@ from .ws_events import handle_websocket_events
 app = FastAPI(title="runtime-gateway", version="0.1.0")
 _execution_client: RuntimeExecutionClient | RuntimeExecutionClientPool = RuntimeExecutionClientPool()
 _event_bus = InMemoryEventBus()
+_EVENT_TRANSPORT_BACKEND_ENV = "RUNTIME_GATEWAY_EVENT_TRANSPORT_BACKEND"
+_EVENT_TRANSPORT_BACKEND_ENV_LEGACY = "WAOOOOLAB_RUNTIME_GATEWAY_EVENT_TRANSPORT_BACKEND"
+
+
+def _event_transport_backend_name_from_env() -> str:
+    configured = os.environ.get(_EVENT_TRANSPORT_BACKEND_ENV)
+    if configured is None:
+        configured = os.environ.get(_EVENT_TRANSPORT_BACKEND_ENV_LEGACY)
+    return normalize_event_transport_backend_name(configured)
+
+
+_event_transport_backend = resolve_event_transport_backend(
+    backend=None,
+    backend_name=_event_transport_backend_name_from_env(),
+    event_bus=_event_bus,
+)
 _VALID_CONTROL_OUTCOMES = {"dispatch", "queue", "defer", "reject"}
 _DIRECT_COMPLETION_ALIAS_EVENT_TYPE = "direct_completion.v1"
 _DIRECT_AUDIT_ALIAS_EVENT_TYPE = "direct_audit.v1"
@@ -108,9 +127,7 @@ def _publish_gateway_event(event: dict[str, Any]) -> int | None:
     event_type = str(event.get("event_type", ""))
     if not allowed_event_type(event_type):
         return None
-    bus_seq = _event_bus.publish(event)
-    append_event_record(bus_seq=bus_seq, event=event)
-    return bus_seq
+    return _event_transport_backend.publish(event=event)
 
 
 def _sanitize_direct_audit_suffix(raw_suffix: str) -> str:
