@@ -7,7 +7,7 @@ from typing import Any, Mapping
 from fastapi import HTTPException
 
 from .audit.emitter import emit_audit_event
-from .auth.exchange import ExchangeError, exchange_subject_token
+from .identity_adapter import ExchangeError, exchange_subject_token
 from .code_terms import normalize_optional_code_term
 from .contracts import ContractValidationError, validate_runtime_run_lease_contract
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError

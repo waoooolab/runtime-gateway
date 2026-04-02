@@ -7,7 +7,7 @@ from typing import Any, Callable, Mapping
 from fastapi import HTTPException
 
 from .audit.emitter import emit_audit_event
-from .auth.exchange import ExchangeError, exchange_subject_token
+from .identity_adapter import ExchangeError, exchange_subject_token
 from .events.validation import validate_event_envelope
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
 from .upstream_error import (

@@ -8,7 +8,7 @@ from fastapi import HTTPException
 
 from .api.schemas import TokenExchangeRequest, TokenExchangeResponse
 from .audit.emitter import emit_audit_event
-from .auth.exchange import ExchangeError, exchange_subject_token
+from .identity_adapter import ExchangeError, exchange_subject_token
 from .auth.tokens import TokenError, verify_token
 from .contracts.validation import ContractValidationError, validate_token_exchange_contract
 
