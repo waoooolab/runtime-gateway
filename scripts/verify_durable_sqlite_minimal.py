@@ -66,6 +66,8 @@ def main() -> int:
                 tenant_id="t1",
                 app_id="covernow",
                 session_key=None,
+                scope_id=None,
+                scope_type=None,
                 event_types={"runtime.run.completed"},
                 run_id="run-minimal-durable-1",
                 since_ts=None,
