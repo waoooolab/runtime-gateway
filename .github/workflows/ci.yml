@@ -59,36 +59,6 @@ jobs:
           python -m unittest tests.test_e2e_run_flow
 
   governance-guards:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install governance guard deps
-        run: pip install pyyaml
-      - name: Run V3 governance guards (standard)
-        run: |
-          python scripts/governance/guards/check_governance_guard.py --guard-id guard.docs.one-active-authority-per-domain
-          python scripts/governance/guards/check_governance_guard.py --guard-id guard.docs.lifecycle-transition
-          python scripts/governance/guards/check_governance_guard.py --guard-id guard.docs.execution-to-archive-expiry
-          python scripts/governance/guards/check_governance_guard.py --guard-id guard.docs.supersede-link
-          python scripts/governance/guards/check_governance_guard.py --guard-id guard.docs.report-set-completeness
-          python scripts/governance/guards/check_governance_guard.py --guard-id guard.registry.sync
-          python scripts/governance/guards/check_governance_guard.py --guard-id guard.contract.source-trace
-          python scripts/governance/guards/check_governance_guard.py --guard-id guard.docs.report-file-naming
-          python scripts/governance/guards/check_governance_guard.py --guard-id guard.docs.log-entry-timestamp
-          python scripts/governance/guards/check_governance_guard.py --guard-id guard.docs.report-required-fields
-          python scripts/governance/guards/check_governance_guard.py --guard-id guard.docs.authority-reference-only
-          python scripts/governance/guards/check_governance_guard.py --guard-id guard.docs.semantic-duplication
-          python scripts/governance/guards/check_governance_guard.py --guard-id guard.docs.readme-boundary
-          python scripts/governance/guards/check_governance_guard.py --guard-id guard.docs.cross-layer-coupling
-          python scripts/governance/guards/check_governance_guard.py --guard-id guard.docs.authoring-scaffold
-          python scripts/governance/guards/check_governance_guard.py --guard-id guard.docs.lifecycle-header-state-lint
-          python scripts/governance/guards/check_governance_guard.py --guard-id guard.contract.hybrid-mirror-sync-freshness
-          python scripts/governance/guards/check_governance_guard.py --guard-id guard.docs.generated-artifact-drift
-          python scripts/governance/guards/check_governance_guard.py --guard-id guard.contract.authority-slot-binding
+    uses: waoooolab/openwaoooo/.github/workflows/service-governance-guards-reusable.yml@d60dfed5c2dbbb480dd77da4ec184d745eb7c254
+    with:
+      governance_profile: standard
