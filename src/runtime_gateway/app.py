@@ -895,26 +895,40 @@ def _probe_runtime_execution_ready(*, timeout_seconds: float) -> tuple[bool, dic
         return False, dependency
 
     response_payload = _decode_json_object(raw)
+
+    def _merge_upstream_projection(payload: dict[str, Any] | None) -> None:
+        if not isinstance(payload, dict):
+            return
+        upstream_status = payload.get("status")
+        if isinstance(upstream_status, str) and upstream_status.strip():
+            dependency["upstream_status"] = upstream_status
+        backends: dict[str, str] = {}
+        scheduler_backend = payload.get("scheduler_backend")
+        if isinstance(scheduler_backend, str) and scheduler_backend.strip():
+            backends["scheduler"] = scheduler_backend.strip()
+        capability_backend = payload.get("capability_backend")
+        if isinstance(capability_backend, str) and capability_backend.strip():
+            backends["capability"] = capability_backend.strip()
+        workflow_dispatch_backend = payload.get("workflow_dispatch_backend")
+        if isinstance(workflow_dispatch_backend, str) and workflow_dispatch_backend.strip():
+            backends["workflow_dispatch"] = workflow_dispatch_backend.strip()
+        if backends:
+            dependency["upstream_backends"] = backends
+
     if status != 200:
         dependency |= {
             "status": "down",
             "reason": "upstream_unhealthy",
             "http_status": status,
         }
-        if isinstance(response_payload, dict):
-            upstream_status = response_payload.get("status")
-            if isinstance(upstream_status, str) and upstream_status.strip():
-                dependency["upstream_status"] = upstream_status
+        _merge_upstream_projection(response_payload)
         return False, dependency
 
     dependency |= {
         "status": "ok",
         "http_status": status,
     }
-    if isinstance(response_payload, dict):
-        upstream_status = response_payload.get("status")
-        if isinstance(upstream_status, str) and upstream_status.strip():
-            dependency["upstream_status"] = upstream_status
+    _merge_upstream_projection(response_payload)
     return True, dependency
 
 

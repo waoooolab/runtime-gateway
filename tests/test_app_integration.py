@@ -591,7 +591,7 @@ class AppIntegrationTests(unittest.TestCase):
         ):
             mock_urlopen.return_value = _FakeHealthResponse(
                 status_code=200,
-                payload=b'{"status":"ok","service":"runtime-execution"}',
+                payload=b'{"status":"ok","service":"runtime-execution","scheduler_backend":"local","capability_backend":"local","workflow_dispatch_backend":"local"}',
             )
             response = self.client.get("/readyz")
         self.assertEqual(response.status_code, 200)
@@ -603,6 +603,15 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(dependency["name"], "runtime-execution")
         self.assertEqual(dependency["status"], "ok")
         self.assertEqual(dependency["http_status"], 200)
+        self.assertEqual(dependency["upstream_status"], "ok")
+        self.assertEqual(
+            dependency["upstream_backends"],
+            {
+                "scheduler": "local",
+                "capability": "local",
+                "workflow_dispatch": "local",
+            },
+        )
         self.assertEqual(
             dependency["target"],
             "http://runtime-execution.internal:8003/healthz",
@@ -669,7 +678,7 @@ class AppIntegrationTests(unittest.TestCase):
         ):
             mock_urlopen.return_value = _FakeHealthResponse(
                 status_code=200,
-                payload=b'{"status":"ok","service":"runtime-execution"}',
+                payload=b'{"status":"ok","service":"runtime-execution","scheduler_backend":"local","capability_backend":"local","workflow_dispatch_backend":"local"}',
             )
             response = self.client.get("/v1/runtime/usable")
         self.assertEqual(response.status_code, 200)
@@ -696,6 +705,14 @@ class AppIntegrationTests(unittest.TestCase):
         dependency = payload["dependencies"][0]
         self.assertEqual(dependency["name"], "runtime-execution")
         self.assertEqual(dependency["status"], "ok")
+        self.assertEqual(
+            dependency["upstream_backends"],
+            {
+                "scheduler": "local",
+                "capability": "local",
+                "workflow_dispatch": "local",
+            },
+        )
         event_bus = payload["event_bus"]
         self.assertIn("connections", event_bus)
         self.assertIn("buffered_events", event_bus)
