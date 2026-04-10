@@ -451,12 +451,12 @@ class _FakeExecutionClientHttpErrorDetail:
             response_body={
                 "detail": (
                     "invalid route event: 'agent-orchestrator' is not one of "
-                    "['langgraph-core', 'device-hub', 'none']"
+                    "['agent-orchestrator', 'langgraph-core', 'device-hub', 'none']"
                 )
             },
             detail=(
                 "invalid route event: 'agent-orchestrator' is not one of "
-                "['langgraph-core', 'device-hub', 'none']"
+                "['agent-orchestrator', 'langgraph-core', 'device-hub', 'none']"
             ),
         )
 
