@@ -179,6 +179,7 @@
             "route_target": {
               "type": "string",
               "enum": [
+                "agent-orchestrator",
                 "langgraph-core",
                 "device-hub"
               ]
