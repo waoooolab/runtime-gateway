@@ -12,6 +12,10 @@ from fastapi.testclient import TestClient
 from runtime_gateway.app import app
 from runtime_gateway.audit.emitter import clear_audit_events, get_audit_events
 from runtime_gateway.auth.tokens import issue_token
+from runtime_gateway.execution_ingress_contract import (
+    SCHEDULER_CANCEL_SURFACE,
+    SCHEDULER_ENQUEUE_SURFACE,
+)
 from runtime_gateway.integration import RuntimeExecutionClient, RuntimeExecutionClientError
 
 os.environ["WAOOOOLAB_PLATFORM_CONTRACTS_DIR"] = str(
@@ -398,3 +402,48 @@ def test_scheduler_enqueue_forwards_misfire_and_cron_settings(
         misfire_grace_ms=500,
         cron_interval_ms=1000,
     )
+
+
+def test_scheduler_enqueue_rejects_mutually_exclusive_due_at_and_delay(
+    mock_execution_client: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    client = TestClient(app)
+    response = client.post(
+        SCHEDULER_ENQUEUE_SURFACE,
+        json={"run_id": "run-1", "due_at": "2026-03-13T00:00:00+00:00", "delay_ms": 100},
+        headers=auth_headers,
+    )
+    assert response.status_code == 422
+    assert response.json().get("detail") == "due_at and delay_ms are mutually exclusive"
+    mock_execution_client.scheduler_enqueue.assert_not_called()
+
+
+def test_scheduler_enqueue_rejects_non_integer_delay_ms(
+    mock_execution_client: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    client = TestClient(app)
+    response = client.post(
+        SCHEDULER_ENQUEUE_SURFACE,
+        json={"run_id": "run-1", "delay_ms": True},
+        headers=auth_headers,
+    )
+    assert response.status_code == 422
+    assert response.json().get("detail") == "delay_ms must be integer >= 0"
+    mock_execution_client.scheduler_enqueue.assert_not_called()
+
+
+def test_scheduler_cancel_rejects_blank_run_id(
+    mock_execution_client: Mock,
+    auth_headers: dict[str, str],
+) -> None:
+    client = TestClient(app)
+    response = client.post(
+        SCHEDULER_CANCEL_SURFACE,
+        json={"run_id": "   "},
+        headers=auth_headers,
+    )
+    assert response.status_code == 422
+    assert response.json().get("detail") == "run_id is required"
+    mock_execution_client.scheduler_cancel.assert_not_called()

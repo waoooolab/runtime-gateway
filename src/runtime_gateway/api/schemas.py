@@ -40,6 +40,25 @@ class CreateRunRequest(BaseModel):
 class CreateRunResponse(BaseModel):
     run_id: str
     status: str
+    execution_ingress: "ExecutionIngressContractResponse"
+
+
+class SchedulerSeamContractResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enqueue_surface: str
+    tick_surface: str
+    health_surface: str
+    registry_surface: str
+    cancel_surface: str
+
+
+class ExecutionIngressContractResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    authority: str
+    run_submit_surface: str
+    scheduler: SchedulerSeamContractResponse
 
 
 class TokenExchangeRequest(BaseModel):
