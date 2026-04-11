@@ -12,6 +12,14 @@ from unittest.mock import patch
 
 from runtime_gateway.audit.emitter import clear_audit_events, get_audit_events
 from runtime_gateway.auth.tokens import issue_token
+from runtime_gateway.execution_ingress_contract import (
+    RUN_SUBMIT_SURFACE,
+    SCHEDULER_CANCEL_SURFACE,
+    SCHEDULER_ENQUEUE_SURFACE,
+    SCHEDULER_HEALTH_SURFACE,
+    SCHEDULER_REGISTRY_SURFACE,
+    SCHEDULER_TICK_SURFACE,
+)
 from runtime_gateway.integration import RuntimeExecutionClientError, RuntimeExecutionClientPool
 
 os.environ["WAOOOOLAB_PLATFORM_CONTRACTS_DIR"] = str(
@@ -838,6 +846,14 @@ class AppIntegrationTests(unittest.TestCase):
         data = response.json()
         self.assertIn("run_id", data)
         self.assertEqual(data["status"], "queued")
+        execution_ingress = data["execution_ingress"]
+        self.assertEqual(execution_ingress["authority"], "runtime-gateway")
+        self.assertEqual(execution_ingress["run_submit_surface"], RUN_SUBMIT_SURFACE)
+        self.assertEqual(execution_ingress["scheduler"]["enqueue_surface"], SCHEDULER_ENQUEUE_SURFACE)
+        self.assertEqual(execution_ingress["scheduler"]["tick_surface"], SCHEDULER_TICK_SURFACE)
+        self.assertEqual(execution_ingress["scheduler"]["health_surface"], SCHEDULER_HEALTH_SURFACE)
+        self.assertEqual(execution_ingress["scheduler"]["registry_surface"], SCHEDULER_REGISTRY_SURFACE)
+        self.assertEqual(execution_ingress["scheduler"]["cancel_surface"], SCHEDULER_CANCEL_SURFACE)
 
     def test_runs_allow_audit_includes_compute_route_metadata(self) -> None:
         gateway_app_module._execution_client = _FakeExecutionClientComputeAccepted()

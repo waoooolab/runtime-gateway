@@ -20,6 +20,7 @@ from .contracts.validation import (
     validate_orchestration_hints_contract,
     validate_template_capability_binding_contract,
 )
+from .execution_ingress_contract import execution_ingress_contract_payload
 from .executor_profiles import validate_executor_profile
 from .events.validation import validate_event_envelope
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
@@ -828,7 +829,11 @@ def _build_dispatch_response(
         trace_id=trace_id,
         metadata=audit_metadata,
     )
-    return CreateRunResponse(run_id=run_id, status=status)
+    return CreateRunResponse(
+        run_id=run_id,
+        status=status,
+        execution_ingress=execution_ingress_contract_payload(),
+    )
 
 
 def _extract_route_success_metadata(execution_event: Mapping[str, Any]) -> dict[str, Any]:

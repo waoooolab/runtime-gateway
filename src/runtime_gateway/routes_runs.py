@@ -10,6 +10,14 @@ from fastapi import Depends, FastAPI, HTTPException, Header
 from .api.schemas import CreateRunRequest, CreateRunResponse
 from .audit.emitter import emit_audit_event
 from .error_budget_policy import error_budget_level_from_saturation, parse_reason_codes_query
+from .execution_ingress_contract import (
+    RUN_SUBMIT_SURFACE,
+    SCHEDULER_CANCEL_SURFACE,
+    SCHEDULER_ENQUEUE_SURFACE,
+    SCHEDULER_HEALTH_SURFACE,
+    SCHEDULER_REGISTRY_SURFACE,
+    SCHEDULER_TICK_SURFACE,
+)
 from .integration import RuntimeExecutionClient
 from .run_approval import dispatch_approve_run, dispatch_reject_run
 from .run_control import (
@@ -133,13 +141,47 @@ def _enforce_runtime_dispatch_error_budget_gate_or_raise(
     return decision
 
 
+def _require_non_empty_string(payload: dict[str, Any], key: str) -> str:
+    raw = payload.get(key)
+    if not isinstance(raw, str) or not raw.strip():
+        raise HTTPException(status_code=422, detail=f"{key} is required")
+    return raw.strip()
+
+
+def _optional_non_empty_string(payload: dict[str, Any], key: str) -> str | None:
+    raw = payload.get(key)
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or not raw.strip():
+        raise HTTPException(status_code=422, detail=f"{key} must be non-empty string when provided")
+    return raw.strip()
+
+
+def _optional_non_negative_int(payload: dict[str, Any], key: str) -> int | None:
+    raw = payload.get(key)
+    if raw is None:
+        return None
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+        raise HTTPException(status_code=422, detail=f"{key} must be integer >= 0")
+    return raw
+
+
+def _optional_positive_int_at_least(payload: dict[str, Any], key: str, minimum: int) -> int | None:
+    value = _optional_non_negative_int(payload, key)
+    if value is None:
+        return None
+    if value < minimum:
+        raise HTTPException(status_code=422, detail=f"{key} must be integer >= {minimum}")
+    return value
+
+
 def _register_run_create_route(
     *,
     app: FastAPI,
     get_execution_client: Callable[[], RuntimeExecutionClient],
     publish_gateway_event: Callable[[dict[str, Any]], int | None],
 ) -> None:
-    @app.post("/v1/runs", response_model=CreateRunResponse)
+    @app.post(RUN_SUBMIT_SURFACE, response_model=CreateRunResponse)
     def create_run(
         req: CreateRunRequest,
         auth_context: AuthContext = Depends(require_runs_write_context),
@@ -150,7 +192,7 @@ def _register_run_create_route(
         _enforce_runtime_dispatch_error_budget_gate_or_raise(
             claims=auth_context.claims,
             gate_action="runs.create.error_budget_gate",
-            resource="/v1/runs",
+            resource=RUN_SUBMIT_SURFACE,
             level_header=error_budget_level,
             action_header=error_budget_action,
             reason_codes_header=error_budget_reason_codes,
@@ -480,7 +522,7 @@ def _register_scheduler_routes(
     app: FastAPI,
     get_execution_client: Callable[[], RuntimeExecutionClient],
 ) -> None:
-    @app.post("/v1/orchestration/scheduler:enqueue")
+    @app.post(SCHEDULER_ENQUEUE_SURFACE)
     def scheduler_enqueue(
         body: dict[str, Any] | None = None,
         auth_context: AuthContext = Depends(require_runs_write_context),
@@ -489,48 +531,42 @@ def _register_scheduler_routes(
         error_budget_reason_codes: str | None = Header(default=None, alias="X-OWA-Error-Budget-Reason-Codes"),
     ) -> dict[str, Any]:
         payload = body or {}
-        run_id = str(payload.get("run_id", "")).strip()
-        if not run_id:
-            raise HTTPException(status_code=422, detail="run_id is required")
-        due_at_value = payload.get("due_at")
-        due_at = str(due_at_value).strip() if isinstance(due_at_value, str) else None
-        delay_ms = payload.get("delay_ms")
-        reason_value = payload.get("reason")
-        reason = str(reason_value).strip() if isinstance(reason_value, str) else None
-        misfire_policy_value = payload.get("misfire_policy")
-        misfire_policy = (
-            str(misfire_policy_value).strip()
-            if isinstance(misfire_policy_value, str)
-            else None
-        )
+        run_id = _require_non_empty_string(payload, "run_id")
+        due_at = _optional_non_empty_string(payload, "due_at")
+        delay_ms = _optional_non_negative_int(payload, "delay_ms")
+        if due_at is not None and delay_ms is not None:
+            raise HTTPException(status_code=422, detail="due_at and delay_ms are mutually exclusive")
+        reason = _optional_non_empty_string(payload, "reason")
+        misfire_policy = _optional_non_empty_string(payload, "misfire_policy")
+        if misfire_policy is not None:
+            normalized_policy = misfire_policy.lower()
+            if normalized_policy not in {"run", "skip"}:
+                raise HTTPException(status_code=422, detail="misfire_policy must be 'run' or 'skip'")
+            misfire_policy = normalized_policy
         _enforce_runtime_dispatch_error_budget_gate_or_raise(
             claims=auth_context.claims,
             gate_action="scheduler.enqueue.error_budget_gate",
-            resource="/v1/orchestration/scheduler:enqueue",
+            resource=SCHEDULER_ENQUEUE_SURFACE,
             level_header=error_budget_level,
             action_header=error_budget_action,
             reason_codes_header=error_budget_reason_codes,
         )
-        misfire_grace_ms = payload.get("misfire_grace_ms")
-        cron_interval_ms = payload.get("cron_interval_ms")
+        misfire_grace_ms = _optional_non_negative_int(payload, "misfire_grace_ms")
+        cron_interval_ms = _optional_positive_int_at_least(payload, "cron_interval_ms", 100)
         return dispatch_scheduler_enqueue(
             claims=auth_context.claims,
             subject_token=auth_context.subject_token,
             execution_client=get_execution_client(),
             run_id=run_id,
             due_at=due_at or None,
-            delay_ms=delay_ms if isinstance(delay_ms, int) else delay_ms,
+            delay_ms=delay_ms,
             reason=reason or None,
             misfire_policy=misfire_policy or None,
-            misfire_grace_ms=misfire_grace_ms
-            if isinstance(misfire_grace_ms, int)
-            else misfire_grace_ms,
-            cron_interval_ms=cron_interval_ms
-            if isinstance(cron_interval_ms, int)
-            else cron_interval_ms,
+            misfire_grace_ms=misfire_grace_ms,
+            cron_interval_ms=cron_interval_ms,
         )
 
-    @app.post("/v1/orchestration/scheduler:tick")
+    @app.post(SCHEDULER_TICK_SURFACE)
     def scheduler_tick(
         max_items: int = 32,
         fair: bool = True,
@@ -544,7 +580,7 @@ def _register_scheduler_routes(
             fair=fair,
         )
 
-    @app.get("/v1/orchestration/scheduler:health")
+    @app.get(SCHEDULER_HEALTH_SURFACE)
     def scheduler_health(
         auth_context: AuthContext = Depends(require_runs_read_context),
     ) -> dict[str, Any]:
@@ -554,7 +590,7 @@ def _register_scheduler_routes(
             execution_client=get_execution_client(),
         )
 
-    @app.get("/v1/orchestration/scheduler:registry")
+    @app.get(SCHEDULER_REGISTRY_SURFACE)
     def scheduler_registry(
         limit: int = 100,
         cursor: int = 0,
@@ -570,17 +606,14 @@ def _register_scheduler_routes(
             run_id=run_id,
         )
 
-    @app.post("/v1/orchestration/scheduler:cancel")
+    @app.post(SCHEDULER_CANCEL_SURFACE)
     def scheduler_cancel(
         body: dict[str, Any] | None = None,
         auth_context: AuthContext = Depends(require_runs_write_context),
     ) -> dict[str, Any]:
         payload = body or {}
-        run_id = str(payload.get("run_id", "")).strip()
-        if not run_id:
-            raise HTTPException(status_code=422, detail="run_id is required")
-        reason_value = payload.get("reason")
-        reason = str(reason_value).strip() if isinstance(reason_value, str) else None
+        run_id = _require_non_empty_string(payload, "run_id")
+        reason = _optional_non_empty_string(payload, "reason")
         return dispatch_scheduler_cancel(
             claims=auth_context.claims,
             subject_token=auth_context.subject_token,
