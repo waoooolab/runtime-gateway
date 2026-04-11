@@ -669,7 +669,7 @@ def _submit_command(
             if isinstance(retry_policy_metadata.get("retry_policy"), dict)
             else None,
         )
-        if isinstance(exc.response_body, dict):
+        if isinstance(exc.response_body, dict) and _is_event_envelope_candidate(exc.response_body):
             try:
                 _project_scope_axis_onto_event(
                     event=exc.response_body,
@@ -748,6 +748,16 @@ def _submit_command(
             metadata=audit_metadata,
         )
         raise HTTPException(status_code=effective_status_code, detail=detail) from exc
+
+
+def _is_event_envelope_candidate(payload: Mapping[str, Any]) -> bool:
+    event_type = payload.get("event_type")
+    event_payload = payload.get("payload")
+    if not isinstance(event_type, str) or not event_type.strip():
+        return False
+    if not isinstance(event_payload, Mapping):
+        return False
+    return True
 
 
 def _extract_run_result(execution_event: dict[str, Any]) -> tuple[str, str]:

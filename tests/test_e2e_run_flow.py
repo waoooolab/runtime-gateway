@@ -570,7 +570,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         assert isinstance(route_marker, dict)
         self.assertEqual(route_marker.get("event_type"), "runtime.route.decided")
         self.assertEqual(route_marker.get("execution_mode"), "control")
-        self.assertEqual(route_marker.get("route_target"), "langgraph-core")
+        self.assertEqual(route_marker.get("route_target"), "agent-orchestrator")
 
         read_response = self.execution_client.get(
             f"/v1/runs/{run_id}",
@@ -670,7 +670,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
             self.assertIsInstance(route, dict)
             assert isinstance(route, dict)
             self.assertEqual(route.get("execution_mode"), "control")
-            self.assertEqual(route.get("route_target"), "langgraph-core")
+            self.assertEqual(route.get("route_target"), "agent-orchestrator")
 
         target_recent = self.gateway_client.get(
             f"/v1/events/recent?run_id={target_run_id}&event_types=runtime.run.status&limit=10",
@@ -695,7 +695,7 @@ class EndToEndRunFlowTests(unittest.TestCase):
         self.assertIsInstance(latest_route, dict)
         assert isinstance(latest_route, dict)
         self.assertEqual(latest_route.get("execution_mode"), "control")
-        self.assertEqual(latest_route.get("route_target"), "langgraph-core")
+        self.assertEqual(latest_route.get("route_target"), "agent-orchestrator")
 
     def test_gateway_to_execution_timeout_flow(self) -> None:
         token = self._gateway_token(["runs:write"])

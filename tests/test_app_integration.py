@@ -442,6 +442,26 @@ class _FakeExecutionClientTransportUnavailable:
 
 
 @dataclass
+class _FakeExecutionClientHttpErrorDetail:
+    def submit_command(self, *, envelope: dict, auth_token: str) -> dict:
+        _ = envelope, auth_token
+        raise RuntimeExecutionClientError(
+            "HTTP 500 calling runtime-execution: invalid route event",
+            status_code=500,
+            response_body={
+                "detail": (
+                    "invalid route event: 'agent-orchestrator' is not one of "
+                    "['agent-orchestrator', 'device-hub', 'none']"
+                )
+            },
+            detail=(
+                "invalid route event: 'agent-orchestrator' is not one of "
+                "['agent-orchestrator', 'device-hub', 'none']"
+            ),
+        )
+
+
+@dataclass
 class _FakeHealthResponse:
     status_code: int
     payload: bytes = b"{}"
@@ -2298,6 +2318,31 @@ class AppIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(audit_latest["metadata"].get("upstream_error_class"), "unavailable")
         self.assertEqual(audit_latest["metadata"].get("downstream_event_type"), None)
+
+    def test_runs_keeps_upstream_http_detail_when_error_body_is_not_event_envelope(self) -> None:
+        gateway_app_module._execution_client = _FakeExecutionClientHttpErrorDetail()
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        response = self.client.post(
+            "/v1/runs",
+            json=self.payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 500)
+        detail = response.json().get("detail")
+        self.assertIsInstance(detail, dict)
+        assert isinstance(detail, dict)
+        self.assertEqual(detail.get("status_code"), 500)
+        self.assertEqual(detail.get("retryable"), True)
+        self.assertEqual(detail.get("failure_classification"), "upstream_error")
+        self.assertEqual(detail.get("upstream_error_class"), "retryable")
+        self.assertIn("invalid route event", str(detail.get("message", "")))
+        self.assertNotEqual(detail.get("upstream_error_class"), "contract_drift")
+
+        audit_latest = get_audit_events(limit=1)[0]
+        self.assertEqual(audit_latest["decision"], "deny")
+        self.assertEqual(audit_latest["metadata"].get("status_code"), 500)
+        self.assertEqual(audit_latest["metadata"].get("downstream_event_type"), None)
+        self.assertEqual(audit_latest["metadata"].get("upstream_error_class"), "retryable")
 
     def test_runs_propagates_downstream_route_failed_status_and_publishes_event(self) -> None:
         gateway_app_module._execution_client = _FakeExecutionClientRejected()

@@ -605,7 +605,7 @@
             "route_target": {
               "type": "string",
               "enum": [
-                "langgraph-core",
+                "agent-orchestrator",
                 "device-hub",
                 "none"
               ]
@@ -941,7 +941,7 @@
                   },
                   "route_target": {
                     "enum": [
-                      "langgraph-core",
+                      "agent-orchestrator",
                       "device-hub"
                     ]
                   }
