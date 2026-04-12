@@ -101,7 +101,7 @@ def test_resolve_event_transport_backend_prefers_explicit_backend() -> None:
     assert resolved is explicit
 
 
-def test_jetstream_backend_publishes_with_injected_adapter(
+def test_adapter_backend_publishes_with_injected_adapter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     event_bus = InMemoryEventBus()
@@ -120,7 +120,7 @@ def test_jetstream_backend_publishes_with_injected_adapter(
         "runtime_gateway.event_transport_backend.append_event_record",
         _append_event_record,
     )
-    event = {"event_type": "runtime.run.status", "payload": {"run_id": "run-jetstream"}}
+    event = {"event_type": "runtime.run.status", "payload": {"run_id": "run-adapter"}}
     bus_seq = backend.publish(event=event)
     assert bus_seq == 1
     assert captured == [(1, event)]
@@ -130,7 +130,7 @@ def test_jetstream_backend_publishes_with_injected_adapter(
     assert stats["next_seq"] == 2
 
 
-def test_jetstream_backend_without_adapter_is_local_when_bridge_not_required(
+def test_adapter_backend_without_adapter_is_local_when_bridge_not_required(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     event_bus = InMemoryEventBus()
@@ -156,7 +156,7 @@ def test_jetstream_backend_without_adapter_is_local_when_bridge_not_required(
     assert stats["buffered_events"] == 1
 
 
-def test_jetstream_backend_requires_bridge_when_flag_enabled() -> None:
+def test_adapter_backend_requires_bridge_when_flag_enabled() -> None:
     event_bus = InMemoryEventBus()
     backend = build_event_transport_backend(
         name="adapter",
