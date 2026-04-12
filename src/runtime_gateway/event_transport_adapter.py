@@ -37,7 +37,6 @@ _JETSTREAM_BRIDGE_TIMEOUT_SECONDS_MIN = 0.05
 
 class EventTransportAdapter(Protocol):
     adapter_id: str
-
     def publish_event(self, *, bus_seq: int, event: dict[str, Any]) -> None:
         ...
 
@@ -103,7 +102,6 @@ class HttpEventTransportAdapter:
 
 HttpJetStreamTransportAdapter = HttpEventTransportAdapter
 
-
 def normalize_event_transport_adapter_name(raw_name: str | None) -> str:
     if raw_name is None:
         return DEFAULT_EVENT_TRANSPORT_ADAPTER
@@ -121,7 +119,6 @@ def normalize_event_transport_adapter_name(raw_name: str | None) -> str:
 def normalize_jetstream_transport_adapter_name(raw_name: str | None) -> str:
     return normalize_event_transport_adapter_name(raw_name)
 
-
 def event_transport_adapter_name_from_env() -> str:
     return normalize_event_transport_adapter_name(
         _first_env_value(EVENT_TRANSPORT_ADAPTER_ENV, JETSTREAM_TRANSPORT_ADAPTER_ENV)
@@ -130,7 +127,6 @@ def event_transport_adapter_name_from_env() -> str:
 
 def jetstream_transport_adapter_name_from_env() -> str:
     return event_transport_adapter_name_from_env()
-
 
 def event_transport_bridge_url_from_env() -> str | None:
     return _normalize_optional_str(
@@ -141,7 +137,6 @@ def event_transport_bridge_url_from_env() -> str | None:
 def jetstream_bridge_url_from_env() -> str | None:
     return event_transport_bridge_url_from_env()
 
-
 def event_transport_bridge_timeout_seconds_from_env() -> float:
     return _parse_timeout_seconds_from_millis(
         _first_env_value(EVENT_TRANSPORT_BRIDGE_TIMEOUT_MS_ENV, JETSTREAM_BRIDGE_TIMEOUT_MS_ENV)
@@ -150,7 +145,6 @@ def event_transport_bridge_timeout_seconds_from_env() -> float:
 
 def jetstream_bridge_timeout_seconds_from_env() -> float:
     return event_transport_bridge_timeout_seconds_from_env()
-
 
 def event_transport_bridge_required_from_env() -> bool:
     return _parse_bool(
@@ -161,7 +155,6 @@ def event_transport_bridge_required_from_env() -> bool:
 
 def jetstream_bridge_required_from_env() -> bool:
     return event_transport_bridge_required_from_env()
-
 
 def event_transport_bridge_bearer_token_from_env() -> str | None:
     return _normalize_optional_str(
@@ -174,7 +167,6 @@ def event_transport_bridge_bearer_token_from_env() -> str | None:
 
 def jetstream_bridge_bearer_token_from_env() -> str | None:
     return event_transport_bridge_bearer_token_from_env()
-
 
 def build_event_transport_adapter(
     *,
