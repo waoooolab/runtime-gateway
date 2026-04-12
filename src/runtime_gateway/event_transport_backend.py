@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, Protocol
 
 from .event_transport_adapter import (
@@ -18,6 +19,8 @@ DEFAULT_EVENT_TRANSPORT_BACKEND = "local"
 ADAPTER_EVENT_TRANSPORT_BACKEND = "adapter"
 # Backward-compat alias; normalized to ADAPTER_EVENT_TRANSPORT_BACKEND.
 LEGACY_EVENT_TRANSPORT_BACKEND_ALIAS = "jetstream"
+EVENT_TRANSPORT_BACKEND_ENV = "RUNTIME_GATEWAY_EVENT_TRANSPORT_BACKEND"
+LEGACY_EVENT_TRANSPORT_BACKEND_ENV = "WAOOOOLAB_RUNTIME_GATEWAY_EVENT_TRANSPORT_BACKEND"
 SUPPORTED_EVENT_TRANSPORT_BACKENDS = frozenset(
     {
         DEFAULT_EVENT_TRANSPORT_BACKEND,
@@ -104,6 +107,12 @@ def normalize_event_transport_backend_name(raw_name: str | None) -> str:
     return normalized
 
 
+def event_transport_backend_name_from_env() -> str:
+    return normalize_event_transport_backend_name(
+        _first_env_value(EVENT_TRANSPORT_BACKEND_ENV, LEGACY_EVENT_TRANSPORT_BACKEND_ENV)
+    )
+
+
 def build_event_transport_backend(
     *,
     name: str,
@@ -154,3 +163,11 @@ def resolve_event_transport_backend(
         bridge_required=bridge_required,
         bridge_bearer_token=bridge_bearer_token,
     )
+
+
+def _first_env_value(*keys: str) -> str | None:
+    for key in keys:
+        value = os.environ.get(key)
+        if value is not None:
+            return value
+    return None

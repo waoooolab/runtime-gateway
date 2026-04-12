@@ -6,8 +6,11 @@ from runtime_gateway.event_transport_adapter import EVENT_TRANSPORT_BRIDGE_URL_E
 from runtime_gateway.event_transport_backend import (
     ADAPTER_EVENT_TRANSPORT_BACKEND,
     DEFAULT_EVENT_TRANSPORT_BACKEND,
+    EVENT_TRANSPORT_BACKEND_ENV,
+    LEGACY_EVENT_TRANSPORT_BACKEND_ENV,
     LocalEventTransportBackend,
     build_event_transport_backend,
+    event_transport_backend_name_from_env,
     normalize_event_transport_backend_name,
     resolve_event_transport_backend,
 )
@@ -38,6 +41,30 @@ def test_normalize_event_transport_backend_name_defaults_to_local() -> None:
 def test_normalize_event_transport_backend_name_rejects_unsupported_value() -> None:
     with pytest.raises(ValueError, match="unsupported event transport backend"):
         normalize_event_transport_backend_name("nats")
+
+
+def test_event_transport_backend_name_from_env_defaults_to_local(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(EVENT_TRANSPORT_BACKEND_ENV, raising=False)
+    monkeypatch.delenv(LEGACY_EVENT_TRANSPORT_BACKEND_ENV, raising=False)
+    assert event_transport_backend_name_from_env() == DEFAULT_EVENT_TRANSPORT_BACKEND
+
+
+def test_event_transport_backend_name_from_env_uses_legacy_when_canonical_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(EVENT_TRANSPORT_BACKEND_ENV, raising=False)
+    monkeypatch.setenv(LEGACY_EVENT_TRANSPORT_BACKEND_ENV, "jetstream")
+    assert event_transport_backend_name_from_env() == ADAPTER_EVENT_TRANSPORT_BACKEND
+
+
+def test_event_transport_backend_name_from_env_prefers_canonical_over_legacy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(EVENT_TRANSPORT_BACKEND_ENV, "local")
+    monkeypatch.setenv(LEGACY_EVENT_TRANSPORT_BACKEND_ENV, "jetstream")
+    assert event_transport_backend_name_from_env() == DEFAULT_EVENT_TRANSPORT_BACKEND
 
 
 def test_local_event_transport_backend_publishes_to_memory_and_durable(
