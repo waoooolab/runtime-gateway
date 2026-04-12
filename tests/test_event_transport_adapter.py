@@ -8,12 +8,24 @@ import pytest
 
 from runtime_gateway.event_transport_adapter import (
     EVENT_TRANSPORT_ADAPTER_ENV,
+    EVENT_TRANSPORT_ADAPTER_ENV_LEGACY,
+    EVENT_TRANSPORT_BRIDGE_BEARER_TOKEN_ENV,
+    EVENT_TRANSPORT_BRIDGE_BEARER_TOKEN_ENV_LEGACY,
+    EVENT_TRANSPORT_BRIDGE_REQUIRED_ENV,
+    EVENT_TRANSPORT_BRIDGE_REQUIRED_ENV_LEGACY,
     EVENT_TRANSPORT_BRIDGE_TIMEOUT_MS_ENV,
+    EVENT_TRANSPORT_BRIDGE_TIMEOUT_MS_ENV_LEGACY,
     EVENT_TRANSPORT_BRIDGE_URL_ENV,
+    EVENT_TRANSPORT_BRIDGE_URL_ENV_LEGACY,
     HttpEventTransportAdapter,
     JETSTREAM_TRANSPORT_ADAPTER_ENV,
+    JETSTREAM_TRANSPORT_ADAPTER_ENV_LEGACY,
+    JETSTREAM_BRIDGE_BEARER_TOKEN_ENV_LEGACY,
+    JETSTREAM_BRIDGE_REQUIRED_ENV_LEGACY,
     JETSTREAM_BRIDGE_TIMEOUT_MS_ENV,
+    JETSTREAM_BRIDGE_TIMEOUT_MS_ENV_LEGACY,
     JETSTREAM_BRIDGE_URL_ENV,
+    JETSTREAM_BRIDGE_URL_ENV_LEGACY,
     build_event_transport_adapter,
     normalize_event_transport_adapter_name,
     resolve_event_transport_adapter,
@@ -111,6 +123,73 @@ def test_resolve_event_transport_adapter_prefers_canonical_env_over_legacy(
     )
     assert isinstance(adapter, HttpEventTransportAdapter)
     assert adapter.adapter_id == "http"
+
+
+def test_resolve_event_transport_adapter_reads_waoooolab_legacy_env_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(EVENT_TRANSPORT_ADAPTER_ENV, raising=False)
+    monkeypatch.delenv(EVENT_TRANSPORT_BRIDGE_URL_ENV, raising=False)
+    monkeypatch.delenv(EVENT_TRANSPORT_BRIDGE_TIMEOUT_MS_ENV, raising=False)
+    monkeypatch.delenv(EVENT_TRANSPORT_BRIDGE_REQUIRED_ENV, raising=False)
+    monkeypatch.delenv(EVENT_TRANSPORT_BRIDGE_BEARER_TOKEN_ENV, raising=False)
+    monkeypatch.delenv(JETSTREAM_TRANSPORT_ADAPTER_ENV, raising=False)
+    monkeypatch.delenv(JETSTREAM_BRIDGE_URL_ENV, raising=False)
+    monkeypatch.delenv(JETSTREAM_BRIDGE_TIMEOUT_MS_ENV, raising=False)
+    monkeypatch.setenv(EVENT_TRANSPORT_ADAPTER_ENV_LEGACY, "http")
+    monkeypatch.setenv(
+        EVENT_TRANSPORT_BRIDGE_URL_ENV_LEGACY,
+        "http://waoooolab-legacy-bridge.test/runtime/events",
+    )
+    monkeypatch.setenv(EVENT_TRANSPORT_BRIDGE_TIMEOUT_MS_ENV_LEGACY, "1300")
+    monkeypatch.setenv(EVENT_TRANSPORT_BRIDGE_REQUIRED_ENV_LEGACY, "true")
+    monkeypatch.setenv(EVENT_TRANSPORT_BRIDGE_BEARER_TOKEN_ENV_LEGACY, "waoooolab-token")
+
+    adapter = resolve_event_transport_adapter(
+        adapter=None,
+        adapter_name=None,
+        bridge_url=None,
+        bridge_timeout_seconds=None,
+        bridge_bearer_token=None,
+    )
+    assert isinstance(adapter, HttpEventTransportAdapter)
+    assert adapter.adapter_id == "http"
+    assert adapter._bridge_url == "http://waoooolab-legacy-bridge.test/runtime/events"
+    assert adapter._timeout_seconds == 1.3
+    assert adapter._bearer_token == "waoooolab-token"
+
+
+def test_resolve_event_transport_adapter_prefers_canonical_over_waoooolab_and_jetstream_legacy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(EVENT_TRANSPORT_ADAPTER_ENV, "http")
+    monkeypatch.setenv(EVENT_TRANSPORT_BRIDGE_URL_ENV, "http://canonical-bridge.test/runtime/events")
+    monkeypatch.setenv(EVENT_TRANSPORT_BRIDGE_TIMEOUT_MS_ENV, "1200")
+    monkeypatch.setenv(EVENT_TRANSPORT_BRIDGE_BEARER_TOKEN_ENV, "canonical-token")
+    monkeypatch.setenv(EVENT_TRANSPORT_ADAPTER_ENV_LEGACY, "http")
+    monkeypatch.setenv(
+        EVENT_TRANSPORT_BRIDGE_URL_ENV_LEGACY,
+        "http://waoooolab-legacy-bridge.test/runtime/events",
+    )
+    monkeypatch.setenv(EVENT_TRANSPORT_BRIDGE_TIMEOUT_MS_ENV_LEGACY, "9000")
+    monkeypatch.setenv(EVENT_TRANSPORT_BRIDGE_BEARER_TOKEN_ENV_LEGACY, "waoooolab-token")
+    monkeypatch.setenv(JETSTREAM_TRANSPORT_ADAPTER_ENV_LEGACY, "http")
+    monkeypatch.setenv(JETSTREAM_BRIDGE_URL_ENV_LEGACY, "http://jetstream-legacy-bridge.test/runtime/events")
+    monkeypatch.setenv(JETSTREAM_BRIDGE_TIMEOUT_MS_ENV_LEGACY, "8000")
+    monkeypatch.setenv(JETSTREAM_BRIDGE_REQUIRED_ENV_LEGACY, "true")
+    monkeypatch.setenv(JETSTREAM_BRIDGE_BEARER_TOKEN_ENV_LEGACY, "jetstream-token")
+
+    adapter = resolve_event_transport_adapter(
+        adapter=None,
+        adapter_name=None,
+        bridge_url=None,
+        bridge_timeout_seconds=None,
+        bridge_bearer_token=None,
+    )
+    assert isinstance(adapter, HttpEventTransportAdapter)
+    assert adapter._bridge_url == "http://canonical-bridge.test/runtime/events"
+    assert adapter._timeout_seconds == 1.2
+    assert adapter._bearer_token == "canonical-token"
 
 
 def test_http_event_transport_adapter_publish_event_posts_json(
