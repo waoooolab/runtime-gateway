@@ -2,17 +2,30 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, Protocol
 
+from .event_transport_adapter import (
+    EVENT_TRANSPORT_BRIDGE_URL_ENV,
+    EventTransportAdapter,
+    event_transport_bridge_required_from_env,
+    resolve_event_transport_adapter,
+)
 from .events.bus import InMemoryEventBus
 from .events.durable import append_event_record
 
 DEFAULT_EVENT_TRANSPORT_BACKEND = "local"
-JETSTREAM_EVENT_TRANSPORT_BACKEND = "jetstream"
+# Canonical adapter-backed transport backend.
+ADAPTER_EVENT_TRANSPORT_BACKEND = "adapter"
+# Backward-compat alias; normalized to ADAPTER_EVENT_TRANSPORT_BACKEND.
+LEGACY_EVENT_TRANSPORT_BACKEND_ALIAS = "jetstream"
+EVENT_TRANSPORT_BACKEND_ENV = "RUNTIME_GATEWAY_EVENT_TRANSPORT_BACKEND"
+LEGACY_EVENT_TRANSPORT_BACKEND_ENV = "WAOOOOLAB_RUNTIME_GATEWAY_EVENT_TRANSPORT_BACKEND"
 SUPPORTED_EVENT_TRANSPORT_BACKENDS = frozenset(
     {
         DEFAULT_EVENT_TRANSPORT_BACKEND,
-        JETSTREAM_EVENT_TRANSPORT_BACKEND,
+        ADAPTER_EVENT_TRANSPORT_BACKEND,
+        LEGACY_EVENT_TRANSPORT_BACKEND_ALIAS,
     }
 )
 
@@ -36,15 +49,46 @@ class LocalEventTransportBackend:
         return bus_seq
 
 
-class JetStreamEventTransportBackend:
-    name = JETSTREAM_EVENT_TRANSPORT_BACKEND
+class AdapterEventTransportBackend:
+    name = ADAPTER_EVENT_TRANSPORT_BACKEND
 
-    def __init__(self, *, event_bus: InMemoryEventBus) -> None:
+    def __init__(
+        self,
+        *,
+        event_bus: InMemoryEventBus,
+        adapter: EventTransportAdapter | None = None,
+        adapter_name: str | None = None,
+        bridge_url: str | None = None,
+        bridge_timeout_seconds: float | None = None,
+        bridge_required: bool | None = None,
+        bridge_bearer_token: str | None = None,
+    ) -> None:
         self._event_bus = event_bus
+        self._bridge_required = (
+            bool(bridge_required)
+            if bridge_required is not None
+            else event_transport_bridge_required_from_env()
+        )
+        self._adapter = resolve_event_transport_adapter(
+            adapter=adapter,
+            adapter_name=adapter_name,
+            bridge_url=bridge_url,
+            bridge_timeout_seconds=bridge_timeout_seconds,
+            bridge_bearer_token=bridge_bearer_token,
+        )
 
     def publish(self, *, event: dict[str, Any]) -> int:
-        _ = self._event_bus, event
-        _raise_jetstream_not_ready("publish")
+        bus_seq = self._event_bus.publish(event)
+        append_event_record(bus_seq=bus_seq, event=event)
+        if self._adapter is None:
+            if self._bridge_required:
+                raise RuntimeError(
+                    "event transport backend 'adapter' requires "
+                    f"{EVENT_TRANSPORT_BRIDGE_URL_ENV}"
+                )
+            return bus_seq
+        self._adapter.publish_event(bus_seq=bus_seq, event=event)
+        return bus_seq
 
 
 def normalize_event_transport_backend_name(raw_name: str | None) -> str:
@@ -53,6 +97,8 @@ def normalize_event_transport_backend_name(raw_name: str | None) -> str:
     normalized = raw_name.strip().lower()
     if not normalized:
         return DEFAULT_EVENT_TRANSPORT_BACKEND
+    if normalized == LEGACY_EVENT_TRANSPORT_BACKEND_ALIAS:
+        return ADAPTER_EVENT_TRANSPORT_BACKEND
     if normalized not in SUPPORTED_EVENT_TRANSPORT_BACKENDS:
         supported = ", ".join(sorted(SUPPORTED_EVENT_TRANSPORT_BACKENDS))
         raise ValueError(
@@ -61,14 +107,34 @@ def normalize_event_transport_backend_name(raw_name: str | None) -> str:
     return normalized
 
 
+def event_transport_backend_name_from_env() -> str:
+    return normalize_event_transport_backend_name(
+        _first_env_value(EVENT_TRANSPORT_BACKEND_ENV, LEGACY_EVENT_TRANSPORT_BACKEND_ENV)
+    )
+
+
 def build_event_transport_backend(
     *,
     name: str,
     event_bus: InMemoryEventBus,
+    adapter: EventTransportAdapter | None = None,
+    adapter_name: str | None = None,
+    bridge_url: str | None = None,
+    bridge_timeout_seconds: float | None = None,
+    bridge_required: bool | None = None,
+    bridge_bearer_token: str | None = None,
 ) -> EventTransportBackend:
     normalized = normalize_event_transport_backend_name(name)
-    if normalized == JETSTREAM_EVENT_TRANSPORT_BACKEND:
-        return JetStreamEventTransportBackend(event_bus=event_bus)
+    if normalized == ADAPTER_EVENT_TRANSPORT_BACKEND:
+        return AdapterEventTransportBackend(
+            event_bus=event_bus,
+            adapter=adapter,
+            adapter_name=adapter_name,
+            bridge_url=bridge_url,
+            bridge_timeout_seconds=bridge_timeout_seconds,
+            bridge_required=bridge_required,
+            bridge_bearer_token=bridge_bearer_token,
+        )
     return LocalEventTransportBackend(event_bus=event_bus)
 
 
@@ -77,15 +143,31 @@ def resolve_event_transport_backend(
     backend: EventTransportBackend | None,
     backend_name: str | None,
     event_bus: InMemoryEventBus,
+    adapter: EventTransportAdapter | None = None,
+    adapter_name: str | None = None,
+    bridge_url: str | None = None,
+    bridge_timeout_seconds: float | None = None,
+    bridge_required: bool | None = None,
+    bridge_bearer_token: str | None = None,
 ) -> EventTransportBackend:
     if backend is not None:
         return backend
     resolved_name = normalize_event_transport_backend_name(backend_name)
-    return build_event_transport_backend(name=resolved_name, event_bus=event_bus)
-
-
-def _raise_jetstream_not_ready(method_name: str) -> None:
-    raise NotImplementedError(
-        "event transport backend 'jetstream' is not implemented yet; "
-        f"cannot call {method_name}. Use event transport backend 'local' for now."
+    return build_event_transport_backend(
+        name=resolved_name,
+        event_bus=event_bus,
+        adapter=adapter,
+        adapter_name=adapter_name,
+        bridge_url=bridge_url,
+        bridge_timeout_seconds=bridge_timeout_seconds,
+        bridge_required=bridge_required,
+        bridge_bearer_token=bridge_bearer_token,
     )
+
+
+def _first_env_value(*keys: str) -> str | None:
+    for key in keys:
+        value = os.environ.get(key)
+        if value is not None:
+            return value
+    return None
