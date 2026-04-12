@@ -8,24 +8,29 @@ from typing import Any, Protocol
 import urllib.error
 import urllib.request
 
-JETSTREAM_TRANSPORT_ADAPTER_HTTP = "http"
-DEFAULT_JETSTREAM_TRANSPORT_ADAPTER = JETSTREAM_TRANSPORT_ADAPTER_HTTP
-SUPPORTED_JETSTREAM_TRANSPORT_ADAPTERS = frozenset(
+EVENT_TRANSPORT_ADAPTER_HTTP = "http"
+DEFAULT_EVENT_TRANSPORT_ADAPTER = EVENT_TRANSPORT_ADAPTER_HTTP
+SUPPORTED_EVENT_TRANSPORT_ADAPTERS = frozenset(
     {
-        JETSTREAM_TRANSPORT_ADAPTER_HTTP,
+        EVENT_TRANSPORT_ADAPTER_HTTP,
     }
 )
 
+EVENT_TRANSPORT_ADAPTER_ENV = "RUNTIME_GATEWAY_EVENT_TRANSPORT_ADAPTER"
+EVENT_TRANSPORT_BRIDGE_URL_ENV = "RUNTIME_GATEWAY_EVENT_TRANSPORT_BRIDGE_URL"
+EVENT_TRANSPORT_BRIDGE_TIMEOUT_MS_ENV = "RUNTIME_GATEWAY_EVENT_TRANSPORT_BRIDGE_TIMEOUT_MS"
+EVENT_TRANSPORT_BRIDGE_REQUIRED_ENV = "RUNTIME_GATEWAY_EVENT_TRANSPORT_BRIDGE_REQUIRED"
+EVENT_TRANSPORT_BRIDGE_BEARER_TOKEN_ENV = "RUNTIME_GATEWAY_EVENT_TRANSPORT_BRIDGE_BEARER_TOKEN"
+
+# Legacy aliases kept for compatibility with existing runtime-gateway deployment envs.
+JETSTREAM_TRANSPORT_ADAPTER_HTTP = EVENT_TRANSPORT_ADAPTER_HTTP
+DEFAULT_JETSTREAM_TRANSPORT_ADAPTER = DEFAULT_EVENT_TRANSPORT_ADAPTER
+SUPPORTED_JETSTREAM_TRANSPORT_ADAPTERS = SUPPORTED_EVENT_TRANSPORT_ADAPTERS
 JETSTREAM_TRANSPORT_ADAPTER_ENV = "RUNTIME_GATEWAY_JETSTREAM_ADAPTER"
 JETSTREAM_BRIDGE_URL_ENV = "RUNTIME_GATEWAY_JETSTREAM_BRIDGE_URL"
 JETSTREAM_BRIDGE_TIMEOUT_MS_ENV = "RUNTIME_GATEWAY_JETSTREAM_BRIDGE_TIMEOUT_MS"
 JETSTREAM_BRIDGE_REQUIRED_ENV = "RUNTIME_GATEWAY_JETSTREAM_BRIDGE_REQUIRED"
 JETSTREAM_BRIDGE_BEARER_TOKEN_ENV = "RUNTIME_GATEWAY_JETSTREAM_BRIDGE_BEARER_TOKEN"
-EVENT_TRANSPORT_ADAPTER_ENV = JETSTREAM_TRANSPORT_ADAPTER_ENV
-EVENT_TRANSPORT_BRIDGE_URL_ENV = JETSTREAM_BRIDGE_URL_ENV
-EVENT_TRANSPORT_BRIDGE_TIMEOUT_MS_ENV = JETSTREAM_BRIDGE_TIMEOUT_MS_ENV
-EVENT_TRANSPORT_BRIDGE_REQUIRED_ENV = JETSTREAM_BRIDGE_REQUIRED_ENV
-EVENT_TRANSPORT_BRIDGE_BEARER_TOKEN_ENV = JETSTREAM_BRIDGE_BEARER_TOKEN_ENV
 _JETSTREAM_BRIDGE_TIMEOUT_SECONDS_DEFAULT = 3.0
 _JETSTREAM_BRIDGE_TIMEOUT_SECONDS_MIN = 0.05
 
@@ -40,8 +45,8 @@ class EventTransportAdapter(Protocol):
 JetStreamTransportAdapter = EventTransportAdapter
 
 
-class HttpJetStreamTransportAdapter:
-    adapter_id = JETSTREAM_TRANSPORT_ADAPTER_HTTP
+class HttpEventTransportAdapter:
+    adapter_id = EVENT_TRANSPORT_ADAPTER_HTTP
 
     def __init__(
         self,
@@ -78,7 +83,7 @@ class HttpJetStreamTransportAdapter:
                 status = int(getattr(response, "status", 0) or 0)
                 if status < 200 or status >= 300:
                     raise RuntimeError(
-                        "jetstream transport adapter HTTP bridge rejected event "
+                        "event transport adapter HTTP bridge rejected event "
                         f"with status {status}"
                     )
         except urllib.error.HTTPError as exc:
@@ -88,89 +93,87 @@ class HttpJetStreamTransportAdapter:
             except Exception:
                 detail = ""
             suffix = f": {detail}" if detail else ""
-            raise RuntimeError(f"jetstream transport adapter HTTP error {exc.code}{suffix}") from exc
+            raise RuntimeError(f"event transport adapter HTTP error {exc.code}{suffix}") from exc
         except urllib.error.URLError as exc:
             raise RuntimeError(
-                "jetstream transport adapter bridge unavailable: "
+                "event transport adapter bridge unavailable: "
                 f"{exc.reason}"
             ) from exc
 
 
-def normalize_jetstream_transport_adapter_name(raw_name: str | None) -> str:
+HttpJetStreamTransportAdapter = HttpEventTransportAdapter
+
+
+def normalize_event_transport_adapter_name(raw_name: str | None) -> str:
     if raw_name is None:
-        return DEFAULT_JETSTREAM_TRANSPORT_ADAPTER
+        return DEFAULT_EVENT_TRANSPORT_ADAPTER
     normalized = raw_name.strip().lower()
     if not normalized:
-        return DEFAULT_JETSTREAM_TRANSPORT_ADAPTER
-    if normalized not in SUPPORTED_JETSTREAM_TRANSPORT_ADAPTERS:
-        supported = ", ".join(sorted(SUPPORTED_JETSTREAM_TRANSPORT_ADAPTERS))
+        return DEFAULT_EVENT_TRANSPORT_ADAPTER
+    if normalized not in SUPPORTED_EVENT_TRANSPORT_ADAPTERS:
+        supported = ", ".join(sorted(SUPPORTED_EVENT_TRANSPORT_ADAPTERS))
         raise ValueError(
-            f"unsupported jetstream transport adapter '{raw_name}'; expected one of: {supported}"
+            f"unsupported event transport adapter '{raw_name}'; expected one of: {supported}"
         )
     return normalized
 
 
-def normalize_event_transport_adapter_name(raw_name: str | None) -> str:
-    return normalize_jetstream_transport_adapter_name(raw_name)
-
-
-def jetstream_transport_adapter_name_from_env() -> str:
-    return normalize_jetstream_transport_adapter_name(os.environ.get(JETSTREAM_TRANSPORT_ADAPTER_ENV))
+def normalize_jetstream_transport_adapter_name(raw_name: str | None) -> str:
+    return normalize_event_transport_adapter_name(raw_name)
 
 
 def event_transport_adapter_name_from_env() -> str:
-    return normalize_event_transport_adapter_name(os.environ.get(EVENT_TRANSPORT_ADAPTER_ENV))
+    return normalize_event_transport_adapter_name(
+        _first_env_value(EVENT_TRANSPORT_ADAPTER_ENV, JETSTREAM_TRANSPORT_ADAPTER_ENV)
+    )
 
 
-def jetstream_bridge_url_from_env() -> str | None:
-    return _normalize_optional_str(os.environ.get(JETSTREAM_BRIDGE_URL_ENV))
+def jetstream_transport_adapter_name_from_env() -> str:
+    return event_transport_adapter_name_from_env()
 
 
 def event_transport_bridge_url_from_env() -> str | None:
-    return _normalize_optional_str(os.environ.get(EVENT_TRANSPORT_BRIDGE_URL_ENV))
+    return _normalize_optional_str(
+        _first_env_value(EVENT_TRANSPORT_BRIDGE_URL_ENV, JETSTREAM_BRIDGE_URL_ENV)
+    )
 
 
-def jetstream_bridge_timeout_seconds_from_env() -> float:
-    return _parse_timeout_seconds_from_millis(os.environ.get(JETSTREAM_BRIDGE_TIMEOUT_MS_ENV))
+def jetstream_bridge_url_from_env() -> str | None:
+    return event_transport_bridge_url_from_env()
 
 
 def event_transport_bridge_timeout_seconds_from_env() -> float:
     return _parse_timeout_seconds_from_millis(
-        os.environ.get(EVENT_TRANSPORT_BRIDGE_TIMEOUT_MS_ENV)
+        _first_env_value(EVENT_TRANSPORT_BRIDGE_TIMEOUT_MS_ENV, JETSTREAM_BRIDGE_TIMEOUT_MS_ENV)
+    )
+
+
+def jetstream_bridge_timeout_seconds_from_env() -> float:
+    return event_transport_bridge_timeout_seconds_from_env()
+
+
+def event_transport_bridge_required_from_env() -> bool:
+    return _parse_bool(
+        _first_env_value(EVENT_TRANSPORT_BRIDGE_REQUIRED_ENV, JETSTREAM_BRIDGE_REQUIRED_ENV),
+        default=False,
     )
 
 
 def jetstream_bridge_required_from_env() -> bool:
-    return _parse_bool(os.environ.get(JETSTREAM_BRIDGE_REQUIRED_ENV), default=False)
-
-
-def event_transport_bridge_required_from_env() -> bool:
-    return _parse_bool(os.environ.get(EVENT_TRANSPORT_BRIDGE_REQUIRED_ENV), default=False)
-
-
-def jetstream_bridge_bearer_token_from_env() -> str | None:
-    return _normalize_optional_str(os.environ.get(JETSTREAM_BRIDGE_BEARER_TOKEN_ENV))
+    return event_transport_bridge_required_from_env()
 
 
 def event_transport_bridge_bearer_token_from_env() -> str | None:
-    return _normalize_optional_str(os.environ.get(EVENT_TRANSPORT_BRIDGE_BEARER_TOKEN_ENV))
-
-
-def build_jetstream_transport_adapter(
-    *,
-    name: str,
-    bridge_url: str,
-    timeout_seconds: float,
-    bearer_token: str | None = None,
-) -> JetStreamTransportAdapter:
-    normalized = normalize_jetstream_transport_adapter_name(name)
-    if normalized == JETSTREAM_TRANSPORT_ADAPTER_HTTP:
-        return HttpJetStreamTransportAdapter(
-            bridge_url=bridge_url,
-            timeout_seconds=timeout_seconds,
-            bearer_token=bearer_token,
+    return _normalize_optional_str(
+        _first_env_value(
+            EVENT_TRANSPORT_BRIDGE_BEARER_TOKEN_ENV,
+            JETSTREAM_BRIDGE_BEARER_TOKEN_ENV,
         )
-    raise ValueError(f"unsupported jetstream transport adapter: {name}")
+    )
+
+
+def jetstream_bridge_bearer_token_from_env() -> str | None:
+    return event_transport_bridge_bearer_token_from_env()
 
 
 def build_event_transport_adapter(
@@ -180,49 +183,28 @@ def build_event_transport_adapter(
     timeout_seconds: float,
     bearer_token: str | None = None,
 ) -> EventTransportAdapter:
-    return build_jetstream_transport_adapter(
+    normalized = normalize_event_transport_adapter_name(name)
+    if normalized == EVENT_TRANSPORT_ADAPTER_HTTP:
+        return HttpEventTransportAdapter(
+            bridge_url=bridge_url,
+            timeout_seconds=timeout_seconds,
+            bearer_token=bearer_token,
+        )
+    raise ValueError(f"unsupported event transport adapter: {name}")
+
+
+def build_jetstream_transport_adapter(
+    *,
+    name: str,
+    bridge_url: str,
+    timeout_seconds: float,
+    bearer_token: str | None = None,
+) -> JetStreamTransportAdapter:
+    return build_event_transport_adapter(
         name=name,
         bridge_url=bridge_url,
         timeout_seconds=timeout_seconds,
         bearer_token=bearer_token,
-    )
-
-
-def resolve_jetstream_transport_adapter(
-    *,
-    adapter: JetStreamTransportAdapter | None,
-    adapter_name: str | None,
-    bridge_url: str | None,
-    bridge_timeout_seconds: float | None,
-    bridge_bearer_token: str | None,
-) -> JetStreamTransportAdapter | None:
-    if adapter is not None:
-        return adapter
-    resolved_url = _normalize_optional_str(bridge_url)
-    if resolved_url is None:
-        resolved_url = jetstream_bridge_url_from_env()
-    if resolved_url is None:
-        return None
-    resolved_timeout_seconds = (
-        _normalize_timeout_seconds(bridge_timeout_seconds)
-        if bridge_timeout_seconds is not None
-        else jetstream_bridge_timeout_seconds_from_env()
-    )
-    resolved_bearer_token = (
-        _normalize_optional_str(bridge_bearer_token)
-        if bridge_bearer_token is not None
-        else jetstream_bridge_bearer_token_from_env()
-    )
-    resolved_name = (
-        normalize_jetstream_transport_adapter_name(adapter_name)
-        if adapter_name is not None
-        else jetstream_transport_adapter_name_from_env()
-    )
-    return build_jetstream_transport_adapter(
-        name=resolved_name,
-        bridge_url=resolved_url,
-        timeout_seconds=resolved_timeout_seconds,
-        bearer_token=resolved_bearer_token,
     )
 
 
@@ -234,7 +216,45 @@ def resolve_event_transport_adapter(
     bridge_timeout_seconds: float | None,
     bridge_bearer_token: str | None,
 ) -> EventTransportAdapter | None:
-    return resolve_jetstream_transport_adapter(
+    if adapter is not None:
+        return adapter
+    resolved_url = _normalize_optional_str(bridge_url)
+    if resolved_url is None:
+        resolved_url = event_transport_bridge_url_from_env()
+    if resolved_url is None:
+        return None
+    resolved_timeout_seconds = (
+        _normalize_timeout_seconds(bridge_timeout_seconds)
+        if bridge_timeout_seconds is not None
+        else event_transport_bridge_timeout_seconds_from_env()
+    )
+    resolved_bearer_token = (
+        _normalize_optional_str(bridge_bearer_token)
+        if bridge_bearer_token is not None
+        else event_transport_bridge_bearer_token_from_env()
+    )
+    resolved_name = (
+        normalize_event_transport_adapter_name(adapter_name)
+        if adapter_name is not None
+        else event_transport_adapter_name_from_env()
+    )
+    return build_event_transport_adapter(
+        name=resolved_name,
+        bridge_url=resolved_url,
+        timeout_seconds=resolved_timeout_seconds,
+        bearer_token=resolved_bearer_token,
+    )
+
+
+def resolve_jetstream_transport_adapter(
+    *,
+    adapter: JetStreamTransportAdapter | None,
+    adapter_name: str | None,
+    bridge_url: str | None,
+    bridge_timeout_seconds: float | None,
+    bridge_bearer_token: str | None,
+) -> JetStreamTransportAdapter | None:
+    return resolve_event_transport_adapter(
         adapter=adapter,
         adapter_name=adapter_name,
         bridge_url=bridge_url,
@@ -250,6 +270,14 @@ def _normalize_optional_str(raw: str | None) -> str | None:
     if not normalized:
         return None
     return normalized
+
+
+def _first_env_value(*keys: str) -> str | None:
+    for key in keys:
+        value = os.environ.get(key)
+        if value is not None:
+            return value
+    return None
 
 
 def _parse_bool(raw: str | None, *, default: bool) -> bool:
