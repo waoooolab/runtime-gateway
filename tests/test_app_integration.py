@@ -1381,6 +1381,35 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(control_ingress.get("scope_id"), "scope:tenant:t1:workspace:creative-lab")
         self.assertEqual(control_ingress.get("scope_type"), "workspace")
 
+    def test_runs_projects_litellm_metadata_fields_to_control_ingress_contract(self) -> None:
+        token = self._token(audience="runtime-gateway", scope=["runs:write"])
+        payload = dict(self.payload)
+        payload_body = dict(self.payload["payload"])
+        payload_body["metadata"] = {
+            "team_id": "team-core",
+            "service": "control-gateway",
+            "env": "staging",
+            "request_id": "req-meta-1",
+            "cost_center": "cc-ml",
+        }
+        payload["payload"] = payload_body
+        response = self.client.post(
+            "/v1/runs",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        assert self.fake_execution_client.last_submit is not None
+        envelope = self.fake_execution_client.last_submit["envelope"]
+        control_ingress = envelope["payload"].get("control_ingress")
+        self.assertIsInstance(control_ingress, dict)
+        assert isinstance(control_ingress, dict)
+        self.assertEqual(control_ingress.get("team_id"), "team-core")
+        self.assertEqual(control_ingress.get("service"), "control-gateway")
+        self.assertEqual(control_ingress.get("env"), "staging")
+        self.assertEqual(control_ingress.get("request_id"), "req-meta-1")
+        self.assertEqual(control_ingress.get("cost_center"), "cc-ml")
+
     def test_runs_rejects_mismatched_ingress_trace_id(self) -> None:
         token = self._token(audience="runtime-gateway", scope=["runs:write"])
         payload = dict(self.payload)

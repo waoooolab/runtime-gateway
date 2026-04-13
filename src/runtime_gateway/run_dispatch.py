@@ -46,6 +46,9 @@ _DEFAULT_ACTIVE_TASK_CONTRACT_VERSIONS = ("task-envelope.v1", "task-envelope.v2"
 _DEFAULT_ACTIVE_AGENT_CONTRACT_VERSIONS = ("assistant-decision.v1", "assistant-decision.v2")
 _DEFAULT_ACTIVE_EVENT_SCHEMA_VERSIONS = ("event-envelope.v1", "event-envelope.v2")
 _ALLOWED_INGRESS_MODES = frozenset({"assistant", "workflow", "tools", "mixed"})
+_RUNTIME_GATEWAY_SERVICE_NAME_ENV = "RUNTIME_GATEWAY_SERVICE_NAME"
+_RUNTIME_GATEWAY_DEPLOYMENT_ENV_ENV = "RUNTIME_GATEWAY_DEPLOYMENT_ENV"
+_OWA_DEPLOY_ENV_ENV = "OWA_DEPLOY_ENV"
 
 
 def _resolve_trace_id(claims: Mapping[str, Any]) -> str:
@@ -118,12 +121,21 @@ def _extract_payload_ingress_mode(payload: Mapping[str, Any]) -> str | None:
     return _normalize_ingress_mode(payload.get("entry_mode"))
 
 
+def _payload_metadata(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    raw = payload.get("metadata")
+    if isinstance(raw, Mapping):
+        return raw
+    return {}
+
+
 def _build_control_ingress_contract(
     *,
     req: CreateRunRequest,
     payload: Mapping[str, Any],
+    claims: Mapping[str, Any],
     scope_axis: Mapping[str, str],
     trace_id: str,
+    command_id: str,
 ) -> dict[str, Any]:
     normalized_requested_trace_id = _normalize_optional_str(req.ingress_trace_id)
     if normalized_requested_trace_id is not None and normalized_requested_trace_id != trace_id:
@@ -144,6 +156,7 @@ def _build_control_ingress_contract(
     lifecycle_id = _normalize_optional_str(req.ingress_lifecycle_id)
     if lifecycle_id is None:
         lifecycle_id = _normalize_optional_str(existing_control_ingress.get("lifecycle_id"))
+    payload_metadata = _payload_metadata(payload)
 
     control_ingress = dict(existing_control_ingress)
     control_ingress["entry_mode"] = entry_mode
@@ -155,12 +168,53 @@ def _build_control_ingress_contract(
     control_ingress["scope_type"] = str(scope_axis["scope_type"])
     if lifecycle_id is not None:
         control_ingress["lifecycle_id"] = lifecycle_id
+
+    metadata_values = {
+        "team_id": (
+            _normalize_optional_str(existing_control_ingress.get("team_id"))
+            or _normalize_optional_str(payload.get("team_id"))
+            or _normalize_optional_str(payload_metadata.get("team_id"))
+            or _normalize_optional_str(claims.get("team_id"))
+        ),
+        "service": (
+            _normalize_optional_str(existing_control_ingress.get("service"))
+            or _normalize_optional_str(payload.get("service"))
+            or _normalize_optional_str(payload_metadata.get("service"))
+            or _normalize_optional_str(os.environ.get(_RUNTIME_GATEWAY_SERVICE_NAME_ENV))
+            or "runtime-gateway"
+        ),
+        "env": (
+            _normalize_optional_str(existing_control_ingress.get("env"))
+            or _normalize_optional_str(payload.get("env"))
+            or _normalize_optional_str(payload_metadata.get("env"))
+            or _normalize_optional_str(os.environ.get(_RUNTIME_GATEWAY_DEPLOYMENT_ENV_ENV))
+            or _normalize_optional_str(os.environ.get(_OWA_DEPLOY_ENV_ENV))
+        ),
+        "request_id": (
+            _normalize_optional_str(existing_control_ingress.get("request_id"))
+            or _normalize_optional_str(payload.get("request_id"))
+            or _normalize_optional_str(payload_metadata.get("request_id"))
+            or _normalize_optional_str(command_id)
+            or _normalize_optional_str(trace_id)
+        ),
+        "cost_center": (
+            _normalize_optional_str(existing_control_ingress.get("cost_center"))
+            or _normalize_optional_str(payload.get("cost_center"))
+            or _normalize_optional_str(payload_metadata.get("cost_center"))
+            or _normalize_optional_str(claims.get("cost_center"))
+        ),
+    }
+    for key, value in metadata_values.items():
+        if value is not None:
+            control_ingress[key] = value
     return control_ingress
 
 
 def _build_payload(
     *,
     req: CreateRunRequest,
+    claims: Mapping[str, Any],
+    command_id: str,
     trace_id: str,
     scope_axis: Mapping[str, str],
 ) -> dict[str, Any]:
@@ -168,8 +222,10 @@ def _build_payload(
     payload["control_ingress"] = _build_control_ingress_contract(
         req=req,
         payload=payload,
+        claims=claims,
         scope_axis=scope_axis,
         trace_id=trace_id,
+        command_id=command_id,
     )
     return payload
 
@@ -236,7 +292,11 @@ def _enforce_event_contract_versions(
             )
 
 
-def _build_execution_command(req: CreateRunRequest, trace_id: str) -> dict[str, Any]:
+def _build_execution_command(
+    req: CreateRunRequest,
+    trace_id: str,
+    claims: Mapping[str, Any],
+) -> dict[str, Any]:
     retry_policy = (
         req.retry_policy.model_dump()
         if req.retry_policy is not None
@@ -247,18 +307,22 @@ def _build_execution_command(req: CreateRunRequest, trace_id: str) -> dict[str, 
         }
     )
     scope_axis = _resolve_scope_axis(req)
+    command_id = str(uuid.uuid4())
+    idempotency_key = str(uuid.uuid4())
     command: dict[str, Any] = {
-        "command_id": str(uuid.uuid4()),
+        "command_id": command_id,
         "command_type": "run.start",
         "tenant_id": req.tenant_id,
         "app_id": req.app_id,
         "session_key": req.session_key,
         "trace_id": trace_id,
-        "idempotency_key": str(uuid.uuid4()),
+        "idempotency_key": idempotency_key,
         "retry_policy": retry_policy,
         "ts": datetime.now(timezone.utc).isoformat(),
         "payload": _build_payload(
             req=req,
+            claims=claims,
+            command_id=command_id,
             trace_id=trace_id,
             scope_axis=scope_axis,
         ),
@@ -350,11 +414,15 @@ def _validate_template_capability_binding_payload(req: CreateRunRequest) -> None
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-def _build_validated_command(req: CreateRunRequest, trace_id: str) -> dict[str, Any]:
+def _build_validated_command(
+    req: CreateRunRequest,
+    trace_id: str,
+    claims: Mapping[str, Any],
+) -> dict[str, Any]:
     _validate_execution_context_payload(req)
     _validate_orchestration_payload(req)
     _validate_template_capability_binding_payload(req)
-    command = _build_execution_command(req, trace_id)
+    command = _build_execution_command(req, trace_id, claims)
     _validate_bound_versions_in_active_pool(_bound_contract_versions_from_command(command))
     try:
         validate_command_envelope_contract(command)
@@ -887,7 +955,7 @@ def dispatch_create_run(
     publish_gateway_event: Callable[[dict[str, Any]], int | None],
 ) -> CreateRunResponse:
     trace_id = _resolve_trace_id(claims)
-    command = _build_validated_command(req, trace_id)
+    command = _build_validated_command(req, trace_id, claims)
     actor_id = str(claims.get("sub", "unknown"))
     delegated = _exchange_runtime_execution_token(
         req=req,

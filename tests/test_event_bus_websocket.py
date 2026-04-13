@@ -240,6 +240,11 @@ class EventBusWebsocketTests(unittest.TestCase):
                 "app_id": "covernow",
                 "session_key": "tenant:t1:app:covernow:channel:web:actor:u1:thread:main:agent:pm",
                 "lifecycle_id": "life-mixed-1",
+                "team_id": "team-ops",
+                "service": "control-gateway",
+                "env": "staging",
+                "request_id": "req-events-1",
+                "cost_center": "cc-ops",
             },
         }
 
@@ -261,6 +266,11 @@ class EventBusWebsocketTests(unittest.TestCase):
         self.assertEqual(recent_ingress["entry_mode"], "mixed")
         self.assertEqual(recent_ingress["trace_id"], "trace-events-1")
         self.assertEqual(recent_ingress["lifecycle_id"], "life-mixed-1")
+        self.assertEqual(recent_ingress["team_id"], "team-ops")
+        self.assertEqual(recent_ingress["service"], "control-gateway")
+        self.assertEqual(recent_ingress["env"], "staging")
+        self.assertEqual(recent_ingress["request_id"], "req-events-1")
+        self.assertEqual(recent_ingress["cost_center"], "cc-ops")
 
         sse_frames = self._read_sse_events(
             url="/v1/events/sse?follow=false&event_types=runtime.run.status&limit=8",
@@ -272,6 +282,11 @@ class EventBusWebsocketTests(unittest.TestCase):
         self.assertEqual(sse_ingress["entry_mode"], "mixed")
         self.assertEqual(sse_ingress["trace_id"], "trace-events-1")
         self.assertEqual(sse_ingress["lifecycle_id"], "life-mixed-1")
+        self.assertEqual(sse_ingress["team_id"], "team-ops")
+        self.assertEqual(sse_ingress["service"], "control-gateway")
+        self.assertEqual(sse_ingress["env"], "staging")
+        self.assertEqual(sse_ingress["request_id"], "req-events-1")
+        self.assertEqual(sse_ingress["cost_center"], "cc-ops")
 
     def test_publish_event_and_list_recent_with_capability_scopes(self) -> None:
         write_token = self._token(scope=["capabilities:write"])

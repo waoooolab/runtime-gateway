@@ -606,6 +606,26 @@
             "lifecycle_id": {
               "type": "string",
               "minLength": 1
+            },
+            "team_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "service": {
+              "type": "string",
+              "minLength": 1
+            },
+            "env": {
+              "type": "string",
+              "minLength": 1
+            },
+            "request_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "cost_center": {
+              "type": "string",
+              "minLength": 1
             }
           },
           "additionalProperties": false
