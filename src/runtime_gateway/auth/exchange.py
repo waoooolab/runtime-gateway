@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -9,6 +10,9 @@ from .tokens import TokenError, issue_token, verify_token
 
 ALLOWED_TOKEN_USES = {"service", "device", "exchange"}
 ALLOWED_SUBJECT_TOKEN_USES = {"access", "service", "exchange"}
+DELEGATED_SERVICE_SUBJECT_ENV = "OWA_RUNTIME_GATEWAY_DELEGATED_SERVICE_SUBJECT"
+DELEGATED_SERVICE_SUBJECT_ENV_LEGACY = "WAOOOOLAB_RUNTIME_GATEWAY_DELEGATED_SERVICE_SUBJECT"
+DEFAULT_DELEGATED_SERVICE_SUBJECT = "svc:runtime-gateway"
 
 
 class ExchangeError(ValueError):
@@ -88,9 +92,18 @@ def _delegated_claims(
     task_id: str | None,
     trace_id: str | None,
 ) -> dict[str, Any]:
+    parent_subject = str(parent_claims.get("sub", "unknown"))
+    delegated_subject = parent_subject
+    if requested_token_use == "service":
+        if DELEGATED_SERVICE_SUBJECT_ENV in os.environ:
+            configured_subject = str(os.environ.get(DELEGATED_SERVICE_SUBJECT_ENV, "")).strip()
+        else:
+            configured_subject = str(os.environ.get(DELEGATED_SERVICE_SUBJECT_ENV_LEGACY, "")).strip()
+        delegated_subject = configured_subject or DEFAULT_DELEGATED_SERVICE_SUBJECT
+
     claims: dict[str, Any] = {
         "iss": "runtime-gateway",
-        "sub": str(parent_claims.get("sub", "unknown")),
+        "sub": delegated_subject,
         "aud": audience,
         "tenant_id": tenant_id or str(parent_claims.get("tenant_id", "unknown")),
         "app_id": app_id or str(parent_claims.get("app_id", "unknown")),

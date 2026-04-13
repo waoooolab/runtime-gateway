@@ -45,6 +45,24 @@ class TokenExchangeTests(unittest.TestCase):
         claims = verify_token(result["access_token"], audience="runtime-execution")
         self.assertEqual(claims["aud"], "runtime-execution")
         self.assertEqual(claims["scope"], ["runs:write"])
+        self.assertEqual(claims["sub"], "svc:runtime-gateway")
+
+    def test_exchange_service_subject_can_be_overridden_via_env(self) -> None:
+        subject_token = self._subject_token(["runs:write"])
+        with patch.dict(
+            os.environ,
+            {"OWA_RUNTIME_GATEWAY_DELEGATED_SERVICE_SUBJECT": "svc:runtime-gateway-edge"},
+            clear=False,
+        ):
+            result = exchange_subject_token(
+                subject_token=subject_token,
+                requested_token_use="service",
+                audience="runtime-execution",
+                scope=["runs:write"],
+                requested_ttl_seconds=300,
+            )
+        claims = verify_token(result["access_token"], audience="runtime-execution")
+        self.assertEqual(claims["sub"], "svc:runtime-gateway-edge")
 
     def test_exchange_rejects_scope_escalation(self) -> None:
         subject_token = self._subject_token(["runs:read"])
