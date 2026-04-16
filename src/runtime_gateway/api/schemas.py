@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class RetryPolicyInput(BaseModel):
@@ -30,7 +30,11 @@ class CreateRunRequest(BaseModel):
     scope_id: str | None = Field(default=None, min_length=1)
     scope_type: str | None = Field(default=None, min_length=1)
     payload: dict
-    ingress_mode: Literal["assistant", "workflow", "tools", "mixed"] | None = None
+    # COMPAT(remove-after:S21): canonical field is entry_mode; ingress_mode is legacy input alias.
+    entry_mode: Literal["assistant", "workflow", "tools", "mixed"] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("entry_mode", "ingress_mode"),
+    )
     ingress_trace_id: str | None = Field(default=None, min_length=1)
     ingress_lifecycle_id: str | None = Field(default=None, min_length=1)
     retry_policy: RetryPolicyInput | None = None

@@ -45,7 +45,9 @@ _DEFAULT_SCOPE_TYPE = "session"
 _DEFAULT_ACTIVE_TASK_CONTRACT_VERSIONS = ("task-envelope.v1", "task-envelope.v2")
 _DEFAULT_ACTIVE_AGENT_CONTRACT_VERSIONS = ("assistant-decision.v1", "assistant-decision.v2")
 _DEFAULT_ACTIVE_EVENT_SCHEMA_VERSIONS = ("event-envelope.v1", "event-envelope.v2")
-_ALLOWED_INGRESS_MODES = frozenset({"assistant", "workflow", "tools", "mixed"})
+# entry_mode canonical values: platform-contracts/jsonschema/runtime/runtime-run-event.v1.json#/properties/payload/properties/control_ingress/properties/entry_mode
+# Do not redefine locally; this set is kept only as a boundary validation cache until a Python contracts client is available.
+_ENTRY_MODE_VALUES = frozenset({"assistant", "workflow", "tools", "mixed"})
 _RUNTIME_GATEWAY_SERVICE_NAME_ENV = "RUNTIME_GATEWAY_SERVICE_NAME"
 _RUNTIME_GATEWAY_DEPLOYMENT_ENV_ENV = "RUNTIME_GATEWAY_DEPLOYMENT_ENV"
 _OWA_DEPLOY_ENV_ENV = "OWA_DEPLOY_ENV"
@@ -96,12 +98,14 @@ def _normalize_optional_str(value: Any) -> str | None:
     return normalized
 
 
-def _normalize_ingress_mode(value: Any) -> str | None:
+def _normalize_entry_mode(value: Any) -> str | None:
+    # COMPAT(remove-after:S21): normalizes entry_mode / ingress_mode / mode aliases at service boundary.
+    # Single-write canonical key is entry_mode.
     normalized = _normalize_optional_str(value)
     if normalized is None:
         return None
     lowered = normalized.lower()
-    if lowered not in _ALLOWED_INGRESS_MODES:
+    if lowered not in _ENTRY_MODE_VALUES:
         return None
     return lowered
 
@@ -109,16 +113,16 @@ def _normalize_ingress_mode(value: Any) -> str | None:
 def _extract_payload_ingress_mode(payload: Mapping[str, Any]) -> str | None:
     control_ingress = payload.get("control_ingress")
     if isinstance(control_ingress, Mapping):
-        mode = _normalize_ingress_mode(control_ingress.get("entry_mode"))
+        mode = _normalize_entry_mode(control_ingress.get("entry_mode"))
         if mode is not None:
             return mode
-        mode = _normalize_ingress_mode(control_ingress.get("mode"))
+        mode = _normalize_entry_mode(control_ingress.get("mode"))
         if mode is not None:
             return mode
-    mode = _normalize_ingress_mode(payload.get("ingress_mode"))
+    mode = _normalize_entry_mode(payload.get("ingress_mode"))
     if mode is not None:
         return mode
-    return _normalize_ingress_mode(payload.get("entry_mode"))
+    return _normalize_entry_mode(payload.get("entry_mode"))
 
 
 def _payload_metadata(payload: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -150,7 +154,7 @@ def _build_control_ingress_contract(
         if isinstance(existing_control_ingress_raw, Mapping)
         else {}
     )
-    entry_mode = _normalize_ingress_mode(req.ingress_mode)
+    entry_mode = _normalize_entry_mode(req.entry_mode)
     if entry_mode is None:
         entry_mode = _extract_payload_ingress_mode(payload) or "assistant"
     lifecycle_id = _normalize_optional_str(req.ingress_lifecycle_id)

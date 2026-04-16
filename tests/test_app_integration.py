@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# SSOT_SOURCE: platform-contracts/jsonschema/runtime/runtime-run-event.v1.json#/properties/payload/properties/control_ingress/properties/entry_mode
 import io
 import os
 import tempfile

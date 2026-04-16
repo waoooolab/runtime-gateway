@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Literal
+from typing import Any, Iterable
 
-ErrorBudgetLevel = Literal["green", "yellow", "red"]
-ErrorBudgetAction = Literal["allow_new_dispatch", "defer_new_dispatch", "pause_new_dispatch"]
+from .contracts_py_runtime import ensure_contracts_py_importable
+
+ensure_contracts_py_importable()
+
+from openwaoooo_contracts.error_budget import (
+    ERROR_BUDGET_ACTION_BY_LEVEL,
+    SATURATION_TO_ERROR_BUDGET_LEVEL,
+    ErrorBudgetAction,
+    ErrorBudgetLevel,
+)
 
 WARNING_ANOMALY_RATIO_THRESHOLD = 0.7
 HARD_STOP_ANOMALY_RATIO_THRESHOLD = 0.9
@@ -19,17 +27,13 @@ WARNING_REASON_CODES = frozenset(
 )
 HARD_STOP_REASON_CODES = frozenset({"worker_stalled"})
 
-_SATURATION_TO_ERROR_BUDGET_LEVEL: dict[str, ErrorBudgetLevel] = {
-    "normal": "green",
-    "warning": "yellow",
-    "hard_stop": "red",
-}
+_SATURATION_TO_ERROR_BUDGET_LEVEL: dict[str, ErrorBudgetLevel] = dict(
+    SATURATION_TO_ERROR_BUDGET_LEVEL
+)
 
-_ERROR_BUDGET_ACTIONS: dict[ErrorBudgetLevel, ErrorBudgetAction] = {
-    "green": "allow_new_dispatch",
-    "yellow": "defer_new_dispatch",
-    "red": "pause_new_dispatch",
-}
+_ERROR_BUDGET_ACTIONS: dict[ErrorBudgetLevel, ErrorBudgetAction] = dict(
+    ERROR_BUDGET_ACTION_BY_LEVEL
+)
 
 
 def _normalize_reason_codes(reason_codes: Iterable[str]) -> list[str]:
