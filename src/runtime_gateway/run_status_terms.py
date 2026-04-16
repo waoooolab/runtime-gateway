@@ -11,31 +11,17 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-_DEFAULT_RUN_STATUSES = frozenset(
-    {
-        "requested",
-        "queued",
-        "dispatching",
-        "running",
-        "waiting_approval",
-        "retrying",
-        "succeeded",
-        "failed",
-        "dlq",
-        "canceled",
-        "timed_out",
-    }
+from .contracts_py_runtime import ensure_contracts_py_importable
+
+ensure_contracts_py_importable()
+
+from openwaoooo_contracts.run_status import (
+    RUN_NON_TERMINAL_STATUS_VALUES,
+    RUN_STATUS_VALUES,
 )
-_NON_TERMINAL_RUN_STATUSES = frozenset(
-    {
-        "requested",
-        "queued",
-        "dispatching",
-        "running",
-        "waiting_approval",
-        "retrying",
-    }
-)
+
+_DEFAULT_RUN_STATUSES = frozenset(RUN_STATUS_VALUES)
+_NON_TERMINAL_RUN_STATUSES = frozenset(RUN_NON_TERMINAL_STATUS_VALUES)
 _LEGACY_TERMINAL_STATUSES = frozenset({"rejected"})
 _PLATFORM_CONTRACTS_DIR_ENV = "OWA_PLATFORM_CONTRACTS_DIR"
 _PLATFORM_CONTRACTS_DIR_ENV_LEGACY = "WAOOOOLAB_PLATFORM_CONTRACTS_DIR"

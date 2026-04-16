@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-from typing import Literal
-
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+
+from ..contracts_py_runtime import ensure_contracts_py_importable
+
+ensure_contracts_py_importable()
+
+from openwaoooo_contracts.entry_mode import EntryMode
 
 
 class RetryPolicyInput(BaseModel):
@@ -31,7 +35,7 @@ class CreateRunRequest(BaseModel):
     scope_type: str | None = Field(default=None, min_length=1)
     payload: dict
     # COMPAT(remove-after:S21): canonical field is entry_mode; ingress_mode is legacy input alias.
-    entry_mode: Literal["assistant", "workflow", "tools", "mixed"] | None = Field(
+    entry_mode: EntryMode | None = Field(
         default=None,
         validation_alias=AliasChoices("entry_mode", "ingress_mode"),
     )

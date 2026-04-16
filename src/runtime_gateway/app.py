@@ -20,6 +20,7 @@ from .api.schemas import TokenExchangeRequest, TokenExchangeResponse
 from .auth.tokens import TokenError, issue_token, verify_token
 from .audit.emitter import emit_audit_event, get_audit_events, read_audit_log
 from .code_terms import normalize_optional_code_term
+from .contracts_py_runtime import ensure_contracts_py_importable
 from .contracts import (
     ContractValidationError,
     validate_executor_profile_catalog_contract,
@@ -62,6 +63,10 @@ from .security import (
 )
 from .token_exchange_api import token_exchange_response
 from .ws_events import handle_websocket_events
+
+ensure_contracts_py_importable()
+
+from openwaoooo_contracts.run_status import RUN_TERMINAL_STATUS_SET
 
 app = FastAPI(title="runtime-gateway", version="0.1.0")
 _execution_client: RuntimeExecutionClient | RuntimeExecutionClientPool = RuntimeExecutionClientPool()
@@ -108,7 +113,7 @@ _direct_idempotency_index: dict[str, dict[str, Any]] = {}
 _direct_idempotency_order: deque[str] = deque()
 _direct_idempotency_lock = threading.Lock()
 _PROBE_APP_ID_DEFAULT = "owa-runtime"
-_TERMINAL_RUN_STATUSES = {"succeeded", "failed", "dlq", "canceled", "timed_out"}
+_TERMINAL_RUN_STATUSES = RUN_TERMINAL_STATUS_SET
 _PROBE_APP_ID_LEGACY_ALIASES = {
     "waoooolab-runtime": _PROBE_APP_ID_DEFAULT,
 }

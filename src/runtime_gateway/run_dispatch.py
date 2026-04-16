@@ -25,12 +25,17 @@ from .executor_profiles import validate_executor_profile
 from .events.validation import validate_event_envelope
 from .integration import RuntimeExecutionClient, RuntimeExecutionClientError
 from .run_status_terms import is_terminal_run_status
+from .contracts_py_runtime import ensure_contracts_py_importable
 from .upstream_error import (
     build_upstream_error_detail,
     extract_upstream_failure_classification,
     resolve_upstream_error_class,
     resolve_upstream_status_code,
 )
+
+ensure_contracts_py_importable()
+
+from openwaoooo_contracts.entry_mode import ENTRY_MODE_SET
 
 _TASK_CONTRACT_VERSION_ENV = "OWA_TASK_CONTRACT_VERSION"
 _AGENT_CONTRACT_VERSION_ENV = "OWA_AGENT_CONTRACT_VERSION"
@@ -45,9 +50,6 @@ _DEFAULT_SCOPE_TYPE = "session"
 _DEFAULT_ACTIVE_TASK_CONTRACT_VERSIONS = ("task-envelope.v1", "task-envelope.v2")
 _DEFAULT_ACTIVE_AGENT_CONTRACT_VERSIONS = ("assistant-decision.v1", "assistant-decision.v2")
 _DEFAULT_ACTIVE_EVENT_SCHEMA_VERSIONS = ("event-envelope.v1", "event-envelope.v2")
-# entry_mode canonical values: platform-contracts/jsonschema/runtime/runtime-run-event.v1.json#/properties/payload/properties/control_ingress/properties/entry_mode
-# Do not redefine locally; this set is kept only as a boundary validation cache until a Python contracts client is available.
-_ENTRY_MODE_VALUES = frozenset({"assistant", "workflow", "tools", "mixed"})
 _RUNTIME_GATEWAY_SERVICE_NAME_ENV = "RUNTIME_GATEWAY_SERVICE_NAME"
 _RUNTIME_GATEWAY_DEPLOYMENT_ENV_ENV = "RUNTIME_GATEWAY_DEPLOYMENT_ENV"
 _OWA_DEPLOY_ENV_ENV = "OWA_DEPLOY_ENV"
@@ -105,7 +107,7 @@ def _normalize_entry_mode(value: Any) -> str | None:
     if normalized is None:
         return None
     lowered = normalized.lower()
-    if lowered not in _ENTRY_MODE_VALUES:
+    if lowered not in ENTRY_MODE_SET:
         return None
     return lowered
 
