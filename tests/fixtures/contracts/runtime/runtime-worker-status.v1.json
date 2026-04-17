@@ -30,7 +30,8 @@
       "enum": [
         "running",
         "stopped"
-      ]
+      ],
+      "$comment": "SSOT source pointer: jsonschema/runtime/runtime-worker-status.v1.json#/properties/lifecycle_state/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
     },
     "is_running": {
       "type": "boolean"
@@ -41,7 +42,8 @@
         "healthy",
         "degraded",
         "stopped"
-      ]
+      ],
+      "$comment": "SSOT source pointer: jsonschema/runtime/runtime-worker-status.v1.json#/properties/lifecycle_health/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
     },
     "queue_depth": {
       "type": "integer",
@@ -57,7 +59,8 @@
         "stop",
         "restart",
         null
-      ]
+      ],
+      "$comment": "SSOT source pointer: jsonschema/runtime/runtime-worker-status.v1.json#/properties/last_transition/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
     },
     "last_transition_at": {
       "type": [
@@ -113,7 +116,8 @@
         "queue",
         "defer",
         "reject"
-      ]
+      ],
+      "$comment": "SSOT source pointer: jsonschema/runtime/runtime-worker-status.v1.json#/properties/pool_last_control_outcome/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
     },
     "pool_last_control_signal": {
       "type": "object",

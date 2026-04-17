@@ -25,7 +25,8 @@
       "enum": [
         "runtime.route.decided",
         "runtime.route.failed"
-      ]
+      ],
+      "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/event_type/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
     },
     "tenant_id": {
       "type": "string",
@@ -94,7 +95,8 @@
             "dlq",
             "canceled",
             "timed_out"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/status/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         },
         "compensation_spec": {
           "type": "object",
@@ -111,7 +113,8 @@
               "enum": [
                 "saga",
                 "best_effort"
-              ]
+              ],
+              "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/compensation_spec/properties/strategy/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
             },
             "steps": {
               "type": "array",
@@ -147,7 +150,8 @@
                     "enum": [
                       "continue",
                       "halt"
-                    ]
+                    ],
+                    "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/compensation_spec/properties/steps/items/properties/on_error/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
                   }
                 },
                 "additionalProperties": false
@@ -169,7 +173,8 @@
               "enum": [
                 "control",
                 "compute"
-              ]
+              ],
+              "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/execution_profile/properties/execution_mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
             },
             "inference_target": {
               "type": "string",
@@ -177,7 +182,8 @@
                 "hosted_api",
                 "local_endpoint",
                 "none"
-              ]
+              ],
+              "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/execution_profile/properties/inference_target/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
             },
             "resource_class": {
               "type": "string",
@@ -185,7 +191,8 @@
                 "cpu",
                 "llm_api",
                 "gpu"
-              ]
+              ],
+              "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/execution_profile/properties/resource_class/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
             },
             "placement_constraints": {
               "type": "object",
@@ -208,7 +215,8 @@
                     "low",
                     "balanced",
                     "high"
-                  ]
+                  ],
+                  "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/execution_profile/properties/placement_constraints/properties/cost_tier/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
                 },
                 "prefer_local": {
                   "type": "boolean"
@@ -265,7 +273,8 @@
                     "enum": [
                       "none",
                       "local_endpoint"
-                    ]
+                    ],
+                    "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/execution_profile/allOf[0]/then/properties/inference_target/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
                   }
                 }
               }
@@ -309,7 +318,8 @@
                     "enum": [
                       "hosted_api",
                       "local_endpoint"
-                    ]
+                    ],
+                    "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/execution_profile/allOf[2]/then/properties/inference_target/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
                   },
                   "execution_mode": {
                     "const": "control"
@@ -354,7 +364,8 @@
                 "agent_work",
                 "workflow_work",
                 "runtime_workload"
-              ]
+              ],
+              "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/execution_context/properties/task_plane/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
             },
             "workflow_kind": {
               "type": "string",
@@ -364,7 +375,8 @@
                 "ops",
                 "compute_pipeline",
                 "integration"
-              ]
+              ],
+              "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/execution_context/properties/workflow_kind/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
             },
             "executor": {
               "type": "object",
@@ -381,7 +393,8 @@
                     "acp",
                     "workflow_runtime",
                     "compute_runtime"
-                  ]
+                  ],
+                  "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/execution_context/properties/executor/properties/family/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
                 },
                 "engine": {
                   "type": "string",
@@ -394,21 +407,24 @@
                     "ccb",
                     "runtime_api",
                     "native"
-                  ]
+                  ],
+                  "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/execution_context/properties/executor/properties/adapter/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
                 },
                 "access_mode": {
                   "type": "string",
                   "enum": [
                     "direct",
                     "api"
-                  ]
+                  ],
+                  "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/execution_context/properties/executor/properties/access_mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
                 },
                 "window_mode": {
                   "type": "string",
                   "enum": [
                     "inline",
                     "terminal_mux"
-                  ]
+                  ],
+                  "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/execution_context/properties/executor/properties/window_mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
                 }
               },
               "additionalProperties": false
@@ -424,7 +440,8 @@
                   "enum": [
                     "control",
                     "compute"
-                  ]
+                  ],
+                  "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/execution_context/properties/runtime/properties/execution_mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
                 },
                 "runtime_id": {
                   "type": "string",
@@ -562,7 +579,8 @@
                 "workflow",
                 "tools",
                 "mixed"
-              ]
+              ],
+              "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/control_ingress/properties/entry_mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
             },
             "trace_id": {
               "type": "string",
@@ -620,7 +638,8 @@
                 "control",
                 "compute",
                 "rejected"
-              ]
+              ],
+              "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/decision/properties/outcome/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
             },
             "route_target": {
               "type": "string",
@@ -628,7 +647,8 @@
                 "agent-orchestrator",
                 "device-hub",
                 "none"
-              ]
+              ],
+              "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/decision/properties/route_target/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
             },
             "policy_version": {
               "type": "string",
@@ -648,7 +668,8 @@
               "enum": [
                 "device.route.rejected",
                 "device.lease.acquired"
-              ]
+              ],
+              "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/decision/properties/placement_event_type/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
             },
             "resource_snapshot": {
               "type": "object",
@@ -718,7 +739,8 @@
                   "type": "string",
                   "enum": [
                     "device_hub"
-                  ]
+                  ],
+                  "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/scheduling_signal/properties/compute_capacity/properties/source/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
                 },
                 "status": {
                   "type": "string",
@@ -727,7 +749,8 @@
                     "utilization_high",
                     "utilization_elevated",
                     "healthy"
-                  ]
+                  ],
+                  "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/scheduling_signal/properties/compute_capacity/properties/status/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
                 },
                 "available_slots": {
                   "type": "integer",
@@ -772,7 +795,8 @@
                 "policy",
                 "capacity",
                 "internal"
-              ]
+              ],
+              "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/failure/properties/classification/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
             },
             "details": {
               "type": "array",
@@ -844,7 +868,8 @@
                     "none",
                     "platform",
                     "nested"
-                  ]
+                  ],
+                  "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/orchestration/properties/nested_leader_contract/properties/delegation_mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
                 },
                 "lifecycle_ack_mode": {
                   "type": "string",
@@ -853,7 +878,8 @@
                     "completion",
                     "progress",
                     "progress_and_completion"
-                  ]
+                  ],
+                  "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/orchestration/properties/nested_leader_contract/properties/lifecycle_ack_mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
                 },
                 "failure_takeover_mode": {
                   "type": "string",
@@ -861,7 +887,8 @@
                     "none",
                     "outer_retry",
                     "outer_failover"
-                  ]
+                  ],
+                  "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/orchestration/properties/nested_leader_contract/properties/failure_takeover_mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
                 },
                 "completion_aggregation_mode": {
                   "type": "string",
@@ -869,7 +896,8 @@
                     "outer_terminal",
                     "inner_summary",
                     "both"
-                  ]
+                  ],
+                  "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/orchestration/properties/nested_leader_contract/properties/completion_aggregation_mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
                 },
                 "ack_timeout_ms": {
                   "type": "integer",
@@ -896,7 +924,8 @@
                     "strict",
                     "guided",
                     "full"
-                  ]
+                  ],
+                  "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/orchestration/properties/nested_autonomy_policy/properties/autonomy_level/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
                 },
                 "suggestion_trigger_mode": {
                   "type": "string",
@@ -905,7 +934,8 @@
                     "on_blocker",
                     "on_uncertainty",
                     "always"
-                  ]
+                  ],
+                  "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/orchestration/properties/nested_autonomy_policy/properties/suggestion_trigger_mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
                 },
                 "handoff_mode": {
                   "type": "string",
@@ -913,7 +943,8 @@
                     "constraints_only",
                     "plan_and_constraints",
                     "micro_steps"
-                  ]
+                  ],
+                  "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/properties/payload/properties/orchestration/properties/nested_autonomy_policy/properties/handoff_mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
                 },
                 "max_inner_steps": {
                   "type": "integer",
@@ -957,13 +988,15 @@
                     "enum": [
                       "control",
                       "compute"
-                    ]
+                    ],
+                    "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/allOf[0]/then/properties/payload/properties/decision/properties/outcome/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
                   },
                   "route_target": {
                     "enum": [
                       "agent-orchestrator",
                       "device-hub"
-                    ]
+                    ],
+                    "$comment": "SSOT source pointer: jsonschema/runtime/runtime-route-event.v1.json#/allOf[0]/then/properties/payload/properties/decision/properties/route_target/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
                   }
                 }
               }

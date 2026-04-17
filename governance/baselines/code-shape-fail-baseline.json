@@ -1,0 +1,93 @@
+{
+  "version": "code-shape-fail-baseline.v1",
+  "scope": "runtime-gateway historical debt exceptions",
+  "ignored_failures": {
+    "file_lines": [
+      "src/runtime_gateway/app.py",
+      "src/runtime_gateway/events/durable.py",
+      "src/runtime_gateway/integration/runtime_execution.py",
+      "src/runtime_gateway/routes_runs.py",
+      "src/runtime_gateway/run_control.py",
+      "src/runtime_gateway/run_dispatch.py",
+      "src/runtime_gateway/run_worker.py"
+    ],
+    "function_lines": [
+      {
+        "path": "src/runtime_gateway/app.py",
+        "name": "_normalize_direct_alias_envelope"
+      },
+      {
+        "path": "src/runtime_gateway/app.py",
+        "name": "_resolve_event_read_filters"
+      },
+      {
+        "path": "src/runtime_gateway/app.py",
+        "name": "_read_event_chunk"
+      },
+      {
+        "path": "src/runtime_gateway/app.py",
+        "name": "list_recent_events"
+      },
+      {
+        "path": "src/runtime_gateway/app.py",
+        "name": "replay_run_lifecycle"
+      },
+      {
+        "path": "src/runtime_gateway/app.py",
+        "name": "stream_events_sse"
+      },
+      {
+        "path": "src/runtime_gateway/app.py",
+        "name": "publish_event"
+      },
+      {
+        "path": "src/runtime_gateway/app.py",
+        "name": "_stream"
+      },
+      {
+        "path": "src/runtime_gateway/capability_dispatch.py",
+        "name": "_submit_capability_action"
+      },
+      {
+        "path": "src/runtime_gateway/events/durable.py",
+        "name": "acknowledge_event_consumer_cursor"
+      },
+      {
+        "path": "src/runtime_gateway/routes_capabilities.py",
+        "name": "register_capability_routes"
+      },
+      {
+        "path": "src/runtime_gateway/routes_runs.py",
+        "name": "_register_worker_routes"
+      },
+      {
+        "path": "src/runtime_gateway/routes_runs.py",
+        "name": "_register_scheduler_routes"
+      },
+      {
+        "path": "src/runtime_gateway/run_approval.py",
+        "name": "_submit_approval_action"
+      },
+      {
+        "path": "src/runtime_gateway/run_control.py",
+        "name": "_submit_control_action"
+      },
+      {
+        "path": "src/runtime_gateway/run_dispatch.py",
+        "name": "_submit_command"
+      },
+      {
+        "path": "src/runtime_gateway/run_lease.py",
+        "name": "dispatch_get_run_lease"
+      },
+      {
+        "path": "src/runtime_gateway/run_status.py",
+        "name": "dispatch_get_run_status"
+      },
+      {
+        "path": "src/runtime_gateway/ws_events.py",
+        "name": "handle_websocket_events"
+      }
+    ]
+  }
+}

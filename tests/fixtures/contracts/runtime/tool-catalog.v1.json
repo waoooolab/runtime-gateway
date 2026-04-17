@@ -60,7 +60,8 @@
               "type": "string",
               "enum": [
                 "capability_registry"
-              ]
+              ],
+              "$comment": "SSOT source pointer: jsonschema/runtime/tool-catalog.v1.json#/$defs/tool_catalog_item/properties/source/properties/registry/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
             },
             "kind": {
               "type": "string",
@@ -69,7 +70,8 @@
                 "tool",
                 "workflow",
                 "app"
-              ]
+              ],
+              "$comment": "SSOT source pointer: jsonschema/runtime/tool-catalog.v1.json#/$defs/tool_catalog_item/properties/source/properties/kind/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
             },
             "capability_id": {
               "type": "string",
@@ -92,7 +94,8 @@
               "enum": [
                 "node",
                 "simple"
-              ]
+              ],
+              "$comment": "SSOT source pointer: jsonschema/runtime/tool-catalog.v1.json#/$defs/tool_catalog_item/properties/source/properties/mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
             }
           }
         },
@@ -118,7 +121,8 @@
                 "manual",
                 "compiled",
                 "published"
-              ]
+              ],
+              "$comment": "SSOT source pointer: jsonschema/runtime/tool-catalog.v1.json#/$defs/tool_catalog_item/properties/provenance/properties/registration_mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
             }
           }
         },
@@ -135,7 +139,8 @@
                 "private",
                 "internal",
                 "public"
-              ]
+              ],
+              "$comment": "SSOT source pointer: jsonschema/runtime/tool-catalog.v1.json#/$defs/tool_catalog_item/properties/profile/properties/visibility/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
             },
             "policy_profile": {
               "type": "string",
@@ -155,7 +160,8 @@
               "enum": [
                 "required",
                 "optional"
-              ]
+              ],
+              "$comment": "SSOT source pointer: jsonschema/runtime/tool-catalog.v1.json#/$defs/tool_catalog_item/properties/optionality/properties/mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
             },
             "requires_capabilities": {
               "type": "array",

@@ -48,7 +48,8 @@
                 "released",
                 "expired",
                 "unknown"
-              ]
+              ],
+              "$comment": "SSOT source pointer: jsonschema/runtime/runtime-run-lease.v1.json#/properties/lease/oneOf[1]/properties/state/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
             },
             "transition_error": {
               "type": "string",
@@ -71,7 +72,8 @@
             "ok",
             "error",
             "not_bound"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/runtime/runtime-run-lease.v1.json#/properties/device_hub/properties/status/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         },
         "snapshot": {
           "type": "object"

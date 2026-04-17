@@ -14,7 +14,8 @@
         "agent_work",
         "workflow_work",
         "runtime_workload"
-      ]
+      ],
+      "$comment": "SSOT source pointer: jsonschema/runtime/execution-context.v1.json#/properties/task_plane/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
     },
     "workflow_kind": {
       "type": "string",
@@ -24,7 +25,8 @@
         "ops",
         "compute_pipeline",
         "integration"
-      ]
+      ],
+      "$comment": "SSOT source pointer: jsonschema/runtime/execution-context.v1.json#/properties/workflow_kind/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
     },
     "executor": {
       "type": "object",
@@ -41,7 +43,8 @@
             "acp",
             "workflow_runtime",
             "compute_runtime"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/runtime/execution-context.v1.json#/properties/executor/properties/family/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         },
         "engine": {
           "type": "string",
@@ -54,21 +57,24 @@
             "ccb",
             "runtime_api",
             "native"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/runtime/execution-context.v1.json#/properties/executor/properties/adapter/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         },
         "access_mode": {
           "type": "string",
           "enum": [
             "direct",
             "api"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/runtime/execution-context.v1.json#/properties/executor/properties/access_mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         },
         "window_mode": {
           "type": "string",
           "enum": [
             "inline",
             "terminal_mux"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/runtime/execution-context.v1.json#/properties/executor/properties/window_mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         }
       },
       "additionalProperties": false
@@ -84,7 +90,8 @@
           "enum": [
             "control",
             "compute"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/runtime/execution-context.v1.json#/properties/runtime/properties/execution_mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         },
         "runtime_id": {
           "type": "string",

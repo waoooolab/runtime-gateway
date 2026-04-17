@@ -49,7 +49,8 @@
             "candidate",
             "published",
             "deprecated"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/runtime/workflow-template-capability-binding-contract.v1.json#/properties/template_package/properties/lifecycle_stage/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         }
       },
       "additionalProperties": false
@@ -90,7 +91,8 @@
               "required",
               "preferred",
               "fallback"
-            ]
+            ],
+            "$comment": "SSOT source pointer: jsonschema/runtime/workflow-template-capability-binding-contract.v1.json#/properties/capability_bindings/items/properties/binding_mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
           },
           "executor_profile": {
             "type": "object",
@@ -132,14 +134,16 @@
           "enum": [
             "deny",
             "fallback"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/runtime/workflow-template-capability-binding-contract.v1.json#/properties/resolution_policy/properties/on_missing_capability/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         },
         "on_version_mismatch": {
           "type": "string",
           "enum": [
             "deny",
             "prefer_compatible"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/runtime/workflow-template-capability-binding-contract.v1.json#/properties/resolution_policy/properties/on_version_mismatch/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         },
         "on_compile_failure": {
           "type": "string",
@@ -147,7 +151,8 @@
             "halt",
             "retry",
             "manual_review"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/runtime/workflow-template-capability-binding-contract.v1.json#/properties/resolution_policy/properties/on_compile_failure/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         }
       },
       "additionalProperties": false
@@ -163,7 +168,8 @@
           "version_pinning_enforced",
           "executor_profile_compatible",
           "reuse_before_generate"
-        ]
+        ],
+        "$comment": "SSOT source pointer: jsonschema/runtime/workflow-template-capability-binding-contract.v1.json#/properties/acceptance_criteria/items/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
       },
       "uniqueItems": true
     }
