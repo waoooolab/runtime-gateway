@@ -50,7 +50,8 @@
       "enum": [
         "memory",
         "durable"
-      ]
+      ],
+      "$comment": "SSOT source pointer: jsonschema/runtime/runtime-run-lifecycle-replay.v1.json#/properties/source/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
     },
     "lifecycle_projection": {
       "$ref": "#/$defs/lifecycle_projection"
@@ -283,7 +284,8 @@
             "recent_window",
             "consumer_ack_cursor",
             "consumer_ack_default"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/runtime/runtime-run-lifecycle-replay.v1.json#/$defs/consumer_cursor/properties/resume_strategy/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         }
       },
       "additionalProperties": false

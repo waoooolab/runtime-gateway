@@ -26,7 +26,8 @@
               "acp",
               "workflow_runtime",
               "compute_runtime"
-            ]
+            ],
+            "$comment": "SSOT source pointer: jsonschema/runtime/executor-profile-catalog.v1.json#/properties/items/items/properties/family/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
           },
           "engines": {
             "type": "array",
@@ -48,7 +49,8 @@
                 "ccb",
                 "runtime_api",
                 "native"
-              ]
+              ],
+              "$comment": "SSOT source pointer: jsonschema/runtime/executor-profile-catalog.v1.json#/properties/items/items/properties/adapters/items/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
             }
           },
           "access_modes": {
@@ -60,7 +62,8 @@
               "enum": [
                 "direct",
                 "api"
-              ]
+              ],
+              "$comment": "SSOT source pointer: jsonschema/runtime/executor-profile-catalog.v1.json#/properties/items/items/properties/access_modes/items/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
             }
           },
           "window_modes": {
@@ -72,7 +75,8 @@
               "enum": [
                 "inline",
                 "terminal_mux"
-              ]
+              ],
+              "$comment": "SSOT source pointer: jsonschema/runtime/executor-profile-catalog.v1.json#/properties/items/items/properties/window_modes/items/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
             }
           }
         },

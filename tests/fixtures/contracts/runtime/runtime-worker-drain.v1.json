@@ -152,7 +152,8 @@
         "queue",
         "defer",
         "reject"
-      ]
+      ],
+      "$comment": "SSOT source pointer: jsonschema/runtime/runtime-worker-drain.v1.json#/properties/control_outcome/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
     },
     "control_signal": {
       "type": "object",
@@ -276,7 +277,8 @@
             "queue",
             "defer",
             "reject"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/runtime/runtime-worker-drain.v1.json#/properties/scheduling_signal/properties/control_outcome/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         },
         "control_signal": {
           "type": "object",
@@ -330,7 +332,8 @@
               "progressed",
               "missing_run",
               "skipped"
-            ]
+            ],
+            "$comment": "SSOT source pointer: jsonschema/runtime/runtime-worker-drain.v1.json#/properties/outcomes/items/properties/outcome/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
           },
           "fair": {
             "type": "boolean"

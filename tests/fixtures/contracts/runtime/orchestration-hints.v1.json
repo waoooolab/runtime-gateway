@@ -24,7 +24,8 @@
         "high",
         "normal",
         "low"
-      ]
+      ],
+      "$comment": "SSOT source pointer: jsonschema/runtime/orchestration-hints.v1.json#/properties/priority_class/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
     },
     "priority_score": {
       "type": "integer",
@@ -38,7 +39,8 @@
         "pro",
         "standard",
         "free"
-      ]
+      ],
+      "$comment": "SSOT source pointer: jsonschema/runtime/orchestration-hints.v1.json#/properties/tenant_tier/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
     },
     "deadline_at": {
       "type": "string",
@@ -59,7 +61,8 @@
             "none",
             "platform",
             "nested"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/runtime/orchestration-hints.v1.json#/properties/nested_leader_contract/properties/delegation_mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         },
         "lifecycle_ack_mode": {
           "type": "string",
@@ -68,7 +71,8 @@
             "completion",
             "progress",
             "progress_and_completion"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/runtime/orchestration-hints.v1.json#/properties/nested_leader_contract/properties/lifecycle_ack_mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         },
         "failure_takeover_mode": {
           "type": "string",
@@ -76,7 +80,8 @@
             "none",
             "outer_retry",
             "outer_failover"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/runtime/orchestration-hints.v1.json#/properties/nested_leader_contract/properties/failure_takeover_mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         },
         "completion_aggregation_mode": {
           "type": "string",
@@ -84,7 +89,8 @@
             "outer_terminal",
             "inner_summary",
             "both"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/runtime/orchestration-hints.v1.json#/properties/nested_leader_contract/properties/completion_aggregation_mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         },
         "ack_timeout_ms": {
           "type": "integer",
@@ -111,7 +117,8 @@
             "strict",
             "guided",
             "full"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/runtime/orchestration-hints.v1.json#/properties/nested_autonomy_policy/properties/autonomy_level/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         },
         "suggestion_trigger_mode": {
           "type": "string",
@@ -120,7 +127,8 @@
             "on_blocker",
             "on_uncertainty",
             "always"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/runtime/orchestration-hints.v1.json#/properties/nested_autonomy_policy/properties/suggestion_trigger_mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         },
         "handoff_mode": {
           "type": "string",
@@ -128,7 +136,8 @@
             "constraints_only",
             "plan_and_constraints",
             "micro_steps"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/runtime/orchestration-hints.v1.json#/properties/nested_autonomy_policy/properties/handoff_mode/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         },
         "max_inner_steps": {
           "type": "integer",

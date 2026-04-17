@@ -40,7 +40,8 @@
             "urn:ietf:params:oauth:token-type:access_token",
             "urn:waoooolab:token-type:service_token",
             "urn:waoooolab:token-type:device_token"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/auth/token-exchange.v1.json#/$defs/request/properties/subject_token_type/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         },
         "requested_token_use": {
           "type": "string",
@@ -48,7 +49,8 @@
             "service",
             "device",
             "exchange"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/auth/token-exchange.v1.json#/$defs/request/properties/requested_token_use/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         },
         "audience": {
           "type": "string",
@@ -116,7 +118,8 @@
           "enum": [
             "urn:waoooolab:token-type:service_token",
             "urn:waoooolab:token-type:device_token"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/auth/token-exchange.v1.json#/$defs/response/properties/issued_token_type/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         },
         "token_type": {
           "const": "Bearer"
@@ -147,7 +150,8 @@
             "service",
             "device",
             "exchange"
-          ]
+          ],
+          "$comment": "SSOT source pointer: jsonschema/auth/token-exchange.v1.json#/$defs/response/properties/token_use/enum. Mirror owners must align with openwaoooo/packages/contracts and openwaoooo/packages/contracts-py when applicable."
         },
         "jti": {
           "type": "string",
