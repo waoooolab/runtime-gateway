@@ -59,10 +59,14 @@ def _header_fields(path: Path, max_lines: int = 80) -> dict[str, str]:
         stripped = line.strip()
         if stripped.startswith("## "):
             break
-        match = re.match(r"^([A-Za-z][A-Za-z0-9 _/\-]*):\s*(.+?)\s*$", line)
+        match = re.match(r"^(#?\s*[A-Za-z][A-Za-z0-9 _/\-]*):\s*(.+?)\s*$", line)
         if not match:
             continue
-        key = match.group(1).strip().lower().replace("_", " ")
+        raw_key = match.group(1).strip()
+        # Strip leading '#' or '# ' prefix (YAML comment style)
+        if raw_key.startswith("#"):
+            raw_key = raw_key.lstrip("#").strip()
+        key = raw_key.lower().replace("_", " ")
         key = re.sub(r"\s+", " ", key)
         fields[key] = match.group(2).strip()
     return fields
@@ -856,6 +860,68 @@ def _check_authority_slot_binding() -> list[str]:
     return findings
 
 
+def _check_registry_sync() -> list[str]:
+    findings: list[str] = []
+    if not DOC_INDEX.exists():
+        findings.append("governance/registry/governance-doc-index.yaml is missing")
+        return findings
+    try:
+        payload = _load_yaml(DOC_INDEX)
+    except Exception as e:
+        findings.append(f"governance/registry/governance-doc-index.yaml failed to load: {e}")
+        return findings
+    if payload.get("schema_version") != "governance_doc_index.v1":
+        findings.append("schema_version must be governance_doc_index.v1")
+    docs = payload.get("documents")
+    if not isinstance(docs, list):
+        findings.append("governance/registry/governance-doc-index.yaml must have a 'documents' list")
+    elif len(docs) == 0:
+        findings.append("governance/registry/governance-doc-index.yaml documents list is empty")
+    for item in docs:
+        if not isinstance(item, dict):
+            findings.append("governance/registry/governance-doc-index.yaml documents must be objects")
+            break
+        aid = str(item.get("artifact_id", item.get("path", "<unknown>")))
+        if not item.get("path"):
+            findings.append(f"{aid}: missing 'path' field")
+        if not item.get("type"):
+            findings.append(f"{aid}: missing 'type' field")
+        if not item.get("state"):
+            findings.append(f"{aid}: missing 'state' field")
+    return findings
+
+
+def _check_report_file_naming() -> list[str]:
+    findings: list[str] = []
+
+    log_dir = ROOT / "docs/execution/logs"
+    if log_dir.exists():
+        for path in log_dir.rglob("WORKING-EXECUTION-LOG-*.md"):
+            rel = path.relative_to(ROOT).as_posix()
+            if not LOG_SHARD_RE.match(rel):
+                findings.append(f"{rel} does not match required naming pattern WORKING-EXECUTION-LOG-YYYY-MM-DD-<PART>.md")
+
+    issues_dir = ROOT / "docs/execution/reports/issues"
+    if issues_dir.exists():
+        for path in issues_dir.rglob("ISSUES-REPORT-*.md"):
+            rel = path.relative_to(ROOT).as_posix()
+            if not ISSUES_REPORT_SHARD_RE.match(rel):
+                findings.append(f"{rel} does not match required naming pattern ISSUES-REPORT-YYYY-MM-DD-<PART>.md")
+
+    for canonical, pattern in BOARD_SHARD_RES.items():
+        index_path = ROOT / canonical
+        if not index_path.exists():
+            continue
+        header = _header_fields(index_path)
+        active_shard = header.get("active board shard", "").strip()
+        if active_shard and not pattern.match(active_shard):
+            findings.append(
+                f"{canonical} Active Board Shard '{active_shard}' does not match required pattern"
+            )
+
+    return findings
+
+
 CHECKS: dict[str, Callable[[], list[str]]] = {
     "guard.docs.one-active-authority-per-domain": _check_one_active_authority_per_domain,
     "guard.docs.lifecycle-transition": _check_lifecycle_transition,
@@ -874,6 +940,8 @@ CHECKS: dict[str, Callable[[], list[str]]] = {
     "guard.contract.hybrid-mirror-sync-freshness": _check_hybrid_mirror_sync_freshness,
     "guard.docs.generated-artifact-drift": _check_generated_artifact_drift,
     "guard.contract.authority-slot-binding": _check_authority_slot_binding,
+    "guard.registry.sync": _check_registry_sync,
+    "guard.docs.report-file-naming": _check_report_file_naming,
 }
 
 
