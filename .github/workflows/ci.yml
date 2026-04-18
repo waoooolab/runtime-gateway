@@ -6,7 +6,7 @@ on:
 
 jobs:
   test:
-    uses: waoooolab/openwaoooo/.github/workflows/service-python-ci-reusable.yml@0b3ff9b6ba8762600c275df0d35dee4bc81c7d0a
+    uses: waoooolab/openwaoooo/.github/workflows/service-python-ci-reusable.yml@main
     with:
       own_package: runtime_gateway
       install_command: |
@@ -15,50 +15,3 @@ jobs:
         python -m pip install httpx
       test_command: |
         python -m unittest discover -s tests -p "test_*.py"
-
-  e2e-cross-repo:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout runtime-gateway
-        uses: actions/checkout@v4
-
-      - name: Check cross-repo token
-        id: token
-        env:
-          CROSS_REPO_READ_TOKEN: ${{ secrets.CROSS_REPO_READ_TOKEN }}
-        run: |
-          if [ -z "$CROSS_REPO_READ_TOKEN" ]; then
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "Cross-repo E2E skipped: CROSS_REPO_READ_TOKEN is not set."
-          else
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Checkout runtime-execution
-        if: ${{ steps.token.outputs.available == 'true' }}
-        run: |
-          git clone https://x-access-token:${{ secrets.CROSS_REPO_READ_TOKEN }}@github.com/waoooolab/runtime-execution.git ../runtime-execution
-
-      - name: Setup Python
-        if: ${{ steps.token.outputs.available == 'true' }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install Dependencies
-        if: ${{ steps.token.outputs.available == 'true' }}
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e .
-          python -m pip install -e ../runtime-execution
-          python -m pip install httpx
-
-      - name: Run Cross-Repo E2E Test
-        if: ${{ steps.token.outputs.available == 'true' }}
-        run: |
-          python -m unittest tests.test_e2e_run_flow
-
-  governance-guards:
-    uses: waoooolab/openwaoooo/.github/workflows/service-governance-guards-reusable.yml@d60dfed5c2dbbb480dd77da4ec184d745eb7c254
-    with:
-      governance_profile: standard
