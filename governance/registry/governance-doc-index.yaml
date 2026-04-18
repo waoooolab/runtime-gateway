@@ -1,0 +1,28 @@
+schema_version: governance_doc_index.v1
+documents:
+  - artifact_id: runtime-gateway-readme
+    path: README.md
+    type: documentation
+    state: active
+    domain: runtime_gateway
+    maintenance_mode: manual
+  - artifact_id: runtime-gateway-agents
+    path: AGENTS.md
+    type: documentation
+    state: active
+    domain: runtime_gateway
+    maintenance_mode: manual
+  - artifact_id: governance-baselines-approval
+    path: governance/baselines/approval-policy.yaml
+    type: authority
+    state: active
+    domain: runtime_gateway
+    standard_id: approval_policy.v1
+    maintenance_mode: manual
+  - artifact_id: governance-baselines-code-shape-fail
+    path: governance/baselines/code-shape-fail-baseline.json
+    type: authority
+    state: active
+    domain: runtime_gateway
+    standard_id: code_shape_fail_baseline.v1
+    maintenance_mode: manual

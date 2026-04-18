@@ -1,4 +1,6 @@
 # runtime-gateway
+Status: active
+Owner: runtime-gateway-maintainers
 [![CI](https://github.com/waoooolab/runtime-gateway/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/waoooolab/runtime-gateway/actions/workflows/ci.yml)
 
 Runtime gateway service.

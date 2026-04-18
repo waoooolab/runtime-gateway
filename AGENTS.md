@@ -1,4 +1,6 @@
 # runtime-gateway AGENTS.md
+Status: active
+Owner: runtime-gateway-maintainers
 
 ## Service Description
 Runtime gateway HTTP boundary that validates contracts, exchanges delegated tokens, and dispatches run/control requests to runtime-execution.

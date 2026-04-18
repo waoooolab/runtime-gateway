@@ -1,3 +1,5 @@
+# status: active
+# owner: runtime-gateway-maintainers
 {
   "version": "code-shape-fail-baseline.v1",
   "scope": "runtime-gateway historical debt exceptions",
