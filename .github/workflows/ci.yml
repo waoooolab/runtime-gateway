@@ -6,7 +6,7 @@ on:
 
 jobs:
   test:
-    uses: waoooolab/openwaoooo/.github/workflows/service-python-ci-reusable.yml@0b3ff9b6ba8762600c275df0d35dee4bc81c7d0a
+    uses: waoooolab/openwaoooo/.github/workflows/service-python-ci-reusable.yml@41f7ef50d7642f57ec658044e6c19246547e892c
     with:
       own_package: runtime_gateway
       install_command: |
@@ -59,6 +59,6 @@ jobs:
           python -m unittest tests.test_e2e_run_flow
 
   governance-guards:
-    uses: waoooolab/openwaoooo/.github/workflows/service-governance-guards-reusable.yml@d60dfed5c2dbbb480dd77da4ec184d745eb7c254
+    uses: waoooolab/openwaoooo/.github/workflows/service-governance-guards-reusable.yml@41f7ef50d7642f57ec658044e6c19246547e892c
     with:
       governance_profile: standard
