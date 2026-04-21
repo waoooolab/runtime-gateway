@@ -93,7 +93,12 @@ def _load_fail_baseline(path: pathlib.Path) -> tuple[set[pathlib.Path], set[tupl
     if not path.exists():
         return set(), set()
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        raw_text = path.read_text(encoding="utf-8")
+        # Allow metadata comments at top of baseline file (e.g. "# status: active").
+        normalized_text = "\n".join(
+            line for line in raw_text.splitlines() if not line.lstrip().startswith("#")
+        )
+        payload = json.loads(normalized_text)
     except (json.JSONDecodeError, OSError):
         return set(), set()
     ignored = payload.get("ignored_failures") if isinstance(payload, dict) else None
