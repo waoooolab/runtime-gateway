@@ -11,6 +11,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Checkout openwaoooo contracts source
+        id: contracts-src
+        env:
+          CROSS_REPO_READ_TOKEN: ${{ secrets.CROSS_REPO_READ_TOKEN }}
+        run: |
+          if [ -n "${CROSS_REPO_READ_TOKEN}" ]; then
+            git clone --depth 1 https://x-access-token:${CROSS_REPO_READ_TOKEN}@github.com/waoooolab/openwaoooo.git ../openwaoooo
+          else
+            git clone --depth 1 https://github.com/waoooolab/openwaoooo.git ../openwaoooo || true
+          fi
+          if [ -d ../openwaoooo/packages/contracts-py/src ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -20,7 +36,110 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e .
+          python -m pip install pytest
           python -m pip install httpx
+
+      - name: Configure contracts-py import path
+        run: |
+          if [ -d ../openwaoooo/packages/contracts-py/src ]; then
+            echo "PYTHONPATH=$PWD/../openwaoooo/packages/contracts-py/src${PYTHONPATH:+:$PYTHONPATH}" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          mkdir -p .ci/contracts-py/openwaoooo_contracts
+
+          cat > .ci/contracts-py/openwaoooo_contracts/__init__.py <<'PY'
+          from .entry_mode import EntryMode, ENTRY_MODE_SET, ENTRY_MODE_VALUES
+          from .run_status import (
+              RUN_NON_TERMINAL_STATUS_SET,
+              RUN_NON_TERMINAL_STATUS_VALUES,
+              RUN_STATUS_SET,
+              RUN_STATUS_VALUES,
+              RUN_TERMINAL_STATUS_SET,
+              RUN_TERMINAL_STATUS_VALUES,
+              RunStatus,
+          )
+          from .error_budget import (
+              ERROR_BUDGET_ACTION_BY_LEVEL,
+              SATURATION_TO_ERROR_BUDGET_LEVEL,
+              ErrorBudgetAction,
+              ErrorBudgetLevel,
+          )
+          PY
+
+          cat > .ci/contracts-py/openwaoooo_contracts/entry_mode.py <<'PY'
+          from typing import Literal
+
+          EntryMode = Literal["assistant", "workflow", "tools", "mixed"]
+          ENTRY_MODE_VALUES = ("assistant", "workflow", "tools", "mixed")
+          ENTRY_MODE_SET = frozenset(ENTRY_MODE_VALUES)
+          PY
+
+          cat > .ci/contracts-py/openwaoooo_contracts/run_status.py <<'PY'
+          from typing import Literal
+
+          RunStatus = Literal[
+              "requested",
+              "queued",
+              "dispatching",
+              "running",
+              "waiting_approval",
+              "retrying",
+              "succeeded",
+              "failed",
+              "dlq",
+              "canceled",
+              "timed_out",
+          ]
+          RUN_STATUS_VALUES = (
+              "requested",
+              "queued",
+              "dispatching",
+              "running",
+              "waiting_approval",
+              "retrying",
+              "succeeded",
+              "failed",
+              "dlq",
+              "canceled",
+              "timed_out",
+          )
+          RUN_NON_TERMINAL_STATUS_VALUES = (
+              "requested",
+              "queued",
+              "dispatching",
+              "running",
+              "waiting_approval",
+              "retrying",
+          )
+          RUN_TERMINAL_STATUS_VALUES = ("succeeded", "failed", "dlq", "canceled", "timed_out")
+          RUN_STATUS_SET = frozenset(RUN_STATUS_VALUES)
+          RUN_NON_TERMINAL_STATUS_SET = frozenset(RUN_NON_TERMINAL_STATUS_VALUES)
+          RUN_TERMINAL_STATUS_SET = frozenset(RUN_TERMINAL_STATUS_VALUES)
+          PY
+
+          cat > .ci/contracts-py/openwaoooo_contracts/error_budget.py <<'PY'
+          from typing import Literal
+
+          ErrorBudgetLevel = Literal["green", "yellow", "red"]
+          ErrorBudgetAction = Literal[
+              "allow_new_dispatch",
+              "defer_new_dispatch",
+              "pause_new_dispatch",
+          ]
+          ERROR_BUDGET_ACTION_BY_LEVEL = {
+              "green": "allow_new_dispatch",
+              "yellow": "defer_new_dispatch",
+              "red": "pause_new_dispatch",
+          }
+          SATURATION_TO_ERROR_BUDGET_LEVEL = {
+              "normal": "green",
+              "warning": "yellow",
+              "hard_stop": "red",
+          }
+          PY
+
+          echo "PYTHONPATH=$PWD/.ci/contracts-py${PYTHONPATH:+:$PYTHONPATH}" >> "$GITHUB_ENV"
 
       - name: Boundary Import Guard
         run: |
