@@ -11,6 +11,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Checkout openwaoooo contracts source
+        id: contracts-src
+        env:
+          CROSS_REPO_READ_TOKEN: ${{ secrets.CROSS_REPO_READ_TOKEN }}
+        run: |
+          if [ -n "${CROSS_REPO_READ_TOKEN}" ]; then
+            git clone --depth 1 https://x-access-token:${CROSS_REPO_READ_TOKEN}@github.com/waoooolab/openwaoooo.git ../openwaoooo
+          else
+            git clone --depth 1 https://github.com/waoooolab/openwaoooo.git ../openwaoooo || true
+          fi
+          if [ -d ../openwaoooo/packages/contracts-py/src ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -22,6 +38,9 @@ jobs:
           python -m pip install -e .
           python -m pip install pytest
           python -m pip install httpx
+          if [ -d ../openwaoooo/packages/contracts-py/src ]; then
+            echo "PYTHONPATH=$PWD/../openwaoooo/packages/contracts-py/src${PYTHONPATH:+:$PYTHONPATH}" >> "$GITHUB_ENV"
+          fi
 
       - name: Boundary Import Guard
         run: |
